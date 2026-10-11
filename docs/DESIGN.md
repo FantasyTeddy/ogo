@@ -283,6 +283,22 @@ SDK responsibilities:
 - a battery level query
 - an in-game pause overlay on MENU (resume / exit)
 
+As built in M4 (`ogo-sdk`, example: `games/snake`):
+- `update` runs at `Game::FPS` (default 30); if the loop falls far behind it skips ahead instead of
+  catching up. FreeRTOS runs at 1 kHz ticks (`CONFIG_FREERTOS_HZ`) for steady frame timing.
+- Two full-screen `Canvas` buffers (150 KB each, in PSRAM). A `display` thread sends one to the LCD
+  while the game draws the other. A full frame takes about 31 ms on the 40 MHz bus, so ~30 fps is
+  the ceiling for full redraws.
+- Input is sampled once per frame, which also debounces. `Ctx::input()` has pressed/held/released.
+- Sound: `Ctx::sound().play(&[Note])`, sines with fades (see the audio notes in §2). No PCM yet.
+- Saves are text files `/ogo/saves/<id>/<name>`, written via a temp file. `read::<T: FromStr>` and
+  `write::<T: Display>`, plus raw bytes.
+- `Ctx::random()` uses the hardware RNG. VOL cycles the volume with an on-screen indicator (not yet
+  persisted; settings come in M8).
+- Game crates need a `build.rs` with `embuild::espidf::sysenv::output()` and a direct
+  `esp-idf-svc` dependency: the build script only sees ESP-IDF's linker arguments from a direct
+  dependency.
+
 ---
 
 ## 8. Toolchain & project setup
@@ -327,7 +343,7 @@ moves quickly.
 | M1 | `ogo-board` crate | Display, all buttons, speaker beep, SD card (shared bus with LCD), battery reading all work. **Done 2026-10-11** (LED not visually confirmed) |
 | M2 | Launcher UI (offline) | Scrollable game list read from `/ogo/games/*/game.toml`, with icons and battery. **Done 2026-10-11** |
 | M3 | Install & launch | Picking a game flashes `game_0` (with progress + hash skip) and boots it. **Done 2026-10-11** |
-| M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist |
+| M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist. **Done 2026-10-11** |
 | M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher |
 | M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection |
 | M7 | Launcher self-OTA | Upload `launcher.bin` via the web page. A/B switch with rollback, tested with a deliberately broken build |
@@ -344,9 +360,8 @@ M0 to M4 give you a usable device without any networking. M6 and M7 deliver the 
   the partition table *before* M5 freezes it. Changing the table later means a USB re-flash.
 - **Shared SPI bus.** Resolved in M1: ESP-IDF's SPI master driver arbitrates between the LCD and
   SD devices. Recheck once the SDK pushes full frames by DMA while a game reads saves.
-- **Speaker idle noise (M4).** With the amplifier always on, faint static is audible close to the
-  speaker. In M4, switch the amplifier off after ~1 s of silence and wait for it to wake up before
-  the next sound. Also compare against Go-Play's idle noise.
+- **Speaker idle noise.** Resolved in M4: the audio thread switches the amplifier off after 3 s of
+  silence, and a sound that finds it off starts after 150 ms of idle level while it wakes up.
 - **Partition-write API.** Writing a *specific* OTA slot needs `esp-idf-sys` FFI (unsafe). Wrap it in
   a small safe module.
 - **Emulators (M9).** Either port individual C emulators (e.g. gnuboy, nofrendo) behind the SDK, or

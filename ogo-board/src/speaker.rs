@@ -1,28 +1,28 @@
 //! Speaker: short sounds played as samples through the DAC's DMA mode.
 //!
 //! GPIO25 enables the amplifier (high = on) and GPIO26 (DAC channel 1) carries the signal.
-//! The amplifier stays on unless the volume is 0: it needs tens of milliseconds to wake up,
-//! so switching it on per sound swallows short beeps.
 //!
 //! The DAC never leaves DMA mode: an audio thread keeps feeding it, with the idle level when
 //! nothing plays. Switching DAC modes per sound, or leaving the input undriven, makes the
 //! amplifier click or crackle. Every note also fades in and out.
 //!
-//! The amplifier is switched off around anything that disturbs the DAC: before a restart
+//! The amplifier hisses faintly while on, so the audio thread switches it off after
+//! [`AMP_IDLE_OFF_MS`] of silence. It needs time to wake up (short beeps right after switching
+//! it on are lost), so a sound that finds it off is delayed by [`AMP_WAKE_MS`].
+//! It is also switched off around anything that disturbs the DAC: before a restart
 //! ([`crate::boot::restart`]) and while writing flash ([`Speaker::set_muted`]).
-//! Continuous game audio comes with the SDK (M4).
 
 use core::f32::consts::{PI, TAU};
 use std::{
-    sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
+    sync::{
+        mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
+        Arc, Mutex,
+    },
     thread,
 };
 
 use esp_idf_svc::{
-    hal::{
-        delay::FreeRtos,
-        gpio::{Output, OutputPin, PinDriver},
-    },
+    hal::gpio::{Output, OutputPin, PinDriver},
     sys::{self, esp, EspError},
 };
 
@@ -33,14 +33,16 @@ const IDLE_LEVEL: u8 = 128;
 const SAMPLE_RATE: u32 = 32_000;
 const DMA_DESCRIPTORS: u32 = 6;
 const DMA_BUFFER_BYTES: usize = 128;
-/// Samples the audio thread hands to the DMA per write.
+/// Samples the audio thread hands to the DMA per write (8 ms).
 const CHUNK_SAMPLES: usize = 256;
 /// Sounds waiting to play; more are dropped.
 const QUEUE_LEN: usize = 4;
 /// Fade-in and fade-out of every note.
 const FADE_MS: u32 = 5;
-/// Time for the DAC to settle on the idle level before the amplifier is switched on.
-const SETTLE_MS: u32 = 20;
+/// Silence after which the amplifier is switched off.
+pub const AMP_IDLE_OFF_MS: u32 = 3000;
+/// Idle level played after switching the amplifier on, before the sound starts.
+pub const AMP_WAKE_MS: u32 = 150;
 
 /// One tone in a sound. A frequency of 0 is a pause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,8 +57,30 @@ impl Note {
     }
 }
 
+/// The amplifier enable pin and what may switch it on. Shared by [`Speaker`] and the audio thread.
+struct Amp {
+    pin: PinDriver<'static, Output>,
+    on: bool,
+    /// Volume 0 or muted: must stay off.
+    blocked: bool,
+}
+
+impl Amp {
+    fn set(&mut self, on: bool) {
+        let on = on && !self.blocked;
+        if on != self.on {
+            let result = if on { self.pin.set_high() } else { self.pin.set_low() };
+            if let Err(e) = result {
+                log::error!("Switching the amplifier failed: {e:?}");
+                return;
+            }
+            self.on = on;
+        }
+    }
+}
+
 pub struct Speaker {
-    enable: PinDriver<'static, Output>,
+    amp: Arc<Mutex<Amp>>,
     sounds: SyncSender<Vec<u8>>,
     /// 0-100
     volume: u8,
@@ -69,45 +93,44 @@ impl Speaker {
         enable: impl OutputPin + 'static,
         _signal: impl OutputPin + 'static,
     ) -> anyhow::Result<Self> {
+        let mut pin = PinDriver::output(enable)?;
+        pin.set_low()?;
+        let amp = Arc::new(Mutex::new(Amp { pin, on: false, blocked: false }));
+
         let dac = Dac::open()?;
         let (sounds, queue) = mpsc::sync_channel(QUEUE_LEN);
+        let thread_amp = amp.clone();
         thread::Builder::new()
             .name("audio".into())
             .stack_size(4096)
-            .spawn(move || feed(dac, queue))?;
+            .spawn(move || feed(dac, queue, thread_amp))?;
 
-        let mut enable = PinDriver::output(enable)?;
-        enable.set_low()?;
-        FreeRtos::delay_ms(SETTLE_MS);
-        let mut speaker = Self { enable, sounds, volume: 0, muted: false };
-        speaker.set_volume(50)?;
-        Ok(speaker)
+        Ok(Self { amp, sounds, volume: 50, muted: false })
     }
 
     pub fn volume(&self) -> u8 {
         self.volume
     }
 
-    /// Volume 0-100. 0 is silent and turns the amplifier off.
-    pub fn set_volume(&mut self, volume: u8) -> anyhow::Result<()> {
+    /// Volume 0-100. 0 is silent and keeps the amplifier off.
+    pub fn set_volume(&mut self, volume: u8) {
         self.volume = volume.min(100);
-        self.update_amplifier()
+        self.update_amp();
     }
 
-    /// Switches the amplifier off without changing the volume, e.g. while writing flash: that
-    /// stalls the audio DMA, which would click. Sounds played while muted are lost.
-    pub fn set_muted(&mut self, muted: bool) -> anyhow::Result<()> {
+    /// Keeps the amplifier off without changing the volume, e.g. while writing flash: that stalls
+    /// the audio DMA, which would click. Sounds played while muted are lost.
+    pub fn set_muted(&mut self, muted: bool) {
         self.muted = muted;
-        self.update_amplifier()
+        self.update_amp();
     }
 
-    fn update_amplifier(&mut self) -> anyhow::Result<()> {
-        if self.volume == 0 || self.muted {
-            self.enable.set_low()?;
-        } else {
-            self.enable.set_high()?;
+    fn update_amp(&mut self) {
+        let mut amp = self.amp.lock().unwrap();
+        amp.blocked = self.volume == 0 || self.muted;
+        if amp.blocked {
+            amp.set(false);
         }
-        Ok(())
     }
 
     /// Queues one tone. Returns immediately.
@@ -118,7 +141,7 @@ impl Speaker {
     /// Queues the notes to play back to back, after any sounds already queued. Returns immediately.
     /// If too many sounds are waiting, this one is dropped.
     pub fn play(&mut self, notes: &[Note]) {
-        if self.volume == 0 || notes.is_empty() {
+        if self.volume == 0 || self.muted || notes.is_empty() {
             return;
         }
         match self.sounds.try_send(render(notes, self.volume)) {
@@ -131,7 +154,7 @@ impl Speaker {
 
 impl Drop for Speaker {
     fn drop(&mut self) {
-        let _ = self.enable.set_low();
+        self.set_muted(true);
     }
 }
 
@@ -166,30 +189,64 @@ impl Dac {
         let mut loaded = 0;
         esp!(unsafe { sys::dac_continuous_write(self.0, samples.as_mut_ptr(), samples.len(), &mut loaded, -1) })
     }
+
+    /// Plays the idle level for about `ms`.
+    fn write_idle(&mut self, ms: u32) -> Result<(), EspError> {
+        let mut chunk = [IDLE_LEVEL; CHUNK_SAMPLES];
+        let chunks = (SAMPLE_RATE * ms / 1000).div_ceil(CHUNK_SAMPLES as u32);
+        (0..chunks).try_for_each(|_| self.write(&mut chunk))
+    }
 }
 
-/// The audio thread: plays queued sounds one after another and the idle level in between.
-fn feed(mut dac: Dac, queue: Receiver<Vec<u8>>) {
+/// The audio thread: plays queued sounds one after another and the idle level in between, and
+/// switches the amplifier on for sounds and off after a while of silence.
+fn feed(mut dac: Dac, queue: Receiver<Vec<u8>>, amp: Arc<Mutex<Amp>>) {
+    let chunk_ms = CHUNK_SAMPLES as u32 * 1000 / SAMPLE_RATE;
+    let mut idle_ms = 0;
     let mut chunk = [IDLE_LEVEL; CHUNK_SAMPLES];
-    let mut sound: Vec<u8> = Vec::new();
-    let mut position = 0;
     loop {
-        if position >= sound.len() {
-            match queue.try_recv() {
-                Ok(next) => (sound, position) = (next, 0),
-                Err(TryRecvError::Empty) => (sound, position) = (Vec::new(), 0),
-                Err(TryRecvError::Disconnected) => return,
+        // Keep the DMA fed with the idle level while waiting for a sound.
+        let sound = match queue.try_recv() {
+            Ok(sound) => sound,
+            Err(TryRecvError::Empty) => {
+                if idle_ms < AMP_IDLE_OFF_MS {
+                    idle_ms += chunk_ms;
+                    if idle_ms >= AMP_IDLE_OFF_MS {
+                        amp.lock().unwrap().set(false);
+                    }
+                }
+                chunk.fill(IDLE_LEVEL);
+                if let Err(e) = dac.write(&mut chunk) {
+                    log::error!("Writing to the DAC failed, audio stops: {e:?}");
+                    return;
+                }
+                continue;
             }
-        }
-        let count = (sound.len() - position).min(CHUNK_SAMPLES);
-        chunk[..count].copy_from_slice(&sound[position..position + count]);
-        chunk[count..].fill(IDLE_LEVEL);
-        position += count;
+            Err(TryRecvError::Disconnected) => return,
+        };
 
-        if let Err(e) = dac.write(&mut chunk) {
+        let woke = {
+            let mut amp = amp.lock().unwrap();
+            let was_on = amp.on;
+            amp.set(true);
+            amp.on && !was_on
+        };
+        let result = (|| {
+            if woke {
+                dac.write_idle(AMP_WAKE_MS)?;
+            }
+            for samples in sound.chunks(CHUNK_SAMPLES) {
+                chunk[..samples.len()].copy_from_slice(samples);
+                chunk[samples.len()..].fill(IDLE_LEVEL);
+                dac.write(&mut chunk)?;
+            }
+            Ok::<_, EspError>(())
+        })();
+        if let Err(e) = result {
             log::error!("Writing to the DAC failed, audio stops: {e:?}");
             return;
         }
+        idle_ms = 0;
     }
 }
 

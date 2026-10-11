@@ -145,9 +145,9 @@ impl Launcher {
             }
         };
         // Writing flash stalls the audio DMA, which would click; launching restarts anyway.
-        self.board.speaker.set_muted(true)?;
+        self.board.speaker.set_muted(true);
         let result = self.launch(&game);
-        self.board.speaker.set_muted(false)?;
+        self.board.speaker.set_muted(false);
         if let Err(e) = result {
             log::error!("Launching {} failed: {e:?}", game.id);
             self.board.speaker.play(SOUND_ERROR);

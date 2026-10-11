@@ -99,7 +99,7 @@ pub fn run(board: &mut Board) -> anyhow::Result<()> {
         }
         if buttons.just_pressed(previous, Button::Volume) {
             let current = VOLUME_STEPS.iter().position(|&v| v == board.speaker.volume()).unwrap_or(0);
-            board.speaker.set_volume(VOLUME_STEPS[(current + 1) % VOLUME_STEPS.len()])?;
+            board.speaker.set_volume(VOLUME_STEPS[(current + 1) % VOLUME_STEPS.len()]);
             draw_info(&mut board.display, 2, &status_line(board.speaker.volume(), led_on))?;
             board.speaker.beep(880, 60);
         }

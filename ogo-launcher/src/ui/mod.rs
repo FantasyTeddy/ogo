@@ -2,8 +2,6 @@
 //!
 //! Each area is drawn into its own [`Canvas`] and presented in one transfer.
 
-mod canvas;
-
 use embedded_graphics::{
     image::{Image, ImageRawLE},
     mono_font::{
@@ -15,10 +13,9 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
-use ogo_board::{display, BatteryLevel, Display};
+use ogo_board::{display, BatteryLevel, Canvas, Display};
 
 use crate::library::{Entry, Library, GAMES_DIR, ICON_SIZE};
-use canvas::Canvas;
 
 const BACKGROUND: Rgb565 = Rgb565::BLACK;
 const BAR: Rgb565 = Rgb565::new(4, 8, 4);

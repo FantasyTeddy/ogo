@@ -1127,6 +1127,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogo-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "embedded-graphics",
+ "esp-idf-svc",
+ "log",
+ "ogo-board",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1370,6 +1381,17 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "snake"
+version = "1.0.0"
+dependencies = [
+ "embedded-graphics",
+ "embuild",
+ "esp-idf-svc",
+ "log",
+ "ogo-sdk",
+]
 
 [[package]]
 name = "stable_deref_trait"

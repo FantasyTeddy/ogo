@@ -4,7 +4,7 @@
 use core::convert::Infallible;
 
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::Rectangle};
-use ogo_board::{Display, DisplayResultExt};
+use crate::{Display, DisplayResultExt};
 
 pub struct Canvas {
     /// Where the canvas goes on the screen.
@@ -17,6 +17,13 @@ impl Canvas {
     pub fn new(area: Rectangle) -> Self {
         let len = (area.size.width * area.size.height) as usize;
         Self { area, pixels: vec![Rgb565::BLACK; len] }
+    }
+
+    /// Darkens every pixel to half brightness, e.g. behind a menu.
+    pub fn dim(&mut self) {
+        for pixel in &mut self.pixels {
+            *pixel = Rgb565::new(pixel.r() / 2, pixel.g() / 2, pixel.b() / 2);
+        }
     }
 
     /// Sends the whole canvas to its place on the screen.

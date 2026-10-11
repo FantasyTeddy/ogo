@@ -1,0 +1,157 @@
+//! ogo-sdk: everything a game needs to run under the ODROID-GO launcher.
+//!
+//! Implement [`Game`] and hand it to [`main!`]:
+//!
+//! ```ignore
+//! use ogo_sdk::prelude::*;
+//!
+//! struct MyGame;
+//!
+//! impl Game for MyGame {
+//!     fn new(ctx: &mut Ctx) -> Self { MyGame }
+//!     fn update(&mut self, ctx: &mut Ctx) {}
+//!     fn draw(&self, fb: &mut Framebuffer) { fb.clear(Rgb565::BLACK).ok(); }
+//! }
+//!
+//! ogo_sdk::main!(MyGame);
+//! ```
+//!
+//! The SDK makes sure any reset returns to the launcher, runs `update` at a fixed rate and `draw`
+//! once per update, and handles MENU (pause menu with "Exit to launcher") and VOL (volume).
+//!
+//! A game crate needs, besides `ogo-sdk`: a `build.rs` calling `embuild::espidf::sysenv::output()`,
+//! and a direct dependency on `esp-idf-svc` even if unused, because the build script only gets
+//! ESP-IDF's linker arguments from a direct dependency. See `games/snake` for a complete example.
+
+mod ctx;
+mod overlay;
+mod presenter;
+mod saves;
+
+use std::time::{Duration, Instant};
+
+use anyhow::Context as _;
+use ogo_board::{
+    boot::{self, Boot},
+    Board, Button,
+};
+
+pub use ctx::{Ctx, Input};
+pub use ogo_board::{BatteryLevel, Note, Speaker};
+pub use saves::Saves;
+
+use overlay::{PauseAction, PauseMenu, VolumeIndicator, MENU_SOUND};
+use presenter::Presenter;
+
+/// The 320x240 frame a game draws into. Implements embedded-graphics' `DrawTarget`.
+pub type Framebuffer = ogo_board::Canvas;
+
+pub const SCREEN_WIDTH: u32 = ogo_board::display::WIDTH as u32;
+pub const SCREEN_HEIGHT: u32 = ogo_board::display::HEIGHT as u32;
+
+/// Bumped whenever the contract between launcher and games changes; matches `sdk_version` in
+/// `game.toml`.
+pub const SDK_VERSION: u32 = 1;
+
+pub mod prelude {
+    pub use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
+    pub use ogo_board::Button;
+
+    pub use crate::{Ctx, Framebuffer, Game, Note, SCREEN_HEIGHT, SCREEN_WIDTH};
+}
+
+pub trait Game: Sized {
+    /// Updates (and frames) per second. The display manages about 30 full frames per second.
+    const FPS: u32 = 30;
+
+    fn new(ctx: &mut Ctx) -> Self;
+
+    /// Advances the game by one step. Not called while the pause menu is open.
+    fn update(&mut self, ctx: &mut Ctx);
+
+    /// Draws the whole frame; the buffer still holds an older frame, so clear or overwrite all of it.
+    fn draw(&self, fb: &mut Framebuffer);
+}
+
+/// Defines `main` for a game type.
+#[macro_export]
+macro_rules! main {
+    ($game:ty) => {
+        fn main() {
+            $crate::run::<$game>(env!("CARGO_PKG_NAME"))
+        }
+    };
+}
+
+/// Runs a game. Use [`main!`] instead of calling this directly.
+pub fn run<G: Game>(game_id: &str) -> ! {
+    esp_idf_svc::sys::link_patches();
+    esp_idf_svc::log::EspLogger::initialize_default();
+
+    // Before anything else can fail: make sure the next reset starts the launcher.
+    match Boot::take().and_then(|mut boot| boot.return_to_launcher_on_reset()) {
+        Ok(()) => log::info!("{game_id} running from {}", boot::running_partition_label()),
+        Err(e) => log::error!("Can't make the launcher the boot slot again: {e:?}"),
+    }
+
+    if let Err(e) = run_game::<G>(game_id) {
+        log::error!("{game_id} stopped: {e:?}");
+    }
+    boot::restart()
+}
+
+fn run_game<G: Game>(game_id: &str) -> anyhow::Result<()> {
+    let Board { display, backlight: _backlight, buttons, speaker, battery, led, sd } = Board::take()?;
+    let mut presenter = Presenter::new(display)?;
+    let mut ctx = Ctx::new(game_id, buttons, speaker, battery, led, sd);
+    let mut game = G::new(&mut ctx);
+
+    let frame_time = Duration::from_micros(1_000_000 / u64::from(G::FPS.max(1)));
+    let mut next_frame = Instant::now();
+    let mut pause: Option<PauseMenu> = None;
+    let mut volume = VolumeIndicator::default();
+
+    loop {
+        ctx.poll()?;
+
+        if ctx.input().pressed(Button::Volume) {
+            let next = VolumeIndicator::next_volume(ctx.sound().volume());
+            ctx.sound().set_volume(next);
+            ctx.sound().play(MENU_SOUND);
+            volume.show();
+        }
+
+        match &mut pause {
+            Some(menu) => match menu.update(ctx.input()) {
+                Some(PauseAction::Resume) => pause = None,
+                Some(PauseAction::Exit) => ctx.exit_to_launcher(),
+                None => {}
+            },
+            None if ctx.input().pressed(Button::Menu) => {
+                ctx.sound().play(MENU_SOUND);
+                pause = Some(PauseMenu::default());
+            }
+            None => {
+                game.update(&mut ctx);
+                ctx.advance_frame();
+            }
+        }
+
+        let fb = presenter.frame().context("no frame buffer")?;
+        game.draw(fb);
+        if let Some(menu) = &pause {
+            menu.draw(fb);
+        }
+        volume.draw(fb, ctx.sound().volume());
+        presenter.present()?;
+
+        // Fixed rate; if we fall far behind, don't try to catch up.
+        next_frame += frame_time;
+        let now = Instant::now();
+        if next_frame > now {
+            std::thread::sleep(next_frame - now);
+        } else if now - next_frame > frame_time * 3 {
+            next_frame = now;
+        }
+    }
+}

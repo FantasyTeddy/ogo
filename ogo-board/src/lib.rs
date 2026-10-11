@@ -7,6 +7,7 @@ mod adc;
 pub mod battery;
 pub mod boot;
 pub mod buttons;
+pub mod canvas;
 pub mod display;
 pub mod pins;
 pub mod sd;
@@ -24,6 +25,7 @@ use esp_idf_svc::{
 
 pub use battery::{Battery, BatteryLevel};
 pub use buttons::{Button, ButtonState, Buttons, DpadRaw};
+pub use canvas::Canvas;
 pub use display::{Backlight, Display, DisplayResultExt};
 pub use sd::SdCard;
 pub use speaker::{Note, Speaker};
