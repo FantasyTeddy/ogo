@@ -10,6 +10,7 @@ name = "ogo-recovery"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
 [dependencies]
+ogo-format.workspace = true
 ogo-board.workspace = true
 anyhow.workspace = true
 log.workspace = true

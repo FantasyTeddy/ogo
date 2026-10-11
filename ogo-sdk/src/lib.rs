@@ -53,9 +53,9 @@ pub type Framebuffer = ogo_board::Canvas;
 pub const SCREEN_WIDTH: u32 = ogo_board::display::WIDTH as u32;
 pub const SCREEN_HEIGHT: u32 = ogo_board::display::HEIGHT as u32;
 
-/// Bumped whenever the contract between launcher and games changes; matches `sdk_version` in
-/// `game.toml`.
-pub const SDK_VERSION: u32 = 1;
+/// The version of the contract between launcher and games; `cargo xtask pack` writes it into
+/// `game.toml` as `sdk_version`.
+pub use ogo_format::game::SDK_VERSION;
 
 pub mod prelude {
     pub use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
@@ -81,7 +81,7 @@ pub trait Game: Sized {
 #[macro_export]
 macro_rules! main {
     ($game:ty) => {
-        $crate::__board::image_desc!("ogo-game");
+        $crate::__board::image_desc!(Game);
 
         fn main() {
             $crate::run::<$game>(env!("CARGO_PKG_NAME"))

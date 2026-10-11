@@ -26,7 +26,6 @@ rust-version.workspace = true
 # Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]
 name = "Pong"                     # shown in the launcher's list
-sdk_version = 1                   # must match the launcher, see docs/CONTRACTS.md
 
 [[bin]]
 name = "pong"
@@ -187,5 +186,5 @@ same id replaces the old one; the saves stay.
 
 [games/hello](../games/hello/src/main.rs) uses `ogo-board` directly. A game that does this must
 still follow the boot contract ([CONTRACTS.md](CONTRACTS.md#boot-contract)): declare
-`ogo_board::image_desc!("ogo-game")`, and call `Boot::take()?.return_to_launcher_on_reset()` before
+`ogo_board::image_desc!(Game)`, and call `Boot::take()?.return_to_launcher_on_reset()` before
 anything else, or the device stays in the game after a reset.

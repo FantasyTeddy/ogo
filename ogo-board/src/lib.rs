@@ -67,7 +67,7 @@ impl Board {
         first_frame: impl FnOnce(&mut Display) -> anyhow::Result<()>,
     ) -> anyhow::Result<Self> {
         let own = image::running();
-        log::info!("{} {} (commit {})", own.kind(), own.version(), own.commit().unwrap_or("unknown"));
+        log::info!("{} {} (commit {})", own.kind_name(), own.version(), own.commit().unwrap_or("unknown"));
         let p = Peripherals::take()?;
         let pins = p.pins;
 

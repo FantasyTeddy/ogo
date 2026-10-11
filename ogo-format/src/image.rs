@@ -10,6 +10,29 @@ pub const OFFSET_IN_IMAGE: usize = 24 + 8 + 256;
 /// Size of [`ImageDesc`] in the image.
 pub const SIZE: usize = core::mem::size_of::<ImageDesc>();
 
+/// What an image is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageKind {
+    Launcher,
+    Recovery,
+    Game,
+}
+
+impl ImageKind {
+    /// As stored in the image, e.g. "ogo-launcher".
+    pub const fn name(self) -> &'static str {
+        match self {
+            ImageKind::Launcher => "ogo-launcher",
+            ImageKind::Recovery => "ogo-recovery",
+            ImageKind::Game => "ogo-game",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        [ImageKind::Launcher, ImageKind::Recovery, ImageKind::Game].into_iter().find(|kind| kind.name() == name)
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageDesc {
@@ -21,8 +44,8 @@ pub struct ImageDesc {
 
 impl ImageDesc {
     /// Used by `image_desc!`. Longer strings are cut.
-    pub const fn new(kind: &str, version: &str, commit: &str) -> Self {
-        Self { magic: MAGIC, kind: fixed(kind), version: fixed(version), commit: fixed(commit) }
+    pub const fn new(kind: ImageKind, version: &str, commit: &str) -> Self {
+        Self { magic: MAGIC, kind: fixed(kind.name()), version: fixed(version), commit: fixed(commit) }
     }
 
     /// Reads a description from its bytes in an image; `None` if they don't hold one.
@@ -39,8 +62,13 @@ impl ImageDesc {
         Self::from_bytes(image.get(OFFSET_IN_IMAGE..)?)
     }
 
-    /// e.g. "ogo-launcher"
-    pub fn kind(&self) -> &str {
+    /// `None` for a kind this build doesn't know.
+    pub fn kind(&self) -> Option<ImageKind> {
+        ImageKind::from_name(self.kind_name())
+    }
+
+    /// The kind as stored, e.g. "ogo-launcher".
+    pub fn kind_name(&self) -> &str {
         text(&self.kind)
     }
 
@@ -97,9 +125,10 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let desc = ImageDesc::new("ogo-launcher", "0.1.0", "0a1b710c");
+        let desc = ImageDesc::new(ImageKind::Launcher, "0.1.0", "0a1b710c");
         let read = ImageDesc::from_bytes(&bytes(&desc)).unwrap();
-        assert_eq!(read.kind(), "ogo-launcher");
+        assert_eq!(read.kind(), Some(ImageKind::Launcher));
+        assert_eq!(read.kind_name(), "ogo-launcher");
         assert_eq!(read.version(), "0.1.0");
         assert_eq!(read.commit(), Some("0a1b710c"));
     }
@@ -107,25 +136,33 @@ mod tests {
     #[test]
     fn found_in_an_image() {
         let mut image = vec![0xE9; OFFSET_IN_IMAGE];
-        image.extend(bytes(&ImageDesc::new("ogo-game", "1.0.0", "")));
+        image.extend(bytes(&ImageDesc::new(ImageKind::Game, "1.0.0", "")));
         image.extend([0; 100]);
         let desc = ImageDesc::in_image(&image).unwrap();
-        assert_eq!(desc.kind(), "ogo-game");
+        assert_eq!(desc.kind(), Some(ImageKind::Game));
         assert_eq!(desc.commit(), None);
     }
 
     #[test]
     fn rejects_other_magic_and_short_input() {
-        let mut old = bytes(&ImageDesc::new("ogo-launcher", "0.1.0", ""));
+        let mut old = bytes(&ImageDesc::new(ImageKind::Launcher, "0.1.0", ""));
         old[..4].copy_from_slice(b"OGO1");
         assert_eq!(ImageDesc::from_bytes(&old), None);
-        assert_eq!(ImageDesc::from_bytes(&bytes(&ImageDesc::new("a", "b", "c"))[..79]), None);
+        assert_eq!(ImageDesc::from_bytes(&bytes(&ImageDesc::new(ImageKind::Game, "b", "c"))[..79]), None);
         assert_eq!(ImageDesc::in_image(&[0; 300]), None);
     }
 
     #[test]
+    fn kind_names() {
+        for kind in [ImageKind::Launcher, ImageKind::Recovery, ImageKind::Game] {
+            assert_eq!(ImageKind::from_name(kind.name()), Some(kind));
+        }
+        assert_eq!(ImageKind::from_name("ogo-emulator"), None);
+    }
+
+    #[test]
     fn long_strings_are_cut() {
-        let desc = ImageDesc::new("k", "1.0.0", "0123456789abcdef0123");
+        let desc = ImageDesc::new(ImageKind::Game, "1.0.0", "0123456789abcdef0123");
         assert_eq!(desc.commit(), Some("0123456789abcde"));
     }
 }

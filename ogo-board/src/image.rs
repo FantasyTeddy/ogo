@@ -11,23 +11,23 @@
 //! linker from dropping it, and makes an app without one fail to link.
 
 use esp_idf_svc::sys::{self, esp};
-pub use ogo_format::image::ImageDesc;
+pub use ogo_format::image::{ImageDesc, ImageKind};
 use ogo_format::image::{OFFSET_IN_IMAGE, SIZE};
 
 use crate::boot::find_app_partition;
 
-/// Declares this app's [`ImageDesc`]. Use once, at the crate root of every ogo app:
-/// `ogo_board::image_desc!("ogo-launcher");`
+/// Declares this app's [`ImageDesc`]. Use once, at the crate root of every ogo app, with an
+/// [`ImageKind`] variant: `ogo_board::image_desc!(Launcher);`
 ///
 /// The commit comes from `OGO_COMMIT` at compile time; cargo rebuilds the app when it changes.
 #[macro_export]
 macro_rules! image_desc {
-    ($kind:expr) => {
+    ($kind:ident) => {
         #[no_mangle]
         #[used]
         #[link_section = ".rodata_custom_desc"]
         pub static OGO_IMAGE_DESC: $crate::image::ImageDesc =
-            $crate::image::ImageDesc::new($kind, env!("CARGO_PKG_VERSION"), match option_env!("OGO_COMMIT") {
+            $crate::image::ImageDesc::new($crate::image::ImageKind::$kind, env!("CARGO_PKG_VERSION"), match option_env!("OGO_COMMIT") {
                 Some(commit) => commit,
                 None => "",
             });

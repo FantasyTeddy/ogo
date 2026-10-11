@@ -9,7 +9,6 @@ description = "Snake, the first game built on ogo-sdk"
 # Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]
 name = "Snake"
-sdk_version = 1
 
 [[bin]]
 name = "snake"

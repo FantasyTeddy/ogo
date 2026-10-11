@@ -32,7 +32,7 @@ use ogo_board::flash::Progress;
 use library::{Entry, Game, Library};
 use ui::{ListState, Ui, VISIBLE_ROWS};
 
-ogo_board::image_desc!("ogo-launcher");
+ogo_board::image_desc!(Launcher);
 
 const POLL_MS: u32 = 20;
 /// The boot screen stays at least this long, unless a button is pressed.

@@ -22,16 +22,17 @@ use ogo_board::{
     boot,
     display::{HEIGHT, WIDTH},
     flash::{self, AppInfo, Progress},
+    image::ImageKind,
     Board, Button, ButtonState, Canvas,
 };
+use ogo_format::slots::{self, LauncherSlot};
 
-ogo_board::image_desc!("ogo-recovery");
+ogo_board::image_desc!(Recovery);
 
-const LAUNCHERS: [(&str, &str); 2] = [("launcher_a", "A"), ("launcher_b", "B")];
 /// Where "Install launcher from SD card" looks, relative to the card root.
 const UPDATE_PATH: &str = "ogo/updates/launcher.bin";
 /// The slot "Install launcher from SD card" writes to.
-const INSTALL_SLOT: &str = "launcher_a";
+const INSTALL_SLOT: LauncherSlot = slots::LAUNCHER_A;
 
 const BACKGROUND: Rgb565 = Rgb565::new(6, 2, 2);
 const BAR: Rgb565 = Rgb565::new(12, 4, 4);
@@ -64,9 +65,9 @@ fn main() -> anyhow::Result<()> {
     log::info!("ogo-recovery, started {}", if menu_boot { "with MENU" } else { "without MENU" });
     if !menu_boot {
         // Nothing asked for recovery: carry on with a launcher if there is one.
-        for (label, _) in LAUNCHERS {
-            // Only the 64-byte ogo description: fast, and it checks that it really is a launcher.
-            let launcher = ogo_board::image::in_slot(label).is_some_and(|desc| desc.kind() == "ogo-launcher");
+        for LauncherSlot { label, .. } in slots::LAUNCHER_SLOTS {
+            // Only the ogo description: fast, and it checks that it really is a launcher.
+            let launcher = ogo_board::image::in_slot(label).is_some_and(|desc| desc.kind() == Some(ImageKind::Launcher));
             if launcher && boot::set_boot_partition(label).is_ok() {
                 log::info!("Starting {label}");
                 boot::restart();
@@ -99,9 +100,9 @@ impl Recovery {
     }
 
     fn refresh_items(&mut self) {
-        let mut items: Vec<Item> = LAUNCHERS
+        let mut items: Vec<Item> = slots::LAUNCHER_SLOTS
             .iter()
-            .map(|&(label, name)| Item::Start { label, name, info: flash::app_info(label) })
+            .map(|&LauncherSlot { label, name }| Item::Start { label, name, info: flash::app_info(label) })
             .collect();
         items.push(Item::Install { available: self.update_path().is_some_and(|path| path.is_file()) });
         items.push(Item::Restart);
@@ -155,7 +156,7 @@ impl Recovery {
         self.board.speaker.set_muted(true);
         let (canvas, display) = (&mut self.canvas, &mut self.board.display);
         let mut shown = None;
-        let result = flash::write_image(&path, INSTALL_SLOT, None, |progress| {
+        let result = flash::write_image(&path, INSTALL_SLOT.label, None, |progress| {
             let percent = match progress {
                 Progress::Erasing => None,
                 Progress::Writing { written, total } => Some((written * 100 / total.max(1)) as u32),
@@ -171,7 +172,7 @@ impl Recovery {
         });
         self.board.speaker.set_muted(false);
 
-        match result.and_then(|()| boot::set_boot_partition(INSTALL_SLOT)) {
+        match result.and_then(|()| boot::set_boot_partition(INSTALL_SLOT.label)) {
             Ok(()) => boot::restart(),
             Err(e) => {
                 log::error!("Installing the launcher failed: {e:?}");
@@ -223,7 +224,7 @@ fn describe(item: &Item) -> (String, String) {
         Item::Start { label, name, info: Some(info) } => {
             let desc = ogo_board::image::in_slot(label);
             let what = desc
-                .map(|desc| format!("{} {}", desc.kind(), desc.version()))
+                .map(|desc| format!("{} {}", desc.kind_name(), desc.version()))
                 .unwrap_or_else(|| "not an ogo app".to_owned());
             // The commit if the image has one, as it says more than the build ID.
             let build = match desc.as_ref().and_then(|desc| desc.commit()) {

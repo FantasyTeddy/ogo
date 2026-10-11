@@ -16,7 +16,7 @@ use ogo_board::{
     Board, Button, ButtonState, DisplayResultExt, Note,
 };
 
-ogo_board::image_desc!("ogo-game");
+ogo_board::image_desc!(Game);
 
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();

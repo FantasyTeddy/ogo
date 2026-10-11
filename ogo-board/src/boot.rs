@@ -23,12 +23,12 @@ use esp_idf_svc::{
     sys::{self, esp},
 };
 
+use ogo_format::slots::{self, LauncherSlot};
+
 use crate::settings::NVS_NAMESPACE;
 
 /// The flash slot games are installed into.
-pub const GAME_PARTITION: &str = "game_0";
-/// Used if NVS doesn't say which launcher slot started the game.
-const DEFAULT_LAUNCHER_PARTITION: &str = "launcher_a";
+pub const GAME_PARTITION: &str = slots::GAME;
 
 /// Label of the launcher slot that started the game.
 const KEY_LAUNCHER: &str = "launcher";
@@ -38,8 +38,6 @@ const KEY_GAME_HASH: &str = "game0_sha256";
 const KEY_GAME_ADDRESS: &str = "game0_addr";
 /// Launcher slot an update was written to, until the next start has checked it.
 const KEY_UPDATE_TARGET: &str = "update_target";
-
-pub const LAUNCHER_SLOTS: [&str; 2] = ["launcher_a", "launcher_b"];
 
 /// What became of a launcher update, seen from the first start afterwards.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,7 +104,8 @@ impl Boot {
     pub fn return_to_launcher_on_reset(&mut self) -> anyhow::Result<()> {
         mark_running_valid();
         let mut buf = [0u8; 17];
-        let launcher = self.nvs.get_str(KEY_LAUNCHER, &mut buf)?.unwrap_or(DEFAULT_LAUNCHER_PARTITION).to_owned();
+        // Slot A if NVS doesn't say which launcher slot started the game.
+        let launcher = self.nvs.get_str(KEY_LAUNCHER, &mut buf)?.unwrap_or(slots::LAUNCHER_A.label).to_owned();
         set_boot_partition(&launcher)
     }
 
@@ -143,12 +142,9 @@ pub fn mark_running_valid() {
 }
 
 /// The launcher slot that isn't running, where an update goes. From a non-launcher slot (e.g.
-/// recovery), `launcher_a`.
-pub fn inactive_launcher_slot() -> &'static str {
-    match running_partition_label().as_str() {
-        "launcher_a" => "launcher_b",
-        _ => "launcher_a",
-    }
+/// recovery), slot A.
+pub fn inactive_launcher_slot() -> LauncherSlot {
+    slots::other_launcher_slot(&running_partition_label())
 }
 
 /// Time for the amplifier to go quiet before the restart.

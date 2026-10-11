@@ -17,7 +17,11 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use clap::{Parser, Subcommand};
-use ogo_format::game::Manifest;
+use ogo_format::{
+    game::{Manifest, SDK_VERSION},
+    image::{ImageDesc, ImageKind},
+    slots,
+};
 use serde::{de::DeserializeOwned, Deserialize};
 use sha2::{Digest, Sha256};
 
@@ -107,7 +111,6 @@ struct Game {
     name: String,
     version: String,
     author: String,
-    sdk_version: u32,
     dir: PathBuf,
 }
 
@@ -150,8 +153,9 @@ impl Project {
         Ok(())
     }
 
-    /// Builds a package into an app image file and returns its bytes.
-    fn build_image(&self, package: &str, features: Option<&str>, out: &Path) -> anyhow::Result<Vec<u8>> {
+    /// Builds a package into an app image file and returns its bytes. Checks that the image
+    /// describes itself as `kind`, with this commit.
+    fn build_image(&self, package: &str, kind: ImageKind, features: Option<&str>, out: &Path) -> anyhow::Result<Vec<u8>> {
         println!("Building {package}...");
         if let Some(parent) = out.parent() {
             fs::create_dir_all(parent)?;
@@ -165,6 +169,14 @@ impl Project {
         self.cargo(&args)?;
         let image = fs::read(out).with_context(|| format!("can't read {}", out.display()))?;
         ensure!(image.first() == Some(&IMAGE_MAGIC), "cargo espflash didn't produce an ESP32 app image for {package}");
+        let desc = ImageDesc::in_image(&image).with_context(|| format!("{package} has no ogo image description"))?;
+        ensure!(
+            desc.kind() == Some(kind),
+            "{package} is an {} image, expected {}",
+            desc.kind_name(),
+            kind.name()
+        );
+        ensure!(desc.commit() == self.commit.as_deref(), "{package} doesn't carry the commit; was it rebuilt?");
         Ok(image)
     }
 
@@ -188,7 +200,6 @@ impl Project {
         #[derive(Deserialize)]
         struct OgoMetadata {
             name: Option<String>,
-            sdk_version: Option<u32>,
         }
 
         let metadata: Metadata = self.metadata()?;
@@ -199,7 +210,6 @@ impl Project {
                 let ogo = package.metadata?.ogo?;
                 Some(Game {
                     name: ogo.name.unwrap_or_else(|| package.name.clone()),
-                    sdk_version: ogo.sdk_version.unwrap_or(1),
                     author: package.authors.into_iter().next().unwrap_or_default(),
                     dir: package.manifest_path.parent()?.to_owned(),
                     id: package.name,
@@ -228,13 +238,14 @@ impl Project {
             game.id
         );
         let target_dir = self.target_dir()?;
-        let image = self.build_image(&game.id, None, &target_dir.join("ogo-images").join(format!("{}.bin", game.id)))?;
+        let image = self.build_image(&game.id, ImageKind::Game, None, &target_dir.join("ogo-images").join(format!("{}.bin", game.id)))?;
         let manifest = Manifest {
             id: game.id.clone(),
             name: game.name.clone(),
             version: game.version.clone(),
             author: game.author.clone(),
-            sdk_version: game.sdk_version,
+            // Built against this tree's SDK.
+            sdk_version: SDK_VERSION,
             sha256: hex(&Sha256::digest(&image)),
         };
         let mut files = vec![("game.toml", manifest.to_toml().into_bytes()), ("game.bin", image)];
@@ -247,8 +258,8 @@ impl Project {
 
     fn release(&self, features: Option<&str>) -> anyhow::Result<()> {
         let dist = self.root.join(DIST_DIR);
-        let launcher = self.build_image(LAUNCHER, features, &dist.join("launcher.bin"))?;
-        let recovery = self.build_image(RECOVERY, None, &dist.join("recovery.bin"))?;
+        let launcher = self.build_image(LAUNCHER, ImageKind::Launcher, features, &dist.join("launcher.bin"))?;
+        let recovery = self.build_image(RECOVERY, ImageKind::Recovery, None, &dist.join("recovery.bin"))?;
         let mut summary = vec![("launcher.bin".to_owned(), launcher.len()), ("recovery.bin".to_owned(), recovery.len())];
         for game in self.games()? {
             let files = self.build_game(&game)?;
@@ -276,13 +287,13 @@ impl Project {
         }
         if all {
             let mut args = common.clone();
-            args.extend(["--package", RECOVERY, "--target-app-partition", "recovery"]);
+            args.extend(["--package", RECOVERY, "--target-app-partition", slots::RECOVERY]);
             self.cargo(&args)?;
         }
         // Clearing otadata makes the freshly flashed launcher_a run even if a web update had
         // selected launcher_b: the bootloader starts recovery, which picks the first valid launcher.
         let mut args = common;
-        args.extend(["--package", LAUNCHER, "--target-app-partition", "launcher_a", "--erase-parts", "otadata"]);
+        args.extend(["--package", LAUNCHER, "--target-app-partition", slots::LAUNCHER_A.label, "--erase-parts", "otadata"]);
         if let Some(features) = features {
             args.extend(["--features", features]);
         }

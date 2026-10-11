@@ -25,8 +25,10 @@ use esp_idf_svc::{
 use ogo_board::{
     boot,
     flash::{self, Progress},
-    image, BatteryLevel,
+    image::{self, ImageKind},
+    BatteryLevel,
 };
+use ogo_format::slots;
 use serde::Serialize;
 
 use crate::{
@@ -272,7 +274,7 @@ fn update_launcher(mut req: Req, state: &WebState) -> anyhow::Result<()> {
     if total == 0 {
         return json(req, 400, &Message::new("Empty upload"));
     }
-    let slot = boot::inactive_launcher_slot();
+    let slot = boot::inactive_launcher_slot().label;
     state.send(WebEvent::UpdateStarted);
 
     let mut reported = 0;
@@ -294,8 +296,8 @@ fn update_launcher(mut req: Req, state: &WebState) -> anyhow::Result<()> {
     .and_then(|()| {
         // A valid image, but is it a launcher? A game in a launcher slot would never return.
         match image::in_slot(slot) {
-            Some(desc) if desc.kind() == "ogo-launcher" => Ok(()),
-            Some(desc) => anyhow::bail!("that's an {} image, not a launcher", desc.kind()),
+            Some(desc) if desc.kind() == Some(ImageKind::Launcher) => Ok(()),
+            Some(desc) => anyhow::bail!("that's an {} image, not a launcher", desc.kind_name()),
             None => anyhow::bail!("not an ogo launcher image"),
         }
     });
@@ -348,16 +350,15 @@ fn status(req: Req, state: &WebState) -> anyhow::Result<()> {
     let battery = *state.battery.lock().unwrap();
     let sd_space = state.sd_root.as_ref().and_then(|_| ogo_board::sd::space());
     let running = boot::running_partition_label();
-    let slots = boot::LAUNCHER_SLOTS
+    let slots = slots::LAUNCHER_SLOTS
         .iter()
-        .zip(["A", "B"])
-        .map(|(&label, name)| {
+        .map(|&slots::LauncherSlot { label, name }| {
             let desc = image::in_slot(label);
             let info = flash::app_info(label);
             Slot {
                 name,
                 running: running == label,
-                kind: desc.map(|d| d.kind().to_owned()),
+                kind: desc.map(|d| d.kind_name().to_owned()),
                 version: desc.map(|d| d.version().to_owned()),
                 commit: desc.and_then(|d| d.commit().map(str::to_owned)),
                 built: info.as_ref().map(|info| info.built.clone()),

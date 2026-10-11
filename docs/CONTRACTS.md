@@ -6,14 +6,14 @@ any of these can break a launcher, recovery or game built earlier, so check this
 
 | Contract | Defined in |
 |---|---|
-| [Partition table](#partition-table) | [partitions.csv](../partitions.csv) |
+| [Partition table](#partition-table) | [partitions.csv](../partitions.csv), [slots.rs](../ogo-format/src/slots.rs) (labels, checked against the CSV by a test) |
 | [SD card layout](#sd-card-layout) | [library.rs](../ogo-launcher/src/library.rs), [saves.rs](../ogo-sdk/src/saves.rs) |
 | [NVS keys](#nvs-keys) | [boot.rs](../ogo-board/src/boot.rs), [settings.rs](../ogo-board/src/settings.rs), [launcher settings.rs](../ogo-launcher/src/settings.rs) |
 | [Boot contract](#boot-contract) | [boot.rs](../ogo-board/src/boot.rs) |
 | [Image description](#image-description) | [ogo-format image.rs](../ogo-format/src/image.rs), [ogo-board image.rs](../ogo-board/src/image.rs) |
 | [`game.toml` and `.ogo` packages](#gametoml-and-ogo-packages) | [game.rs](../ogo-format/src/game.rs), [package.rs](../ogo-format/src/package.rs) |
 | [Web API](#web-api) | [web.rs](../ogo-launcher/src/web.rs) |
-| [Compatibility](#compatibility) | `sdk_version` |
+| [Compatibility](#compatibility) | [game.rs](../ogo-format/src/game.rs) (`SDK_VERSION`) |
 
 ## Partition table
 
@@ -111,8 +111,9 @@ apps apart: with esp-idf-sys every project is called `libespidf`.
 | 64 | 16 | Short git commit, e.g. `0a1b710c`; empty unless built with `cargo xtask` |
 
 Strings are zero-terminated (so at most size − 1 characters). Declared with
-`ogo_board::image_desc!(kind)`; the SDK's `main!` does it for games. The commit comes from the
-`OGO_COMMIT` environment variable at compile time.
+`ogo_board::image_desc!(Launcher | Recovery | Game)` (variants of `ImageKind`); the SDK's `main!`
+does it for games. The commit comes from the `OGO_COMMIT` environment variable at compile time.
+`cargo xtask` checks the kind and commit of every image it builds.
 
 Who relies on it:
 - Recovery only starts a slot whose kind is `ogo-launcher`.
@@ -136,7 +137,7 @@ id = "snake"            # [package] name: a-z, 0-9 and -; also the folder name
 name = "Snake"          # [package.metadata.ogo] name
 version = "1.0.0"       # [package] version
 author = "ogo examples" # first of [package] authors; may be empty
-sdk_version = 1         # [package.metadata.ogo] sdk_version
+sdk_version = 1         # SDK_VERSION of the SDK the game was built with
 sha256 = "693bbd…"      # of game.bin, lowercase hex
 ```
 
@@ -181,9 +182,11 @@ for the PIN shown on the device. After 5 wrong PINs the device picks a new one. 
 
 ## Compatibility
 
-- **`sdk_version`** in `game.toml` must equal the launcher's supported version (`SDK_VERSION` in
-  ogo-sdk, `SUPPORTED_SDK_VERSION` in the launcher; currently 1). Bump it when a change breaks
-  games built earlier: the boot contract, the partition table, or what the SDK expects from NVS.
+- **`sdk_version`** in `game.toml` must equal the launcher's `SDK_VERSION`. There is one
+  definition, `ogo_format::game::SDK_VERSION` (currently 1): the launcher accepts it, and
+  `cargo xtask pack` writes it, since games are built against the SDK in the same tree. Bump it
+  when a change breaks games built earlier: the boot contract, the partition table, or what the
+  SDK expects from NVS.
 - New NVS keys with defaults don't need a bump: games built before M8 ignore `brightness` and
   `volume`, and newer games run fine without them.
 - A new magic in the image description (as `OGO2` in M9) means recovery and launcher must be

@@ -9,7 +9,6 @@ description = "Minimal test game: shows a screen and returns to the launcher on 
 # Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]
 name = "Hello"
-sdk_version = 1
 
 [[bin]]
 name = "hello"

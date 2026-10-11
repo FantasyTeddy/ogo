@@ -201,11 +201,7 @@ impl Launcher {
 /// e.g. "v0.1.0, slot A" and "3fa9c2e1, commit 220357ce" (build ID and commit).
 fn launcher_info() -> (String, String) {
     let running = boot::running_partition_label();
-    let slot = match running.as_str() {
-        "launcher_a" => "A",
-        "launcher_b" => "B",
-        other => other,
-    };
+    let slot = ogo_format::slots::launcher_slot(&running).map_or(running.as_str(), |slot| slot.name);
     let build_id = flash::app_info(&running).map_or_else(|| "?".to_owned(), |info| info.build_id);
     let build = match image::running().commit() {
         Some(commit) => format!("{build_id}, commit {commit}"),

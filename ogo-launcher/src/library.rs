@@ -5,13 +5,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ogo_format::game::{Manifest, ICON_BYTES};
+use ogo_format::game::{Manifest, ICON_BYTES, SDK_VERSION};
 pub use ogo_format::game::ICON_SIZE;
 
 /// Folder with the installed games, relative to the SD card root.
 pub const GAMES_DIR: &str = "ogo/games";
-/// The `sdk_version` this launcher can boot.
-pub const SUPPORTED_SDK_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]
 pub struct Game {
@@ -113,7 +111,7 @@ pub fn scan_dir(games_dir: &Path) -> Option<Vec<Entry>> {
 pub fn load_game(dir: &Path, folder: Option<&str>) -> Result<Game, String> {
     let text = fs::read_to_string(dir.join("game.toml")).map_err(|e| format!("game.toml: {e}"))?;
     let manifest = Manifest::parse(&text)?;
-    manifest.check(folder, SUPPORTED_SDK_VERSION)?;
+    manifest.check(folder, SDK_VERSION)?;
     if !dir.join("game.bin").is_file() {
         return Err("game.bin is missing".into());
     }

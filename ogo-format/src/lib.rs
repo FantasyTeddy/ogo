@@ -8,4 +8,5 @@ pub mod game;
 pub mod image;
 pub mod package;
 pub mod settings;
+pub mod slots;
 pub mod text;

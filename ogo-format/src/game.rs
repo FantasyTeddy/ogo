@@ -2,6 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The version of the contract between launcher and games (boot contract, partition table, NVS
+/// keys games rely on). The launcher only starts games with this `sdk_version`; packages get the
+/// version of the SDK they were built with. Bump it when a change breaks games built earlier.
+pub const SDK_VERSION: u32 = 1;
+
 /// Width and height of `icon.rgb565`.
 pub const ICON_SIZE: u32 = 64;
 /// `icon.rgb565`: 64x64 pixels, RGB565 little-endian, row by row.
