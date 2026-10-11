@@ -173,9 +173,11 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
 3. **Windows path length.** esp-idf-sys refuses to build if its output path is too long, and
    enabling long paths doesn't help. So [.cargo/config.toml](../.cargo/config.toml) puts the build
    output into `D:/ogot` (plus `CARGO_WORKSPACE_DIR`, which embuild then needs).
-4. **Python.** ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild uses the
-   first `python` on PATH. [env.ps1](../env.ps1) loads the toolchain's export script and puts Python
-   3.12 first. Dot-source it in each new shell: `. .\env.ps1`.
+4. **Python.** ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild always
+   runs the first `python` on PATH (there's no setting for another one). `.cargo/config.toml` sets
+   `PYTHON_MANAGER_DEFAULT = "3.12"` for build scripts, which makes the Python install manager's
+   `python` start 3.12. The toolchain's `LIBCLANG_PATH` and clang folder are in the user environment
+   (`espup` puts them there), so builds work in any shell, and in the editor's rust-analyzer too.
 5. **`cargo xtask`** ([xtask/](../xtask/src/main.rs)). A host crate with its own workspace, since the
    main workspace builds everything for the ESP32. The alias in `.cargo/config.toml` passes
    `--target x86_64-pc-windows-msvc`. Every image it builds carries the git commit.

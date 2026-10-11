@@ -20,6 +20,9 @@ build-std = ["std", "panic_abort"]
 [env]
 MCU = "esp32"
 ESP_IDF_VERSION = "v5.5.3"
+# ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild always runs the
+# `python` on PATH. With the Python install manager, this makes that `python` start 3.12.
+PYTHON_MANAGER_DEFAULT = "3.12"
 # Reuse the tools already installed in ~/.espressif instead of a per-project copy,
 # which also keeps build paths shorter on Windows.
 ESP_IDF_TOOLS_INSTALL_DIR = "global"

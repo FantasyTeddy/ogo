@@ -5,7 +5,7 @@
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
 //!
 //! Every firmware image built here carries the git commit (`OGO_COMMIT`, see
-//! `ogo_board::image_desc!`). Load the environment first: `. .\env.ps1`.
+//! `ogo_board::image_desc!`).
 
 use std::{
     env, fs,
@@ -26,7 +26,7 @@ const LAUNCHER: &str = "ogo-launcher";
 const RECOVERY: &str = "ogo-recovery";
 
 #[derive(Parser)]
-#[command(about = "Build tasks for ogo. Load the environment first: . .\\env.ps1")]
+#[command(about = "Build tasks for ogo")]
 struct Cli {
     #[command(subcommand)]
     command: Task,
@@ -113,7 +113,7 @@ struct GameFiles {
 impl Project {
     fn new() -> anyhow::Result<Self> {
         if env::var_os("LIBCLANG_PATH").is_none() {
-            bail!("the ESP toolchain isn't set up in this shell: run `. .\\env.ps1` first");
+            bail!("LIBCLANG_PATH isn't set: install the Xtensa toolchain with espup (see the README)");
         }
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().context("xtask has no parent folder")?.to_owned();
         let commit = Command::new("git")

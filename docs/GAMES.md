@@ -156,8 +156,6 @@ with open("icon.rgb565", "wb") as out:
 
 ## 5. Build and run
 
-In a shell with `. .\env.ps1` loaded:
-
 ```powershell
 cargo xtask pack pong --sd E:\    # build and copy to the SD card as /ogo/games/pong/
 cargo xtask pack pong             # or build dist\pong.ogo and upload it on the web page

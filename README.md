@@ -55,8 +55,11 @@ Developed on Windows with PowerShell.
    The project is pinned to this toolchain in [rust-toolchain.toml](rust-toolchain.toml). The named
    install sits next to any other Xtensa toolchain you have. Note that `espup` also sets
    `LIBCLANG_PATH` in your user environment.
-3. **Python 3.12.** ESP-IDF 5.5 doesn't install on newer versions such as 3.15. `env.ps1` expects it at
-   `%LOCALAPPDATA%\Python\pythoncore-3.12-64`; edit the path there if yours is elsewhere.
+3. **Python 3.12.** ESP-IDF 5.5 doesn't install on newer versions such as 3.15. With the
+   [Python install manager](https://docs.python.org/3/using/windows.html), install it with
+   `py install 3.12`; the project's [.cargo/config.toml](.cargo/config.toml) sets
+   `PYTHON_MANAGER_DEFAULT = "3.12"`, so builds use it even if your default is newer. Without the
+   install manager, make sure the first `python` on PATH is 3.12.
 4. **A drive `D:`** for build output. Build output goes to `D:\ogot` because ESP-IDF refuses to build
    under long paths. To use a different short folder, change `target-dir` in
    [.cargo/config.toml](.cargo/config.toml).
@@ -66,11 +69,10 @@ minutes; later builds are fast.
 
 ## Build and flash
 
-Load the environment in each new PowerShell window first, then use the build tasks in
-[xtask/](xtask/) (replace `COM7` with your port; without `--port`, espflash picks or asks):
+Use the build tasks in [xtask/](xtask/) (replace `COM7` with your port; without `--port`,
+espflash picks or asks):
 
 ```powershell
-. .\env.ps1
 cargo xtask flash --all --port COM7    # first time: bootloader, partition table, recovery and launcher
 cargo xtask flash --port COM7          # afterwards: launcher only
 cargo xtask flash --monitor            # launcher, then show the serial log
@@ -143,7 +145,6 @@ or install `/ogo/updates/launcher.bin` from the SD card into launcher slot A. To
 there:
 
 ```powershell
-. .\env.ps1
 cargo xtask release
 Copy-Item dist\launcher.bin E:\ogo\updates\launcher.bin
 ```
@@ -165,7 +166,6 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 | [docs/](docs/) | Architecture, contracts, game guide, hardware notes, roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
-| [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |
 | [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash`), run on the PC |
 | [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
 | [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
