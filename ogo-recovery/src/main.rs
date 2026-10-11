@@ -25,6 +25,8 @@ use ogo_board::{
     Board, Button, ButtonState, Canvas,
 };
 
+ogo_board::image_desc!("ogo-recovery");
+
 const LAUNCHERS: [(&str, &str); 2] = [("launcher_a", "A"), ("launcher_b", "B")];
 /// Where "Install launcher from SD card" looks, relative to the card root.
 const UPDATE_PATH: &str = "ogo/updates/launcher.bin";
@@ -63,7 +65,9 @@ fn main() -> anyhow::Result<()> {
     if !menu_boot {
         // Nothing asked for recovery: carry on with a launcher if there is one.
         for (label, _) in LAUNCHERS {
-            if flash::app_info(label).is_some() && boot::set_boot_partition(label).is_ok() {
+            // Only the 64-byte ogo description: fast, and it checks that it really is a launcher.
+            let launcher = ogo_board::image::in_slot(label).is_some_and(|desc| desc.kind() == "ogo-launcher");
+            if launcher && boot::set_boot_partition(label).is_ok() {
                 log::info!("Starting {label}");
                 boot::restart();
             }
@@ -216,8 +220,15 @@ impl Recovery {
 
 fn describe(item: &Item) -> (String, String) {
     match item {
-        Item::Start { name, info: Some(info), .. } => {
-            (format!("Start launcher {name}"), format!("{} {}, built {}", info.project, info.version, info.built))
+        Item::Start { label, name, info: Some(info) } => {
+            let what = ogo_board::image::in_slot(label)
+                .map(|desc| format!("{} {}", desc.kind(), desc.version()))
+                .unwrap_or_else(|| "not an ogo app".to_owned());
+            (format!("Start launcher {name}"), {
+                // "Oct 11 2026 19:24:47" -> "Oct 11 2026": the full line wouldn't fit the screen.
+                let date = info.built.get(..11).unwrap_or(&info.built);
+                format!("{what}, build {}, {date}", info.build_id)
+            })
         }
         Item::Start { name, info: None, .. } => (format!("Start launcher {name}"), "empty".to_owned()),
         Item::Install { available: true } => {

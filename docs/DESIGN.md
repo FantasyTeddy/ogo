@@ -193,11 +193,44 @@ runs when the launcher deliberately started it.
 
 ### Launcher self-update (A/B with rollback)
 
-1. Upload `launcher.bin` through the web page. It is streamed into the *inactive* launcher slot.
-2. Set it as the boot partition and restart.
-3. With `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, the new launcher must call
-   `mark_running_slot_valid()` after a successful self-check (display up, SD card mounted). Otherwise
-   the next reset rolls back to the old slot.
+As built in M7:
+
+1. "Update launcher" on the web page's Settings tab uploads `launcher.bin` (`POST /api/launcher`).
+   It is streamed straight into the launcher slot that isn't running, without touching the SD card.
+2. The image must be an ogo launcher (see "Image description" below); anything else is refused.
+3. The launcher selects the slot, remembers it in NVS (`update_target`) and restarts.
+4. With `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, a newly selected slot starts "pending verify". The
+   launcher confirms itself (`esp_ota_mark_app_valid_cancel_rollback`) once `Board::take` has set up
+   the display and the SD card. If it resets before that, the bootloader marks the slot aborted and
+   starts the previously selected one.
+5. The next launcher start compares the running slot with `update_target`: "Launcher updated", or
+   "Update didn't start" after a rollback. Tested with `--features rollback-test`, a launcher that
+   panics before confirming.
+
+Consequences of rollback being enabled:
+
+- **Every** switch of the boot slot marks the new slot "new", including a game returning to the
+  launcher. So the launcher confirms itself on every start, and games confirm their slot in
+  `Boot::return_to_launcher_on_reset` before switching back.
+- Switching off in the ~1 s between the launcher starting and confirming makes the next start boot
+  the previously selected slot, usually the last game, which returns to the launcher right away.
+- A launcher that crashes on every start after returning from a game would ping-pong with the game.
+  Recovery (MENU at power-on) gets out of that.
+- USB flashing writes `launcher_a` only, so `tools/flash.ps1` clears otadata every time: otherwise a
+  web update that had selected `launcher_b` would keep running instead of the fresh flash.
+
+**Image description.** ESP-IDF's `esp_app_desc_t` can't tell our apps apart: with esp-idf-sys every
+project name is `libespidf`, and all share one version setting. So every ogo app declares an
+`ImageDesc` with `ogo_board::image_desc!("ogo-launcher" | "ogo-recovery" | "ogo-game")` (the SDK's
+`main!` does it for games). It lives in `.rodata_custom_desc`, right after `esp_app_desc_t` at offset
+288 of the image, with a magic, the kind and the crate version. `Board::take` reads it, which keeps
+the linker from dropping it, and an app without one doesn't link.
+
+**Build ID.** The first 8 hex digits of the image's SHA-256, computed from the slot with
+`esp_partition_get_sha256` (~0.1 s for 1.6 MB). It tells two builds of the same version apart, even
+uncommitted ones. ESP-IDF's `app_elf_sha256` field would be cheaper, but stays all zeros in images
+built with espflash. Release builds via `cargo xtask` (M8) should add the commit to the image
+description.
 
 ---
 
@@ -356,10 +389,12 @@ As built in M4 (`ogo-sdk`, example: `games/snake`):
 4. **Python version.** ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild
    always uses the first `python` on PATH. `env.ps1` loads `export-esp.ps1` and puts Python 3.12
    first. Dot-source it in each new shell: `. .\env.ps1`.
-5. **Flash:** `tools/flash.ps1` (launcher only) or `tools/flash.ps1 -All` (also recovery, and clears
-   otadata). It builds, finds the bootloader esp-idf-sys built, and runs `cargo espflash flash` with
-   `--bootloader`, `--target-app-partition` (cargo-espflash 4.3 ignores that key in `espflash.toml`)
-   and the partition table from `espflash.toml`. `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
+5. **Flash:** `tools/flash.ps1` (launcher) or `tools/flash.ps1 -All` (also recovery). It builds,
+   finds the bootloader esp-idf-sys built, and runs `cargo espflash flash` with `--bootloader`,
+   `--target-app-partition` (cargo-espflash 4.3 ignores that key in `espflash.toml`), the partition
+   table from `espflash.toml`, and `--erase-parts otadata` (see §5). `-SaveImage <file>` builds a
+   `launcher.bin` for the web update instead, `-Features` passes cargo features.
+   `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
 6. **Useful crates:**
    - `esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`
    - `mipidsi`, `embedded-graphics`, `embedded-hal-bus` (shared SPI)
@@ -381,8 +416,8 @@ moves quickly.
 | M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist. **Done 2026-10-11** |
 | M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher. **Done 2026-10-11** |
 | M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection. **Done 2026-10-11** |
-| M7 | Launcher self-OTA | Upload `launcher.bin` via the web page. A/B switch with rollback, tested with a deliberately broken build |
-| M8 | Polish | Settings screen (WiFi, brightness, volume), save backup download, mDNS, `cargo xtask pack`, charging indicator |
+| M7 | Launcher self-OTA | Upload `launcher.bin` via the web page. A/B switch with rollback, tested with a deliberately broken build. **Done 2026-10-11** |
+| M8 | Polish | Settings screen (WiFi, brightness, volume), save backup download, mDNS, `cargo xtask pack` and release builds (commit in the image description), charging indicator |
 | M9 | Emulators | First emulator packaged as a "game" that browses ROMs on the SD card |
 
 M0 to M4 give you a usable device without any networking. M6 and M7 deliver the OTA goal.

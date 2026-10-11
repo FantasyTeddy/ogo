@@ -37,6 +37,8 @@ use ogo_board::{
 };
 
 pub use ctx::{Ctx, Input};
+#[doc(hidden)]
+pub use ogo_board as __board;
 pub use ogo_board::{BatteryLevel, Note, Speaker};
 pub use saves::Saves;
 
@@ -73,10 +75,12 @@ pub trait Game: Sized {
     fn draw(&self, fb: &mut Framebuffer);
 }
 
-/// Defines `main` for a game type.
+/// Defines `main` for a game type, and the image description that marks it as a game.
 #[macro_export]
 macro_rules! main {
     ($game:ty) => {
+        $crate::__board::image_desc!("ogo-game");
+
         fn main() {
             $crate::run::<$game>(env!("CARGO_PKG_NAME"))
         }

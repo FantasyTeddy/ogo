@@ -7,17 +7,20 @@ use std::sync::{
 };
 
 use anyhow::Context;
+use esp_idf_svc::hal::delay::FreeRtos;
 use ogo_board::{boot, sd, Note};
 
 use crate::{
     network::{Mode, Network},
     settings::{self, WifiCredentials},
     ui::{ConnectView, DIM, SUCCESS, WARNING},
-    web::{random_pin, WebEvent, WebServer, WebState},
+    web::{random_pin, NetworkInfo, WebEvent, WebServer, WebState},
     Launcher, SOUND_ERROR,
 };
 
 const SOUND_INSTALLED: &[Note] = &[Note::new(660, 60), Note::new(880, 60), Note::new(1320, 100)];
+/// Time to show "restarting" and let the HTTP response reach the browser.
+const RESTART_DELAY_MS: u32 = 1500;
 
 pub struct Session {
     _server: WebServer,
@@ -66,8 +69,10 @@ impl Launcher {
             pin.clone(),
             self.board.sd.as_ref().map(|_| sd::MOUNT_POINT.into()),
             match &mode {
-                Mode::Station { ssid, .. } => format!("WiFi {ssid}"),
-                Mode::AccessPoint { ssid, .. } => format!("Access point {ssid}"),
+                Mode::Station { ssid, ip } => NetworkInfo { mode: "station", name: ssid.clone(), ip: ip.to_string() },
+                Mode::AccessPoint { ssid, ip, .. } => {
+                    NetworkInfo { mode: "access_point", name: ssid.clone(), ip: ip.to_string() }
+                }
             },
             networks,
             self.battery,
@@ -130,6 +135,7 @@ impl Launcher {
         let mut redraw = false;
         let mut reconnect = None;
         let mut scan = false;
+        let mut restart_into = None;
         while let Ok(event) = session.events.try_recv() {
             redraw = true;
             session.view.activity = Some(match event {
@@ -146,8 +152,21 @@ impl Launcher {
                     (format!("Deleted {id}"), SUCCESS)
                 }
                 WebEvent::Failed(reason) => {
+                    self.board.speaker.set_muted(false);
                     self.board.speaker.play(SOUND_ERROR);
                     (reason, WARNING)
+                }
+                WebEvent::UpdateStarted => {
+                    // Writing flash stalls the audio DMA, which would click.
+                    self.board.speaker.set_muted(true);
+                    ("Receiving a launcher update...".to_owned(), DIM)
+                }
+                WebEvent::Updating { received, total } => {
+                    (format!("Writing the launcher update... {} %", received * 100 / total.max(1)), DIM)
+                }
+                WebEvent::LauncherWritten { slot } => {
+                    restart_into = Some(slot);
+                    ("Update installed, restarting...".to_owned(), SUCCESS)
                 }
                 WebEvent::WifiSaved(credentials) => {
                     settings::save_wifi(&self.nvs, &credentials)?;
@@ -169,6 +188,11 @@ impl Launcher {
         }
         if redraw {
             self.ui.draw_connect(&mut self.board.display, &session.view)?;
+        }
+        if let Some(slot) = restart_into {
+            self.boot.set_pending_update(slot)?;
+            FreeRtos::delay_ms(RESTART_DELAY_MS);
+            boot::restart();
         }
         if scan {
             if let Some(network) = &mut self.network {

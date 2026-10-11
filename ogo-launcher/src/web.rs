@@ -22,7 +22,11 @@ use esp_idf_svc::{
     },
     io::{Read, Write},
 };
-use ogo_board::BatteryLevel;
+use ogo_board::{
+    boot,
+    flash::{self, Progress},
+    image, BatteryLevel,
+};
 use serde::Serialize;
 
 use crate::{
@@ -51,8 +55,23 @@ pub enum WebEvent {
     WifiSaved(WifiCredentials),
     /// Too many wrong PINs; the device shows this new one.
     PinChanged(String),
+    /// A launcher update is being written to flash.
+    UpdateStarted,
+    Updating { received: usize, total: usize },
+    /// A launcher update is in `slot` and checked; the launcher selects it and restarts.
+    LauncherWritten { slot: &'static str },
     ScanRequested,
     Restart,
+}
+
+/// How the device is connected, for the status.
+#[derive(Debug, Clone, Serialize)]
+pub struct NetworkInfo {
+    /// "station" (joined a WiFi) or "access_point" (its own).
+    pub mode: &'static str,
+    /// The WiFi's name.
+    pub name: String,
+    pub ip: String,
 }
 
 /// What the handlers share. Lives as long as the server.
@@ -65,7 +84,7 @@ pub struct WebState {
     pub networks: Mutex<Vec<ScannedNetwork>>,
     /// The SD card root, e.g. `/sd`; `None` without a card.
     pub sd_root: Option<PathBuf>,
-    pub network: String,
+    pub network: NetworkInfo,
     pub battery: Mutex<Option<BatteryLevel>>,
     pub events: Mutex<Sender<WebEvent>>,
 }
@@ -74,7 +93,7 @@ impl WebState {
     pub fn new(
         pin: String,
         sd_root: Option<PathBuf>,
-        network: String,
+        network: NetworkInfo,
         networks: Vec<ScannedNetwork>,
         battery: Option<BatteryLevel>,
         events: Sender<WebEvent>,
@@ -131,7 +150,7 @@ impl WebServer {
 
         // Everything else needs a session.
         type Handler = fn(Req, &WebState) -> anyhow::Result<()>;
-        let routes: [(&str, Method, Handler); 9] = [
+        let routes: [(&str, Method, Handler); 10] = [
             ("/api/status", Method::Get, status),
             ("/api/games", Method::Get, list_games),
             ("/api/games", Method::Post, upload),
@@ -141,6 +160,7 @@ impl WebServer {
             ("/api/wifi/networks", Method::Get, networks),
             ("/api/wifi/scan", Method::Post, scan),
             ("/api/restart", Method::Post, restart),
+            ("/api/launcher", Method::Post, update_launcher),
         ];
         for (uri, method, handler) in routes {
             let s = state.clone();
@@ -245,6 +265,54 @@ fn scan(req: Req, state: &WebState) -> anyhow::Result<()> {
     json(req, 202, &Message::new("Scanning"))
 }
 
+/// `POST /api/launcher`: a launcher image (`launcher.bin`) as the raw body. Written straight into
+/// the launcher slot that isn't running; the launcher then selects it and restarts (§5).
+fn update_launcher(mut req: Req, state: &WebState) -> anyhow::Result<()> {
+    let total = content_len(&req);
+    if total == 0 {
+        return json(req, 400, &Message::new("Empty upload"));
+    }
+    let slot = boot::inactive_launcher_slot();
+    state.send(WebEvent::UpdateStarted);
+
+    let mut reported = 0;
+    let result = flash::write_stream(
+        |buf| req.read(buf).map_err(|e| anyhow::anyhow!("connection error: {e:?}")),
+        total as u64,
+        slot,
+        None,
+        |progress| {
+            if let Progress::Writing { written, total } = progress {
+                let tenth = (written * 10 / total.max(1)) as usize;
+                if tenth > reported {
+                    reported = tenth;
+                    state.send(WebEvent::Updating { received: written as usize, total: total as usize });
+                }
+            }
+        },
+    )
+    .and_then(|()| {
+        // A valid image, but is it a launcher? A game in a launcher slot would never return.
+        match image::in_slot(slot) {
+            Some(desc) if desc.kind() == "ogo-launcher" => Ok(()),
+            Some(desc) => anyhow::bail!("that's an {} image, not a launcher", desc.kind()),
+            None => anyhow::bail!("not an ogo launcher image"),
+        }
+    });
+
+    match result {
+        Ok(()) => {
+            json(req, 200, &Message::new("Installed. The device restarts into the new launcher; open its WiFi screen again to come back here."))?;
+            state.send(WebEvent::LauncherWritten { slot });
+            Ok(())
+        }
+        Err(e) => {
+            state.send(WebEvent::Failed(format!("Update failed: {e:#}")));
+            json(req, 400, &Message::new(format!("Update failed: {e:#}")))
+        }
+    }
+}
+
 fn restart(req: Req, state: &WebState) -> anyhow::Result<()> {
     json(req, 200, &Message::new("Restarting"))?;
     state.send(WebEvent::Restart);
@@ -253,20 +321,52 @@ fn restart(req: Req, state: &WebState) -> anyhow::Result<()> {
 
 fn status(req: Req, state: &WebState) -> anyhow::Result<()> {
     #[derive(Serialize)]
+    struct Slot {
+        /// "A" or "B"
+        name: &'static str,
+        running: bool,
+        /// What the slot holds, e.g. "ogo-launcher"; `None` if empty.
+        kind: Option<String>,
+        version: Option<String>,
+        /// Build date and time as ESP-IDF records it, e.g. "Oct 11 2026 19:20:31".
+        built: Option<String>,
+        /// Tells builds of the same version apart, e.g. "3f9a2c1d".
+        build_id: Option<String>,
+    }
+    #[derive(Serialize)]
     struct Status {
         version: &'static str,
         battery_percent: Option<u8>,
         battery_mv: Option<u32>,
+        slots: Vec<Slot>,
         sd_total: Option<u64>,
         sd_free: Option<u64>,
-        network: String,
+        network: NetworkInfo,
     }
     let battery = *state.battery.lock().unwrap();
     let sd_space = state.sd_root.as_ref().and_then(|_| ogo_board::sd::space());
+    let running = boot::running_partition_label();
+    let slots = boot::LAUNCHER_SLOTS
+        .iter()
+        .zip(["A", "B"])
+        .map(|(&label, name)| {
+            let desc = image::in_slot(label);
+            let info = flash::app_info(label);
+            Slot {
+                name,
+                running: running == label,
+                kind: desc.map(|d| d.kind().to_owned()),
+                version: desc.map(|d| d.version().to_owned()),
+                built: info.as_ref().map(|info| info.built.clone()),
+                build_id: info.map(|info| info.build_id),
+            }
+        })
+        .collect();
     json(req, 200, &Status {
         version: env!("CARGO_PKG_VERSION"),
         battery_percent: battery.map(|b| b.percent),
         battery_mv: battery.map(|b| b.millivolts),
+        slots,
         sd_total: sd_space.map(|(total, _)| total),
         sd_free: sd_space.map(|(_, free)| free),
         network: state.network.clone(),

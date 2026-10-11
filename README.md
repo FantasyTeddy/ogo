@@ -6,10 +6,10 @@ A game launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go)
 Rust. It installs native Rust games from the SD card into a flash slot and boots them. Later, games
 and launcher updates will be managed from a web page served by the device itself.
 
-> **Status:** early development. Milestones M0–M6 are done: the launcher lists the games on the SD
+> **Status:** early development. Milestones M0–M7 are done: the launcher lists the games on the SD
 > card, installs the selected one and boots it; games are built on `ogo-sdk` (`games/snake` is the
-> first one); a recovery app starts when MENU is held at power-on; games can be uploaded and deleted
-> from a web page over WiFi. See the [roadmap](docs/DESIGN.md#9-roadmap).
+> first one); a recovery app starts when MENU is held at power-on; games and launcher updates can be
+> uploaded from a web page over WiFi. See the [roadmap](docs/DESIGN.md#9-roadmap).
 
 ## Features
 
@@ -20,8 +20,9 @@ and launcher updates will be managed from a web page served by the device itself
   launcher from the SD card
 - Web page over WiFi, protected by a PIN shown on the device: upload and delete games, pick the WiFi
   network, see battery and free space
-- Planned: launcher self-update over the air with A/B slots and rollback, save backups, emulators
-  packaged as games
+- Launcher updates from the web page, into the other of two launcher slots; if the new launcher
+  doesn't start properly, the device goes back to the previous one by itself
+- Planned: save backups, settings screen, emulators packaged as games
 
 The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -113,6 +114,18 @@ password = "secret"
 ```
 
 WiFi is only on while this screen is open; **B** switches it off again.
+
+### Updating the launcher
+
+Build an image and upload it on the **Settings** tab under "Update launcher":
+
+```powershell
+.\tools\flash.ps1 -SaveImage dist\launcher.bin
+```
+
+The device writes it into the launcher slot that isn't running and restarts. The new launcher
+confirms itself once it's up; if it crashes before that, the device returns to the previous one and
+says so. Settings → Device shows both slots with version and build ID.
 
 ## Recovery
 

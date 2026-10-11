@@ -8,6 +8,10 @@ rust-version.workspace = true
 name = "ogo-launcher"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
+[features]
+# Builds a launcher that crashes before confirming its slot, to test the rollback of updates.
+rollback-test = []
+
 [dependencies]
 ogo-board.workspace = true
 anyhow.workspace = true

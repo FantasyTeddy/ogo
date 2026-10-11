@@ -21,12 +21,17 @@ use std::{
 };
 
 use esp_idf_svc::{hal::delay::FreeRtos, nvs::EspDefaultNvs};
-use ogo_board::{boot::Boot, BatteryLevel, Board, Button, Note};
+use ogo_board::{
+    boot::{Boot, UpdateResult},
+    BatteryLevel, Board, Button, Note,
+};
 
 use input::{Nav, Navigator};
 use ogo_board::flash::Progress;
 use library::{Entry, Game, Library};
 use ui::{ListState, Ui, VISIBLE_ROWS};
+
+ogo_board::image_desc!("ogo-launcher");
 
 const POLL_MS: u32 = 20;
 /// The boot screen stays at least this long, unless a button is pressed.
@@ -34,6 +39,7 @@ const BOOT_SCREEN_MIN: Duration = Duration::from_millis(1500);
 const BATTERY_INTERVAL: Duration = Duration::from_secs(5);
 const MESSAGE_DURATION: Duration = Duration::from_secs(2);
 const SOUND_ERROR: &[Note] = &[Note::new(440, 90), Note::new(330, 140)];
+const SOUND_UPDATED: &[Note] = &[Note::new(523, 80), Note::new(784, 80), Note::new(1047, 140)];
 /// NVS namespace for launcher settings (shared with the boot contract's keys).
 const NVS_NAMESPACE: &str = "ogo";
 
@@ -53,8 +59,15 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     })?;
     if board.buttons.read()?.is_held(Button::Select) {
+        ogo_board::boot::mark_running_valid();
         return hwtest::run(&mut board);
     }
+
+    // Self-check passed (display and SD card set up): keep this slot. A launcher update that
+    // crashes before this point is rolled back by the bootloader on the next reset.
+    #[cfg(feature = "rollback-test")]
+    panic!("rollback-test build: crashing on purpose before confirming the slot");
+    ogo_board::boot::mark_running_valid();
 
     log::info!("ogo-launcher, running from {}", ogo_board::boot::running_partition_label());
     let mut launcher = Launcher::new(board, boot)?;
@@ -104,6 +117,27 @@ impl Launcher {
         })
     }
 
+    /// Tells whether a launcher update from the web page worked or was rolled back.
+    fn report_update(&mut self) -> anyhow::Result<()> {
+        match self.boot.take_update_result()? {
+            None => Ok(()),
+            Some(UpdateResult::Installed) => {
+                self.board.speaker.play(SOUND_UPDATED);
+                self.show_message(concat!("Launcher updated to v", env!("CARGO_PKG_VERSION")))
+            }
+            Some(UpdateResult::RolledBack { slot }) => {
+                log::warn!("The update in {slot} was rolled back");
+                self.board.speaker.play(SOUND_ERROR);
+                self.notice = true;
+                let detail = format!(
+                    "The new launcher in {slot} stopped before it was ready, so the device went back to this one."
+                );
+                self.ui.draw_notice(&mut self.board.display, "Update didn't start", &detail, ui::WARNING)?;
+                self.show_message("Press any button")
+            }
+        }
+    }
+
     /// Keeps the boot screen up until [`BOOT_SCREEN_MIN`] has passed or a button is pressed.
     fn wait_for_boot_screen(&mut self, shown: Instant) -> anyhow::Result<()> {
         while shown.elapsed() < BOOT_SCREEN_MIN {
@@ -119,6 +153,7 @@ impl Launcher {
         self.ui.draw_top_bar(&mut self.board.display, "Games", self.battery)?;
         self.ui.draw_footer(&mut self.board.display, None)?;
         self.draw_library()?;
+        self.report_update()?;
 
         let mut navigator = Navigator::default();
         let mut next_battery_read = Instant::now() + BATTERY_INTERVAL;

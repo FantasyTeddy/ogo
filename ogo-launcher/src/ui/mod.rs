@@ -218,7 +218,7 @@ impl Ui {
             steps.push(("Join the WiFi (no password)".into(), ssid.clone()));
         }
         if let Some(url) = &view.url {
-            let label = if view.join_wifi.is_some() { "Open in a browser" } else { "In the same WiFi, open" };
+            let label = if view.join_wifi.is_some() { "Open in a browser" } else { "In the same network, open" };
             steps.push((label.into(), url.clone()));
         }
         if let Some(pin) = &view.pin {

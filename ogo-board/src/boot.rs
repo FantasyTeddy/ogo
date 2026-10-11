@@ -4,6 +4,13 @@
 //!   from, makes `game_0` the boot slot and restarts.
 //! - The first thing a game does is [`Boot::return_to_launcher_on_reset`]: it makes the launcher
 //!   the boot slot again, so any reset, crash or power-off lands back in the launcher.
+//! - With app rollback enabled (sdkconfig), every newly selected slot starts "pending verify". It
+//!   must call [`mark_running_valid`] once it's sure it works, or the next reset rolls back to the
+//!   slot selected before. The launcher does that after its self-check on every start (a game's
+//!   return makes the launcher "new" again), games do it in `return_to_launcher_on_reset`.
+//! - Launcher updates go into the launcher slot that isn't running ([`inactive_launcher_slot`]).
+//!   [`Boot::set_pending_update`] remembers the target across the restart, so the next start can
+//!   tell an update that worked from one that was rolled back ([`Boot::take_update_result`]).
 //!
 //! Games and launchers that disagree about this contract must not be mixed; `sdk_version` in
 //! `game.toml` guards against that.
@@ -28,6 +35,19 @@ const KEY_LAUNCHER: &str = "launcher";
 const KEY_GAME_HASH: &str = "game0_sha256";
 /// Flash address of `game_0` when the hash was stored; a changed partition table invalidates it.
 const KEY_GAME_ADDRESS: &str = "game0_addr";
+/// Launcher slot an update was written to, until the next start has checked it.
+const KEY_UPDATE_TARGET: &str = "update_target";
+
+pub const LAUNCHER_SLOTS: [&str; 2] = ["launcher_a", "launcher_b"];
+
+/// What became of a launcher update, seen from the first start afterwards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateResult {
+    /// Running from the updated slot.
+    Installed,
+    /// The updated slot didn't confirm itself; this is the previous launcher again.
+    RolledBack { slot: String },
+}
 
 pub struct Boot {
     nvs: EspDefaultNvs,
@@ -80,11 +100,53 @@ impl Boot {
         restart()
     }
 
-    /// Game side, call first thing: makes the launcher the boot slot again.
+    /// Game side, call first thing: confirms the game slot (see the module docs) and makes the
+    /// launcher the boot slot again.
     pub fn return_to_launcher_on_reset(&mut self) -> anyhow::Result<()> {
+        mark_running_valid();
         let mut buf = [0u8; 17];
         let launcher = self.nvs.get_str(KEY_LAUNCHER, &mut buf)?.unwrap_or(DEFAULT_LAUNCHER_PARTITION).to_owned();
         set_boot_partition(&launcher)
+    }
+
+    /// Launcher side, after writing an update into `slot`: makes it the boot slot and remembers it,
+    /// for [`Boot::take_update_result`] after the restart.
+    pub fn set_pending_update(&mut self, slot: &str) -> anyhow::Result<()> {
+        set_boot_partition(slot)?;
+        self.nvs.set_str(KEY_UPDATE_TARGET, slot)?;
+        Ok(())
+    }
+
+    /// Launcher side, once per start: whether a launcher update was pending, and how it went.
+    pub fn take_update_result(&mut self) -> anyhow::Result<Option<UpdateResult>> {
+        let mut buf = [0u8; 17];
+        let Some(target) = self.nvs.get_str(KEY_UPDATE_TARGET, &mut buf)?.map(str::to_owned) else {
+            return Ok(None);
+        };
+        self.nvs.remove(KEY_UPDATE_TARGET)?;
+        Ok(Some(if running_partition_label() == target {
+            UpdateResult::Installed
+        } else {
+            UpdateResult::RolledBack { slot: target }
+        }))
+    }
+}
+
+/// Confirms that the running slot works, so the bootloader keeps it (see the module docs).
+/// Does nothing if it was already confirmed or isn't an OTA slot.
+pub fn mark_running_valid() {
+    let result = esp!(unsafe { sys::esp_ota_mark_app_valid_cancel_rollback() });
+    if let Err(e) = result {
+        log::warn!("Can't confirm the running slot: {e:?}");
+    }
+}
+
+/// The launcher slot that isn't running, where an update goes. From a non-launcher slot (e.g.
+/// recovery), `launcher_a`.
+pub fn inactive_launcher_slot() -> &'static str {
+    match running_partition_label().as_str() {
+        "launcher_a" => "launcher_b",
+        _ => "launcher_a",
     }
 }
 

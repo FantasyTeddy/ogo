@@ -1,4 +1,4 @@
-//! Writing firmware images from files into app slots, and reading what a slot holds.
+//! Writing firmware images into app slots (from files or streams), and reading what a slot holds.
 
 use std::{ffi::CStr, fs::File, io::Read, path::Path};
 
@@ -24,15 +24,28 @@ pub fn write_image(
     path: &Path,
     label: &str,
     expected_sha256: Option<&str>,
-    mut progress: impl FnMut(Progress),
+    progress: impl FnMut(Progress),
 ) -> anyhow::Result<()> {
     let mut file = File::open(path).with_context(|| format!("can't open {}", path.display()))?;
     let total = file.metadata()?.len();
+    log::info!("Writing {} into {label}", path.display());
+    write_stream(|buf| Ok(file.read(buf)?), total, label, expected_sha256, progress)
+}
+
+/// Like [`write_image`], but takes the image from `read` (which returns 0 at the end), e.g. an
+/// HTTP upload. `total` is the image size.
+pub fn write_stream(
+    mut read: impl FnMut(&mut [u8]) -> anyhow::Result<usize>,
+    total: u64,
+    label: &str,
+    expected_sha256: Option<&str>,
+    mut progress: impl FnMut(Progress),
+) -> anyhow::Result<()> {
     let partition = find_app_partition(label)?;
     if total > u64::from(partition.size) {
         bail!("the image is {} KB, the {label} slot holds {} KB", total / 1024, partition.size / 1024);
     }
-    log::info!("Writing {} ({total} bytes) into {label}", path.display());
+    log::info!("Writing {total} bytes into {label}");
 
     progress(Progress::Erasing);
     let mut handle: sys::esp_ota_handle_t = 0;
@@ -40,7 +53,7 @@ pub fn write_image(
     esp!(unsafe { sys::esp_ota_begin(partition, total as usize, &mut handle) })
         .with_context(|| format!("can't prepare the {label} slot"))?;
 
-    if let Err(e) = write_chunks(&mut file, handle, total, expected_sha256, &mut progress) {
+    if let Err(e) = write_chunks(&mut read, handle, total, expected_sha256, &mut progress) {
         unsafe { sys::esp_ota_abort(handle) };
         return Err(e);
     }
@@ -51,7 +64,7 @@ pub fn write_image(
 }
 
 fn write_chunks(
-    file: &mut File,
+    read: &mut impl FnMut(&mut [u8]) -> anyhow::Result<usize>,
     handle: sys::esp_ota_handle_t,
     total: u64,
     expected_sha256: Option<&str>,
@@ -60,10 +73,11 @@ fn write_chunks(
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; CHUNK_BYTES];
     let mut written = 0u64;
-    loop {
-        let count = file.read(&mut buffer).context("reading the image failed")?;
+    while written < total {
+        let wanted = buffer.len().min((total - written) as usize);
+        let count = read(&mut buffer[..wanted]).context("reading the image failed")?;
         if count == 0 {
-            break;
+            bail!("the image ended after {written} of {total} bytes");
         }
         hasher.update(&buffer[..count]);
         esp!(unsafe { sys::esp_ota_write(handle, buffer.as_ptr().cast(), count) }).context("writing flash failed")?;
@@ -77,6 +91,13 @@ fn write_chunks(
         }
     }
     Ok(())
+}
+
+/// SHA-256 of the image in an app slot (reads the whole image; ~0.1 s for 1.6 MB).
+fn image_sha256(partition: &sys::esp_partition_t) -> Option<[u8; 32]> {
+    let mut sha = [0u8; 32];
+    esp!(unsafe { sys::esp_partition_get_sha256(partition, sha.as_mut_ptr()) }).ok()?;
+    Some(sha)
 }
 
 /// SHA-256 of a file as lowercase hex, read in chunks.
@@ -100,6 +121,10 @@ pub struct AppInfo {
     pub version: String,
     /// Build date and time, e.g. "Oct 11 2026 17:22:05".
     pub built: String,
+    /// The first 8 hex digits of the image's SHA-256, computed from the slot: differs whenever
+    /// the code differs, even between uncommitted builds of the same version. (ESP-IDF's own
+    /// `app_elf_sha256` field stays empty in images built with espflash.)
+    pub build_id: String,
 }
 
 /// What the app slot `label` holds, or `None` if it holds no valid image.
@@ -114,5 +139,6 @@ pub fn app_info(label: &str) -> Option<AppInfo> {
         project: text(&desc.project_name),
         version: text(&desc.version),
         built: format!("{} {}", text(&desc.date), text(&desc.time)),
+        build_id: image_sha256(partition).map_or_else(|| "?".into(), |sha| sha[..4].iter().map(|b| format!("{b:02x}")).collect()),
     })
 }

@@ -10,6 +10,7 @@ pub mod buttons;
 pub mod canvas;
 pub mod display;
 pub mod flash;
+pub mod image;
 pub mod pins;
 pub mod sd;
 pub mod speaker;
@@ -58,6 +59,8 @@ impl Board {
     /// Like [`Board::take`], but calls `first_frame` as soon as the display works, before the
     /// backlight turns on and before the slower SD card setup. Use it to show a boot screen.
     pub fn take_with(first_frame: impl FnOnce(&mut Display) -> anyhow::Result<()>) -> anyhow::Result<Self> {
+        let own = image::running();
+        log::info!("{} {}", own.kind(), own.version());
         let p = Peripherals::take()?;
         let pins = p.pins;
 
