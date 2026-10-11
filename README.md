@@ -4,9 +4,9 @@ A launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go) hand
 It installs native Rust games from the SD card into a flash slot and boots them. Games and launcher
 updates are managed from a web page served by the device itself.
 
-> **Status:** early development. Milestones M0 and M1 are done: the `ogo-board` crate drives the
-> display, buttons, speaker, battery sense and SD card, and the launcher currently shows a hardware
-> test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
+> **Status:** early development. Milestones M0–M2 are done: the launcher lists the games on the SD
+> card with icons and a battery indicator, but can't start them yet (M3). Hold SELECT at power-on
+> for a hardware test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
 
 ## Planned features
 
@@ -75,11 +75,12 @@ The firmware ends up in `D:\ogot\xtensa-esp32-espidf\release\ogo-launcher`.
 | Path | Contents |
 |---|---|
 | [ogo-board/](ogo-board/) | Board support: display, buttons, speaker, battery, LED, SD card |
-| [ogo-launcher/](ogo-launcher/) | Launcher firmware (currently the M1 hardware test screen) |
+| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, hardware test screen |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design, flash layout, boot flows and roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings (flash size, PSRAM, stack sizes) |
 | [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |
+| [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
 
 More crates (`ogo-sdk`, `ogo-recovery`, example games, `xtask`) are added as the milestones
 progress.

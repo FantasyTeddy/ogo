@@ -64,8 +64,12 @@ Other hardware details confirmed in M1:
   The official library's name `SPEAKER_ENABLE_PIN` is right; driving both pins differentially (as
   Retro-Go's config suggests) only works when GPIO25 stays above the amplifier's enable threshold.
   The amplifier needs tens of milliseconds to wake up, so enabling it per beep swallows short beeps.
-  It therefore stays on unless the volume is 0. Between tones the DAC holds a mid level, because an
-  undriven input crackles. Tones use the DAC's hardware cosine generator (four volume steps, ≥130 Hz).
+  It therefore stays on unless the volume is 0.
+- **Audio output** (reworked in M2). The DAC stays in DMA mode (32 kHz, 8-bit) from boot on, and an
+  `audio` thread keeps feeding it: queued sounds, otherwise the mid level. Every switch between DAC
+  modes, or leaving the input undriven, made the amplifier click or crackle. Notes are sines with
+  5 ms fades. The DAC's hardware cosine generator was tried first and dropped: it always starts at a
+  peak, so every tone clicked. This audio thread is the starting point for game audio in M4.
 - **LED** (GPIO2). The software drives it, but no LED was visible on the test unit.
 
 Each ESP32 app partition is mapped through the MMU to the same virtual addresses. **So one game image
@@ -137,7 +141,7 @@ For reference, the M0 hello world (`std`, logging, display) is about 450 KB.
   games/<game-id>/
     game.toml        # metadata (see §7)
     game.bin         # firmware image
-    icon.rgb565      # 64×64 raw RGB565 (optional)
+    icon.rgb565      # 64×64 raw RGB565, little-endian, row by row: 8192 bytes (optional)
   saves/<game-id>/   # game save files, owned by the game via ogo-sdk
   updates/           # temporary staging for uploads
   settings.toml      # optional human-editable settings (WiFi etc.)
@@ -319,7 +323,7 @@ moves quickly.
 |---|---|---|
 | M0 | Toolchain & hello world | A Rust app built on Windows draws text on the LCD and logs over serial. **Done 2026-10-11** |
 | M1 | `ogo-board` crate | Display, all buttons, speaker beep, SD card (shared bus with LCD), battery reading all work. **Done 2026-10-11** (LED not visually confirmed) |
-| M2 | Launcher UI (offline) | Scrollable game list read from `/ogo/games/*/game.toml`, with icons and battery |
+| M2 | Launcher UI (offline) | Scrollable game list read from `/ogo/games/*/game.toml`, with icons and battery. **Done 2026-10-11** |
 | M3 | Install & launch | Picking a game flashes `game_0` (with progress + hash skip) and boots it |
 | M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist |
 | M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher |

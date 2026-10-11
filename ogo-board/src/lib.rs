@@ -25,7 +25,7 @@ pub use battery::{Battery, BatteryLevel};
 pub use buttons::{Button, ButtonState, Buttons, DpadRaw};
 pub use display::{Backlight, Display, DisplayResultExt};
 pub use sd::SdCard;
-pub use speaker::Speaker;
+pub use speaker::{Note, Speaker};
 
 /// Largest single SPI transfer, in bytes. Used for LCD pixel batches and SD sectors.
 const SPI_DMA_BUFFER: usize = 4096;

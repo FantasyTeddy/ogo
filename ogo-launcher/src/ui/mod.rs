@@ -1,0 +1,330 @@
+//! Launcher screen: top bar with battery, game list, detail panel and footer.
+//!
+//! Each area is drawn into its own [`Canvas`] and presented in one transfer.
+
+mod canvas;
+
+use embedded_graphics::{
+    image::{Image, ImageRawLE},
+    mono_font::{
+        ascii::{FONT_10X20, FONT_6X10, FONT_8X13, FONT_9X15_BOLD},
+        MonoFont, MonoTextStyle,
+    },
+    pixelcolor::Rgb565,
+    prelude::*,
+    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
+    text::{Alignment, Baseline, Text, TextStyleBuilder},
+};
+use ogo_board::{display, BatteryLevel, Display};
+
+use crate::library::{Entry, Library, GAMES_DIR, ICON_SIZE};
+use canvas::Canvas;
+
+const BACKGROUND: Rgb565 = Rgb565::BLACK;
+const BAR: Rgb565 = Rgb565::new(4, 8, 4);
+const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
+const TEXT: Rgb565 = Rgb565::WHITE;
+const DIM: Rgb565 = Rgb565::CSS_GRAY;
+const WARNING: Rgb565 = Rgb565::CSS_ORANGE;
+
+const WIDTH: u32 = display::WIDTH as u32;
+const HEIGHT: u32 = display::HEIGHT as u32;
+const TOP_BAR_HEIGHT: u32 = 24;
+const FOOTER_HEIGHT: u32 = 20;
+const BODY_HEIGHT: u32 = HEIGHT - TOP_BAR_HEIGHT - FOOTER_HEIGHT;
+const LIST_WIDTH: u32 = 192;
+const DETAIL_WIDTH: u32 = WIDTH - LIST_WIDTH;
+
+const ROW_HEIGHT: u32 = 28;
+/// Rows that fit into the list.
+pub const VISIBLE_ROWS: usize = (BODY_HEIGHT / ROW_HEIGHT) as usize;
+const SCROLLBAR_WIDTH: u32 = 3;
+const LIST_TEXT_X: i32 = 8;
+
+/// Which part of the library is on screen.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ListState {
+    pub selected: usize,
+    /// Index of the topmost visible row.
+    pub first: usize,
+}
+
+impl ListState {
+    /// Moves the selection by `delta`, clamped to the list, and scrolls it into view.
+    /// With `wrap`, moving past either end continues at the other end.
+    pub fn move_by(&mut self, delta: isize, len: usize, wrap: bool) {
+        if len == 0 {
+            *self = Self::default();
+            return;
+        }
+        let target = self.selected as isize + delta;
+        self.selected = if wrap && target < 0 && self.selected == 0 {
+            len - 1
+        } else if wrap && target >= len as isize && self.selected == len - 1 {
+            0
+        } else {
+            target.clamp(0, len as isize - 1) as usize
+        };
+        if self.selected < self.first {
+            self.first = self.selected;
+        } else if self.selected >= self.first + VISIBLE_ROWS {
+            self.first = self.selected + 1 - VISIBLE_ROWS;
+        }
+    }
+}
+
+pub struct Ui {
+    top_bar: Canvas,
+    list: Canvas,
+    detail: Canvas,
+    /// List and detail area together, for messages when there is nothing to list.
+    body: Canvas,
+    footer: Canvas,
+}
+
+impl Ui {
+    pub fn new() -> Self {
+        let body_top = TOP_BAR_HEIGHT as i32;
+        Self {
+            top_bar: Canvas::new(Rectangle::new(Point::zero(), Size::new(WIDTH, TOP_BAR_HEIGHT))),
+            list: Canvas::new(Rectangle::new(Point::new(0, body_top), Size::new(LIST_WIDTH, BODY_HEIGHT))),
+            detail: Canvas::new(Rectangle::new(
+                Point::new(LIST_WIDTH as i32, body_top),
+                Size::new(DETAIL_WIDTH, BODY_HEIGHT),
+            )),
+            body: Canvas::new(Rectangle::new(Point::new(0, body_top), Size::new(WIDTH, BODY_HEIGHT))),
+            footer: Canvas::new(Rectangle::new(
+                Point::new(0, (HEIGHT - FOOTER_HEIGHT) as i32),
+                Size::new(WIDTH, FOOTER_HEIGHT),
+            )),
+        }
+    }
+
+    pub fn draw_top_bar(&mut self, display: &mut Display, battery: Option<BatteryLevel>) -> anyhow::Result<()> {
+        let canvas = &mut self.top_bar;
+        canvas.clear(BAR).ok();
+        let middle = TOP_BAR_HEIGHT as i32 / 2;
+        text(canvas, "Games", Point::new(8, middle), &FONT_9X15_BOLD, TEXT, Alignment::Left);
+
+        // Battery: outline with a fill level, and the percentage to its left.
+        let icon = Rectangle::new(Point::new(WIDTH as i32 - 32, middle - 5), Size::new(22, 11));
+        icon.into_styled(PrimitiveStyle::with_stroke(TEXT, 1)).draw(canvas).ok();
+        Rectangle::new(icon.top_left + Point::new(22, 3), Size::new(2, 5))
+            .into_styled(PrimitiveStyle::with_fill(TEXT))
+            .draw(canvas)
+            .ok();
+        let label = match battery {
+            Some(level) => {
+                let color = match level.percent {
+                    0..=15 => Rgb565::RED,
+                    16..=30 => Rgb565::YELLOW,
+                    _ => Rgb565::GREEN,
+                };
+                let fill_width = (18 * u32::from(level.percent)).div_ceil(100);
+                Rectangle::new(icon.top_left + Point::new(2, 2), Size::new(fill_width, 7))
+                    .into_styled(PrimitiveStyle::with_fill(color))
+                    .draw(canvas)
+                    .ok();
+                format!("{}%", level.percent)
+            }
+            None => "--".into(),
+        };
+        text(canvas, &label, Point::new(WIDTH as i32 - 38, middle), &FONT_8X13, TEXT, Alignment::Right);
+
+        canvas.present(display)
+    }
+
+    /// The footer shows the controls, or `message` in their place.
+    pub fn draw_footer(&mut self, display: &mut Display, message: Option<&str>) -> anyhow::Result<()> {
+        let canvas = &mut self.footer;
+        canvas.clear(BAR).ok();
+        let center = Point::new(WIDTH as i32 / 2, FOOTER_HEIGHT as i32 / 2);
+        match message {
+            Some(message) => text(canvas, message, center, &FONT_6X10, TEXT, Alignment::Center),
+            None => text(canvas, "A start   L/R page   START rescan", center, &FONT_6X10, DIM, Alignment::Center),
+        }
+        canvas.present(display)
+    }
+
+    /// Draws the list and the detail panel, or a message if there is nothing to list.
+    /// `icon` is the selected game's icon, if it has one.
+    pub fn draw_library(
+        &mut self,
+        display: &mut Display,
+        library: &Library,
+        state: ListState,
+        icon: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        let entries = match library {
+            Library::NoSdCard => return self.draw_message(display, "No SD card", &["Insert a card and restart."]),
+            Library::NoGamesDir => return self.draw_no_games(display),
+            Library::Entries(entries) if entries.is_empty() => return self.draw_no_games(display),
+            Library::Entries(entries) => entries,
+        };
+        self.draw_list(entries, state);
+        self.draw_detail(&entries[state.selected], state.selected, entries.len(), icon);
+        self.list.present(display)?;
+        self.detail.present(display)
+    }
+
+    fn draw_no_games(&mut self, display: &mut Display) -> anyhow::Result<()> {
+        let folder = format!("/{GAMES_DIR}/<game-id>/");
+        self.draw_message(display, "No games yet", &["Copy games to", &folder, "on the SD card, then press START."])
+    }
+
+    fn draw_message(&mut self, display: &mut Display, title: &str, lines: &[&str]) -> anyhow::Result<()> {
+        let canvas = &mut self.body;
+        canvas.clear(BACKGROUND).ok();
+        let center_x = WIDTH as i32 / 2;
+        text(canvas, title, Point::new(center_x, 70), &FONT_10X20, TEXT, Alignment::Center);
+        for (i, line) in lines.iter().enumerate() {
+            text(canvas, line, Point::new(center_x, 104 + i as i32 * 16), &FONT_8X13, DIM, Alignment::Center);
+        }
+        canvas.present(display)
+    }
+
+    fn draw_list(&mut self, entries: &[Entry], state: ListState) {
+        let canvas = &mut self.list;
+        canvas.clear(BACKGROUND).ok();
+        let max_chars = ((LIST_WIDTH - SCROLLBAR_WIDTH) as i32 - 2 * LIST_TEXT_X) as usize / FONT_8X13.character_size.width as usize;
+
+        for (row, (index, entry)) in entries.iter().enumerate().skip(state.first).take(VISIBLE_ROWS).enumerate() {
+            let top = row as i32 * ROW_HEIGHT as i32;
+            if index == state.selected {
+                Rectangle::new(Point::new(0, top), Size::new(LIST_WIDTH - SCROLLBAR_WIDTH, ROW_HEIGHT))
+                    .into_styled(PrimitiveStyle::with_fill(SELECTION))
+                    .draw(canvas)
+                    .ok();
+            }
+            let (label, color) = match entry {
+                Entry::Game(game) => (truncate(&game.name, max_chars), TEXT),
+                Entry::Broken(broken) => (truncate(&format!("! {}", broken.folder), max_chars), DIM),
+            };
+            let position = Point::new(LIST_TEXT_X, top + ROW_HEIGHT as i32 / 2);
+            text(canvas, &label, position, &FONT_8X13, color, Alignment::Left);
+        }
+
+        // Scrollbar, only when the list doesn't fit.
+        if entries.len() > VISIBLE_ROWS {
+            let track = BODY_HEIGHT;
+            let thumb = (track * VISIBLE_ROWS as u32 / entries.len() as u32).max(8);
+            let max_first = entries.len() - VISIBLE_ROWS;
+            let offset = (track - thumb) * state.first as u32 / max_first as u32;
+            Rectangle::new(Point::new((LIST_WIDTH - SCROLLBAR_WIDTH) as i32, offset as i32), Size::new(SCROLLBAR_WIDTH, thumb))
+                .into_styled(PrimitiveStyle::with_fill(DIM))
+                .draw(canvas)
+                .ok();
+        }
+    }
+
+    fn draw_detail(&mut self, entry: &Entry, index: usize, count: usize, icon: Option<&[u8]>) {
+        let canvas = &mut self.detail;
+        canvas.clear(BACKGROUND).ok();
+        Rectangle::new(Point::zero(), Size::new(1, BODY_HEIGHT))
+            .into_styled(PrimitiveStyle::with_fill(BAR))
+            .draw(canvas)
+            .ok();
+
+        let center_x = DETAIL_WIDTH as i32 / 2;
+        let icon_top_left = Point::new(center_x - ICON_SIZE as i32 / 2, 10);
+        match (entry, icon) {
+            (Entry::Game(_), Some(icon)) => {
+                let raw = ImageRawLE::<Rgb565>::new(icon, ICON_SIZE);
+                Image::new(&raw, icon_top_left).draw(canvas).ok();
+            }
+            (Entry::Game(game), None) => {
+                let initial = game.name.chars().next().unwrap_or('?').to_ascii_uppercase().to_string();
+                placeholder_icon(canvas, icon_top_left, &initial, DIM);
+            }
+            (Entry::Broken(_), _) => placeholder_icon(canvas, icon_top_left, "!", WARNING),
+        }
+
+        let mut y = 10 + ICON_SIZE as i32 + 14;
+        for line in wrap(entry.title(), 15, 3) {
+            text(canvas, &line, Point::new(center_x, y), &FONT_8X13, TEXT, Alignment::Center);
+            y += 15;
+        }
+        y += 4;
+        match entry {
+            Entry::Game(game) => {
+                text(canvas, &format!("v{}", game.version), Point::new(center_x, y), &FONT_6X10, DIM, Alignment::Center);
+                if !game.author.is_empty() {
+                    for line in wrap(&format!("by {}", game.author), 20, 2) {
+                        y += 12;
+                        text(canvas, &line, Point::new(center_x, y), &FONT_6X10, DIM, Alignment::Center);
+                    }
+                }
+            }
+            Entry::Broken(broken) => {
+                text(canvas, "Can't be used:", Point::new(center_x, y), &FONT_6X10, WARNING, Alignment::Center);
+                for line in wrap(&broken.reason, 20, 5) {
+                    y += 12;
+                    text(canvas, &line, Point::new(center_x, y), &FONT_6X10, WARNING, Alignment::Center);
+                }
+            }
+        }
+
+        let position = format!("{} / {count}", index + 1);
+        text(canvas, &position, Point::new(center_x, BODY_HEIGHT as i32 - 10), &FONT_6X10, DIM, Alignment::Center);
+    }
+}
+
+/// A frame with a big character, for games without an icon and for broken entries.
+fn placeholder_icon(canvas: &mut Canvas, top_left: Point, label: &str, color: Rgb565) {
+    let style = PrimitiveStyleBuilder::new().stroke_color(color).stroke_width(1).fill_color(BAR).build();
+    Rectangle::new(top_left, Size::new(ICON_SIZE, ICON_SIZE)).into_styled(style).draw(canvas).ok();
+    let center = top_left + Point::new(ICON_SIZE as i32 / 2, ICON_SIZE as i32 / 2);
+    text(canvas, label, center, &FONT_10X20, color, Alignment::Center);
+}
+
+/// Draws one line of text, vertically centered on `position`.
+fn text(canvas: &mut Canvas, text: &str, position: Point, font: &MonoFont<'_>, color: Rgb565, alignment: Alignment) {
+    let style = TextStyleBuilder::new().alignment(alignment).baseline(Baseline::Middle).build();
+    Text::with_text_style(text, position, MonoTextStyle::new(font, color), style).draw(canvas).ok();
+}
+
+/// Shortens `text` to `max_chars`, ending in "..." if it was cut.
+fn truncate(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    let kept: String = text.chars().take(max_chars.saturating_sub(3)).collect();
+    format!("{}...", kept.trim_end())
+}
+
+/// Word-wraps `text` into at most `max_lines` lines of `max_chars`. Words longer than a line are
+/// cut, and the last line ends in "..." if text was left over.
+fn wrap(text: &str, max_chars: usize, max_lines: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let mut word = word.to_owned();
+        loop {
+            let needed = if current.is_empty() { word.chars().count() } else { current.chars().count() + 1 + word.chars().count() };
+            if needed <= max_chars {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(&word);
+                break;
+            }
+            if !current.is_empty() {
+                lines.push(std::mem::take(&mut current));
+                continue;
+            }
+            // A single word longer than a line: split it.
+            let head: String = word.chars().take(max_chars).collect();
+            word = word.chars().skip(max_chars).collect();
+            lines.push(head);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.len() > max_lines {
+        lines.truncate(max_lines);
+        let last = lines.last_mut().expect("max_lines > 0");
+        *last = truncate(&format!("{last}..."), max_chars);
+    }
+    lines
+}
