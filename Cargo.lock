@@ -1109,6 +1109,7 @@ dependencies = [
  "esp-idf-svc",
  "log",
  "mipidsi",
+ "sha2",
 ]
 
 [[package]]
@@ -1122,8 +1123,19 @@ dependencies = [
  "log",
  "ogo-board",
  "serde",
- "sha2",
  "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "ogo-recovery"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "embedded-graphics",
+ "embuild",
+ "esp-idf-svc",
+ "log",
+ "ogo-board",
 ]
 
 [[package]]

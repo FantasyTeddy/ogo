@@ -1,22 +1,25 @@
-# Odroid-Go Rust Launcher
+<p align="center"><img src="docs/logo.png" alt="ogo: a crab whose shell is a handheld console" width="300"></p>
 
-A launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go) handheld, written in Rust.
-It installs native Rust games from the SD card into a flash slot and boots them. Games and launcher
-updates are managed from a web page served by the device itself.
+# ogo
 
-> **Status:** early development. Milestones M0–M4 are done: the launcher lists the games on the SD
-> card, installs the selected one into the game slot and boots it. Games are built on `ogo-sdk`;
-> `games/snake` is the first one. Hold SELECT at power-on for a hardware test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
+A game launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go) handheld, written in
+Rust. It installs native Rust games from the SD card into a flash slot and boots them. Later, games
+and launcher updates will be managed from a web page served by the device itself.
 
-## Planned features
+> **Status:** early development. Milestones M0–M5 are done: the launcher lists the games on the SD
+> card, installs the selected one and boots it; games are built on `ogo-sdk` (`games/snake` is the
+> first one); a recovery app starts when MENU is held at power-on. See the
+> [roadmap](docs/DESIGN.md#9-roadmap).
+
+## Features
 
 - Game library on the SD card, with icons
 - Installs a game into a dedicated flash slot and boots it; reinstalls are skipped when the game is unchanged
-- Games built on a small SDK (`ogo-sdk`): frame loop, input, sound, saves, exit back to the launcher
-- Web UI over WiFi: upload and delete games, download saves
-- Launcher self-update over the air, with A/B slots and rollback
-- Recovery app, entered by holding MENU at power-on
-- Later: emulators packaged as games
+- Games built on a small SDK (`ogo-sdk`): frame loop, input, sound, saves, pause menu, exit back to the launcher
+- Recovery app, entered by holding MENU at power-on: start either launcher slot, or reinstall the
+  launcher from the SD card
+- Planned: web UI over WiFi (upload and delete games, download saves), launcher self-update over the
+  air with A/B slots and rollback, emulators packaged as games
 
 The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -50,30 +53,26 @@ minutes; later builds are fast.
 
 ## Build and flash
 
-In every new PowerShell window, load the environment first:
+Flash over USB with the script (replace `COM7` with your port):
+
+```powershell
+.\tools\flash.ps1 -All -Port COM7      # first time: bootloader, partition table, recovery and launcher
+.\tools\flash.ps1 -Port COM7           # afterwards: launcher only
+.\tools\flash.ps1 -Monitor             # launcher, then show the serial log
+```
+
+The script loads the environment, builds everything and flashes with this project's own bootloader
+(it starts recovery when MENU is held) and the partition table from [partitions.csv](partitions.csv).
+A plain `cargo espflash flash` would use espflash's default bootloader instead.
+
+For anything else, load the environment in each new PowerShell window first:
 
 ```powershell
 . .\env.ps1
-```
-
-Then build, flash and open the serial monitor (replace `COM7` with your port):
-
-```powershell
-cargo espflash flash --release --package ogo-launcher --target-app-partition launcher_a --port COM7 --monitor
-```
-
-This also writes the partition table from [partitions.csv](partitions.csv) (configured in
-[espflash.toml](espflash.toml)). The launcher goes into the `launcher_a` slot. The first time, or if
-the device keeps booting something else, add `--erase-parts otadata,recovery`: that clears the boot
-selection and the (still unused) recovery slot, so the bootloader falls back to `launcher_a`.
-
-To build only:
-
-```powershell
 cargo build --release
 ```
 
-The firmware ends up in `D:\ogot\xtensa-esp32-espidf\release\ogo-launcher`.
+Firmware ends up in `D:\ogot\xtensa-esp32-espidf\release\`.
 
 ## Games
 
@@ -84,32 +83,46 @@ slot and boots. To build a game and copy it to an SD card (here `E:\`):
 python tools\install_game.py games\snake E:\
 ```
 
+On the device, select the game and press A. The first start (or after an update) installs it with a
+progress bar. In a game, MENU opens the pause menu with "Exit to launcher", and VOL changes the
+volume. Any reset while a game runs also lands back in the launcher.
+
 To write a game, start from [games/snake](games/snake/) and read the crate docs at the top of
 [ogo-sdk/src/lib.rs](ogo-sdk/src/lib.rs).
 
-On the device, select the game and press A. The first start (or after an update) installs it with a
-progress bar; MENU in the game returns to the launcher. Any reset while a game runs also lands back in
-the launcher.
+## Recovery
+
+Hold **MENU** while switching on, for about a second. The recovery app can start either launcher slot,
+or install `/ogo/updates/launcher.bin` from the SD card into launcher slot A. To put a launcher image
+there:
+
+```powershell
+. .\env.ps1
+cargo espflash save-image --chip esp32 --flash-size 16mb --release --package ogo-launcher E:\ogo\updates\launcher.bin
+```
+
+If MENU wasn't held (for example right after flashing), recovery starts the launcher by itself.
+Holding **SELECT** at power-on opens the launcher's hardware test screen.
 
 ## Project layout
 
 | Path | Contents |
 |---|---|
-| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card) and the launcher/game boot contract |
-| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, hardware test screen |
+| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing and the launcher/game boot contract |
+| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, boot screen, hardware test screen |
+| [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/hello/](games/hello/) | Minimal test game using `ogo-board` directly |
 | [partitions.csv](partitions.csv) | Flash layout |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design, flash layout, boot flows and roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
-| [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings (flash size, PSRAM, stack sizes) |
+| [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
 | [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |
+| [tools/flash.ps1](tools/flash.ps1) | Builds and flashes over USB |
 | [tools/install_game.py](tools/install_game.py) | Builds a game and copies it to an SD card |
+| [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
 | [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
-
-More crates (`ogo-sdk`, `ogo-recovery`, example games, `xtask`) are added as the milestones
-progress.
 
 ## Restoring the original firmware
 
@@ -126,3 +139,6 @@ cargo espflash write-bin --port COM7 0 backup\original-flash-16MB.bin
 ```
 
 The `backup/` folder is excluded from git.
+
+ODROID and ODROID-GO are trademarks of Hardkernel. ogo is an independent project, not affiliated with
+Hardkernel.

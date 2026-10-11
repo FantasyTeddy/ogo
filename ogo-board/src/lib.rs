@@ -9,10 +9,12 @@ pub mod boot;
 pub mod buttons;
 pub mod canvas;
 pub mod display;
+pub mod flash;
 pub mod pins;
 pub mod sd;
 pub mod speaker;
 
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 use esp_idf_svc::{
     hal::{
         adc::oneshot::AdcDriver,
@@ -47,6 +49,12 @@ pub struct Board {
 impl Board {
     /// Takes the ESP32 peripherals and initializes all board hardware. Call once.
     pub fn take() -> anyhow::Result<Self> {
+        Self::take_with(|_| Ok(()))
+    }
+
+    /// Like [`Board::take`], but calls `first_frame` as soon as the display works, before the
+    /// backlight turns on and before the slower SD card setup. Use it to show a boot screen.
+    pub fn take_with(first_frame: impl FnOnce(&mut Display) -> anyhow::Result<()>) -> anyhow::Result<Self> {
         let p = Peripherals::take()?;
         let pins = p.pins;
 
@@ -61,7 +69,10 @@ impl Board {
         // Keep the SD card deselected while the LCD initializes; the SD driver takes over the pin later.
         deselect_sd_card();
 
-        let display = display::init(spi, pins.gpio5, pins.gpio21)?;
+        let mut display = display::init(spi, pins.gpio5, pins.gpio21)?;
+        // The panel still shows whatever the previous app left; clear it before it becomes visible.
+        display.clear(Rgb565::BLACK).display_err()?;
+        first_frame(&mut display)?;
         let mut backlight = Backlight::new(pins.gpio14)?;
         backlight.set_on(true)?;
 

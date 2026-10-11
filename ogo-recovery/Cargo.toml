@@ -1,0 +1,20 @@
+[package]
+name = "ogo-recovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Recovery app in the factory slot: start a launcher slot or reinstall the launcher from the SD card"
+
+[[bin]]
+name = "ogo-recovery"
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+[dependencies]
+ogo-board.workspace = true
+anyhow.workspace = true
+log.workspace = true
+esp-idf-svc.workspace = true
+embedded-graphics.workspace = true
+
+[build-dependencies]
+embuild.workspace = true

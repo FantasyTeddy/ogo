@@ -1,4 +1,4 @@
-# Odroid-Go Rust Launcher: Design & Roadmap
+# ogo: Design & Roadmap
 
 *As of 2026-10-11*
 
@@ -116,17 +116,21 @@ runs from any app slot without being rebuilt.** That is what makes "copy from SD
 
 ## 4. Storage layout
 
-### Flash partition table (16 MB). Sizes are initial guesses; tune them once real binary sizes are known
+### Flash partition table (16 MB). Final since M5
 
 | Name | Type / subtype | Offset | Size | Content |
 |---|---|---|---|---|
 | nvs | data / nvs | 0x9000 | 16 KB | Settings, WiFi credentials, slot bookkeeping |
 | otadata | data / ota | 0xD000 | 8 KB | Which app slot boots |
 | phy_init | data / phy | 0xF000 | 4 KB | RF calibration |
-| recovery | app / factory | 0x10000 | 1.5 MB | `ogo-recovery` |
-| launcher_a | app / ota_0 | 0x190000 | 2.5 MB | Launcher, slot A |
-| launcher_b | app / ota_1 | 0x410000 | 2.5 MB | Launcher, slot B |
-| game_0 | app / ota_2 | 0x690000 | ~9.4 MB | Installed game |
+| recovery | app / factory | 0x10000 | 2 MB | `ogo-recovery` |
+| launcher_a | app / ota_0 | 0x210000 | 2.5 MB | Launcher, slot A |
+| launcher_b | app / ota_1 | 0x490000 | 2.5 MB | Launcher, slot B |
+| game_0 | app / ota_2 | 0x710000 | ~8.9 MB | Installed game |
+
+Recovery got 2 MB instead of the first guess of 1.5 MB, because it gets WiFi upload in M7 (WiFi alone
+adds about 600 KB). Sizes at M5: recovery 620 KB, launcher 900 KB, Snake 650 KB. The NVS entry for
+the installed game stores `game_0`'s address too, so a moved slot counts as empty.
 
 A second game slot (`ota_3`) is possible by splitting `game_0`. It would act as a cache, so switching
 between two games skips the re-flash. Begin with one slot.
@@ -172,13 +176,20 @@ runs when the launcher deliberately started it.
 
 ### Recovery (fallback for when the launcher itself is broken)
 
-- Bootloader option `CONFIG_BOOTLOADER_FACTORY_RESET` with the pin set to **MENU (GPIO13)**: holding
-  MENU at power-on boots the `recovery` (factory) partition.
-  - Configure the "data partitions to erase on factory reset" list so it does **not** wipe NVS. Check
-    the exact option names in the ESP-IDF version you use.
-- Recovery shows a small menu: boot launcher A, boot launcher B, or "WiFi upload mode" to receive a
-  fresh `launcher.bin`.
-- The last resort is still USB serial flashing with `espflash`.
+- Bootloader option `CONFIG_BOOTLOADER_FACTORY_RESET` with the pin set to **MENU (GPIO13)**, active
+  low, held for 1 s (`CONFIG_BOOTLOADER_HOLD_TIME_GPIO`). The bootloader only boots the factory slot
+  if it also clears otadata (`CONFIG_BOOTLOADER_OTA_DATA_ERASE`); otherwise it boots the usual slot.
+  The list of data partitions to erase is empty, so NVS survives.
+- Because otadata is cleared, every later reset also lands in recovery until a launcher is chosen.
+  Recovery tells a MENU boot from an empty otadata (e.g. after flashing) by the bootloader's
+  factory-reset flag in RTC memory (`bootloader_common_get_rtc_retain_mem_factory_reset_state`).
+  Without MENU it starts the first valid launcher slot right away.
+- Recovery's menu (built in M5): start launcher A or B (with version and build time), install
+  `/ogo/updates/launcher.bin` from the SD card into launcher A, restart. "WiFi upload mode" follows
+  in M7.
+- The bootloader is the one esp-idf-sys builds from `sdkconfig.defaults`; `tools/flash.ps1` passes
+  it to espflash, whose default bootloader lacks the MENU option.
+- The last resort is still USB serial flashing.
 
 ### Launcher self-update (A/B with rollback)
 
@@ -318,13 +329,10 @@ As built in M4 (`ogo-sdk`, example: `games/snake`):
 4. **Python version.** ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild
    always uses the first `python` on PATH. `env.ps1` loads `export-esp.ps1` and puts Python 3.12
    first. Dot-source it in each new shell: `. .\env.ps1`.
-5. **Flash + monitor:**
-   ```
-   cargo espflash flash --release --package ogo-launcher --target-app-partition launcher_a --port COM7 --monitor
-   ```
-   `espflash.toml` supplies `partitions.csv`. cargo-espflash 4.3 ignores `target_app_partition` in
-   that file, hence the flag. Until the recovery app exists (M5) the factory slot is empty and the
-   bootloader falls back to `launcher_a`; add `--erase-parts otadata,recovery` if it boots something else.
+5. **Flash:** `tools/flash.ps1` (launcher only) or `tools/flash.ps1 -All` (also recovery, and clears
+   otadata). It builds, finds the bootloader esp-idf-sys built, and runs `cargo espflash flash` with
+   `--bootloader`, `--target-app-partition` (cargo-espflash 4.3 ignores that key in `espflash.toml`)
+   and the partition table from `espflash.toml`. `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
 6. **Useful crates:**
    - `esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`
    - `mipidsi`, `embedded-graphics`, `embedded-hal-bus` (shared SPI)
@@ -344,7 +352,7 @@ moves quickly.
 | M2 | Launcher UI (offline) | Scrollable game list read from `/ogo/games/*/game.toml`, with icons and battery. **Done 2026-10-11** |
 | M3 | Install & launch | Picking a game flashes `game_0` (with progress + hash skip) and boots it. **Done 2026-10-11** |
 | M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist. **Done 2026-10-11** |
-| M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher |
+| M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher. **Done 2026-10-11** |
 | M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection |
 | M7 | Launcher self-OTA | Upload `launcher.bin` via the web page. A/B switch with rollback, tested with a deliberately broken build |
 | M8 | Polish | Settings screen (WiFi, brightness, volume), save backup download, mDNS, `cargo xtask pack` |

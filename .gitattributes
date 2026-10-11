@@ -1,0 +1,3 @@
+# Raw images: never convert line endings
+*.rgb565 binary
+*.png binary

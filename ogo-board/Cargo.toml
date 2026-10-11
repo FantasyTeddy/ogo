@@ -11,3 +11,4 @@ log.workspace = true
 esp-idf-svc.workspace = true
 mipidsi.workspace = true
 embedded-graphics.workspace = true
+sha2.workspace = true

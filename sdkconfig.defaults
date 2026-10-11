@@ -9,6 +9,8 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_SPIRAM=y
 # Needed on ESP32 revision v1.0 (the chip on this board)
 CONFIG_SPIRAM_CACHE_WORKAROUND=y
+# The PSRAM self-test adds ~0.9 s to every start
+CONFIG_SPIRAM_MEMTEST=n
 
 # 1 ms scheduler ticks, for steady frame timing in games (the default is 10 ms)
 CONFIG_FREERTOS_HZ=1000
@@ -16,3 +18,12 @@ CONFIG_FREERTOS_HZ=1000
 # Long filenames on the SD card (the default is 8.3 names only)
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+
+# Recovery (M5): holding MENU (GPIO13, low when pressed) for 1 s at power-on boots the factory slot.
+# That needs otadata cleared; NVS (settings, installed game) is kept.
+CONFIG_BOOTLOADER_FACTORY_RESET=y
+CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET=13
+CONFIG_BOOTLOADER_FACTORY_RESET_PIN_LOW=y
+CONFIG_BOOTLOADER_OTA_DATA_ERASE=y
+CONFIG_BOOTLOADER_DATA_FACTORY_RESET=""
+CONFIG_BOOTLOADER_HOLD_TIME_GPIO=1

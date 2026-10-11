@@ -18,11 +18,13 @@ use esp_idf_svc::hal::delay::FreeRtos;
 use ogo_board::{boot::Boot, Board, Button, Note};
 
 use input::{Nav, Navigator};
-use install::Progress;
+use ogo_board::flash::Progress;
 use library::{Entry, Game, Library};
 use ui::{ListState, Ui, VISIBLE_ROWS};
 
 const POLL_MS: u32 = 20;
+/// The boot screen stays at least this long, unless a button is pressed.
+const BOOT_SCREEN_MIN: Duration = Duration::from_millis(1500);
 const BATTERY_INTERVAL: Duration = Duration::from_secs(5);
 const MESSAGE_DURATION: Duration = Duration::from_secs(2);
 const SOUND_ERROR: &[Note] = &[Note::new(440, 90), Note::new(330, 140)];
@@ -36,13 +38,20 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let boot = Boot::take()?;
-    let mut board = Board::take()?;
+    let mut boot_screen_shown = Instant::now();
+    let mut board = Board::take_with(|display| {
+        ui::draw_boot_screen(display)?;
+        boot_screen_shown = Instant::now();
+        Ok(())
+    })?;
     if board.buttons.read()?.is_held(Button::Select) {
         return hwtest::run(&mut board);
     }
 
     log::info!("ogo-launcher, running from {}", ogo_board::boot::running_partition_label());
-    Launcher::new(board, boot)?.run()
+    let mut launcher = Launcher::new(board, boot)?;
+    launcher.wait_for_boot_screen(boot_screen_shown)?;
+    launcher.run()
 }
 
 struct Launcher {
@@ -60,6 +69,7 @@ struct Launcher {
 }
 
 impl Launcher {
+    /// Scans the SD card; the boot screen stays up meanwhile.
     fn new(board: Board, boot: Boot) -> anyhow::Result<Self> {
         let library = library::scan(board.sd.as_ref());
         Ok(Self {
@@ -72,6 +82,17 @@ impl Launcher {
             message: None,
             notice: false,
         })
+    }
+
+    /// Keeps the boot screen up until [`BOOT_SCREEN_MIN`] has passed or a button is pressed.
+    fn wait_for_boot_screen(&mut self, shown: Instant) -> anyhow::Result<()> {
+        while shown.elapsed() < BOOT_SCREEN_MIN {
+            if self.board.buttons.read()?.any() {
+                break;
+            }
+            FreeRtos::delay_ms(POLL_MS);
+        }
+        Ok(())
     }
 
     fn run(mut self) -> anyhow::Result<()> {

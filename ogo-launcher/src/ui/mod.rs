@@ -13,7 +13,7 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
-use ogo_board::{display, BatteryLevel, Canvas, Display};
+use ogo_board::{display, BatteryLevel, Canvas, Display, DisplayResultExt};
 
 use crate::library::{Entry, Library, GAMES_DIR, ICON_SIZE};
 
@@ -301,6 +301,24 @@ impl Ui {
         let position = format!("{} / {count}", index + 1);
         text(canvas, &position, Point::new(center_x, BODY_HEIGHT as i32 - 10), &FONT_6X10, DIM, Alignment::Center);
     }
+}
+
+/// The ogo mascot and wordmark (tools/make_logo.py): RGB565 little-endian.
+const LOGO: &[u8] = include_bytes!("../../assets/logo.rgb565");
+const LOGO_WIDTH: u32 = 200;
+const LOGO_HEIGHT: u32 = 184;
+
+/// Logo and version on black, shown from power-on until the game list is ready.
+pub fn draw_boot_screen(display: &mut Display) -> anyhow::Result<()> {
+    let raw = ImageRawLE::<Rgb565>::new(LOGO, LOGO_WIDTH);
+    let top_left = Point::new((WIDTH - LOGO_WIDTH) as i32 / 2, (HEIGHT - LOGO_HEIGHT) as i32 / 2 - 8);
+    Image::new(&raw, top_left).draw(display).display_err()?;
+    let version = concat!("launcher v", env!("CARGO_PKG_VERSION"));
+    let style = TextStyleBuilder::new().alignment(Alignment::Center).baseline(Baseline::Middle).build();
+    Text::with_text_style(version, Point::new(WIDTH as i32 / 2, HEIGHT as i32 - 14), MonoTextStyle::new(&FONT_6X10, DIM), style)
+        .draw(display)
+        .display_err()?;
+    Ok(())
 }
 
 /// A frame with a big character, for games without an icon and for broken entries.

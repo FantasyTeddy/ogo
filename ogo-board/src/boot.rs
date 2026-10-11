@@ -26,6 +26,8 @@ const NVS_NAMESPACE: &str = "ogo";
 const KEY_LAUNCHER: &str = "launcher";
 /// SHA-256 (hex) of the image in `game_0`. NVS keys are limited to 15 characters.
 const KEY_GAME_HASH: &str = "game0_sha256";
+/// Flash address of `game_0` when the hash was stored; a changed partition table invalidates it.
+const KEY_GAME_ADDRESS: &str = "game0_addr";
 
 pub struct Boot {
     nvs: EspDefaultNvs,
@@ -47,6 +49,10 @@ impl Boot {
 
     /// Hash of the game image in `game_0`, if one was installed completely.
     pub fn installed_game_hash(&self) -> anyhow::Result<Option<String>> {
+        let address = find_app_partition(GAME_PARTITION)?.address;
+        if self.nvs.get_u32(KEY_GAME_ADDRESS)? != Some(address) {
+            return Ok(None);
+        }
         let mut buf = [0u8; 65];
         Ok(self.nvs.get_str(KEY_GAME_HASH, &mut buf)?.map(str::to_owned))
     }
@@ -54,7 +60,10 @@ impl Boot {
     /// Records the hash of the image in `game_0`; `None` while it's being replaced.
     pub fn set_installed_game_hash(&mut self, hash: Option<&str>) -> anyhow::Result<()> {
         match hash {
-            Some(hash) => self.nvs.set_str(KEY_GAME_HASH, hash)?,
+            Some(hash) => {
+                self.nvs.set_str(KEY_GAME_HASH, hash)?;
+                self.nvs.set_u32(KEY_GAME_ADDRESS, find_app_partition(GAME_PARTITION)?.address)?;
+            }
             None => {
                 self.nvs.remove(KEY_GAME_HASH)?;
             }
@@ -114,7 +123,8 @@ pub fn find_app_partition(label: &str) -> anyhow::Result<&'static sys::esp_parti
     unsafe { partition.as_ref() }.ok_or_else(|| anyhow!("no app partition named {label}"))
 }
 
-fn set_boot_partition(label: &str) -> anyhow::Result<()> {
+/// Makes the app slot `label` boot on the next restart. Fails if it holds no valid image.
+pub fn set_boot_partition(label: &str) -> anyhow::Result<()> {
     let partition = find_app_partition(label)?;
     esp!(unsafe { sys::esp_ota_set_boot_partition(partition) })
         .with_context(|| format!("can't make {label} the boot partition"))
