@@ -105,6 +105,17 @@ older frame, so clear or overwrite all of it every time. The SDK sends finished 
 from another thread while the game draws the next one. A full frame takes about 31 ms to send, so
 30 fps is the realistic rate for full redraws.
 
+`ogo_sdk::ui` has the launcher's colours (`TEXT`, `DIM`, `BAR`, `SELECTION`, …) and a few helpers:
+`text` (one line, vertically centred on a point), `selection` (highlight a row), `panel` (a box with
+a border) and `progress_bar`. They are optional, for games that want to match the launcher's look:
+
+```rust
+use embedded_graphics::{mono_font::ascii::FONT_10X20, text::Alignment};
+use ogo_sdk::ui;
+
+ui::text(fb, "Game over", Point::new(160, 120), &FONT_10X20, ui::TEXT, Alignment::Center);
+```
+
 **Input.** `ctx.input()` is sampled once per frame:
 - `pressed(button)`: went down since the last frame
 - `held(button)`: is down

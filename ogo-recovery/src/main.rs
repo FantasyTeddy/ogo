@@ -8,14 +8,11 @@
 use std::path::PathBuf;
 
 use embedded_graphics::{
-    mono_font::{
-        ascii::{FONT_10X20, FONT_6X10, FONT_8X13},
-        MonoFont, MonoTextStyle,
-    },
+    mono_font::ascii::{FONT_10X20, FONT_6X10, FONT_8X13},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
-    text::{Alignment, Baseline, Text, TextStyleBuilder},
+    text::Alignment,
 };
 use esp_idf_svc::hal::delay::FreeRtos;
 use ogo_board::{
@@ -23,6 +20,7 @@ use ogo_board::{
     display::{HEIGHT, WIDTH},
     flash::{self, AppInfo, Progress},
     image::ImageKind,
+    ui::{progress_bar, selection, text, TEXT, WARNING},
     Board, Button, ButtonState, Canvas,
 };
 use ogo_format::slots::{self, LauncherSlot};
@@ -34,12 +32,11 @@ const UPDATE_PATH: &str = "ogo/updates/launcher.bin";
 /// The slot "Install launcher from SD card" writes to.
 const INSTALL_SLOT: LauncherSlot = slots::LAUNCHER_A;
 
+// A red tint, so recovery never looks like the launcher. The rest comes from `ogo_board::ui`.
 const BACKGROUND: Rgb565 = Rgb565::new(6, 2, 2);
 const BAR: Rgb565 = Rgb565::new(12, 4, 4);
-const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
-const TEXT: Rgb565 = Rgb565::WHITE;
+/// Lighter than the usual dim grey, to read well on red.
 const DIM: Rgb565 = Rgb565::CSS_SILVER;
-const WARNING: Rgb565 = Rgb565::CSS_ORANGE;
 
 const TOP_BAR_HEIGHT: i32 = 26;
 const ROW_HEIGHT: i32 = 40;
@@ -201,10 +198,7 @@ impl Recovery {
         for (i, item) in self.items.iter().enumerate() {
             let top = ROWS_TOP + i as i32 * ROW_HEIGHT;
             if i == self.selected {
-                Rectangle::new(Point::new(4, top), Size::new(WIDTH as u32 - 8, ROW_HEIGHT as u32 - 4))
-                    .into_styled(PrimitiveStyle::with_fill(SELECTION))
-                    .draw(canvas)
-                    .ok();
+                selection(canvas, Rectangle::new(Point::new(4, top), Size::new(WIDTH as u32 - 8, ROW_HEIGHT as u32 - 4)));
             }
             let (title, detail) = describe(item);
             text(canvas, &title, Point::new(12, top + 11), &FONT_8X13, TEXT, Alignment::Left);
@@ -255,15 +249,5 @@ fn draw_progress(canvas: &mut Canvas, percent: Option<u32>) {
     let status = percent.map_or("Preparing...".to_owned(), |p| format!("{p} %"));
     text(canvas, &status, Point::new(center_x, 112), &FONT_8X13, DIM, Alignment::Center);
     let bar = Rectangle::new(Point::new(center_x - 120, 132), Size::new(240, 14));
-    bar.into_styled(PrimitiveStyle::with_stroke(DIM, 1)).draw(canvas).ok();
-    let filled = 236 * percent.unwrap_or(0) / 100;
-    Rectangle::new(bar.top_left + Point::new(2, 2), Size::new(filled, 10))
-        .into_styled(PrimitiveStyle::with_fill(SELECTION))
-        .draw(canvas)
-        .ok();
-}
-
-fn text(canvas: &mut Canvas, text: &str, position: Point, font: &MonoFont<'_>, color: Rgb565, alignment: Alignment) {
-    let style = TextStyleBuilder::new().alignment(alignment).baseline(Baseline::Middle).build();
-    Text::with_text_style(text, position, MonoTextStyle::new(font, color), style).draw(canvas).ok();
+    progress_bar(canvas, bar, percent.unwrap_or(0) as f32 / 100.0, DIM);
 }

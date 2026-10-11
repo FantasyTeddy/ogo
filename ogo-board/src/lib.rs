@@ -15,6 +15,7 @@ pub mod pins;
 pub mod sd;
 pub mod settings;
 pub mod speaker;
+pub mod ui;
 
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
 use esp_idf_svc::{

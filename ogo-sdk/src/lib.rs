@@ -42,6 +42,9 @@ pub use ctx::{Ctx, Input};
 #[doc(hidden)]
 pub use ogo_board as __board;
 pub use ogo_board::{BatteryLevel, Note, Speaker};
+/// The launcher's colours and drawing helpers (`text`, `selection`, `panel`, `progress_bar`), for
+/// games that want to match its look.
+pub use ogo_board::ui;
 pub use saves::Saves;
 
 use overlay::{PauseAction, PauseMenu, VolumeIndicator, MENU_SOUND};

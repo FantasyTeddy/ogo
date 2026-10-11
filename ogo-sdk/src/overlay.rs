@@ -5,20 +5,19 @@ use std::time::{Duration, Instant};
 use embedded_graphics::{
     mono_font::{
         ascii::{FONT_10X20, FONT_8X13},
-        MonoTextStyle,
+        MonoFont,
     },
-    pixelcolor::Rgb565,
     prelude::*,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
-    text::{Alignment, Baseline, Text, TextStyleBuilder},
+    primitives::{PrimitiveStyle, Rectangle},
+    text::Alignment,
 };
-use ogo_board::{Button, Canvas, Note};
+use ogo_board::{
+    ui::{self, panel, selection, SELECTION, TEXT},
+    Button, Canvas, Note,
+};
 
 use crate::ctx::Input;
 
-const PANEL: Rgb565 = Rgb565::new(4, 8, 4);
-const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
-const TEXT: Rgb565 = Rgb565::WHITE;
 const VOLUME_SHOWN_FOR: Duration = Duration::from_millis(1200);
 pub const MENU_SOUND: &[Note] = &[Note::new(660, 30)];
 
@@ -53,16 +52,15 @@ impl PauseMenu {
     /// Dims the game's frame and draws the menu on top.
     pub fn draw(&self, fb: &mut Canvas) {
         fb.dim();
-        let panel = Rectangle::with_center(fb.bounding_box().center(), Size::new(200, 110));
-        let style = PrimitiveStyleBuilder::new().fill_color(PANEL).stroke_color(TEXT).stroke_width(1).build();
-        panel.into_styled(style).draw(fb).ok();
+        let area = Rectangle::with_center(fb.bounding_box().center(), Size::new(200, 110));
+        panel(fb, area);
 
-        let center_x = panel.center().x;
-        text(fb, "Paused", Point::new(center_x, panel.top_left.y + 20), &FONT_10X20);
+        let center_x = area.center().x;
+        text(fb, "Paused", Point::new(center_x, area.top_left.y + 20), &FONT_10X20);
         for (i, (label, _)) in ITEMS.iter().enumerate() {
-            let row = Rectangle::new(Point::new(panel.top_left.x + 10, panel.top_left.y + 44 + i as i32 * 28), Size::new(180, 24));
+            let row = Rectangle::new(Point::new(area.top_left.x + 10, area.top_left.y + 44 + i as i32 * 28), Size::new(180, 24));
             if i == self.selected {
-                row.into_styled(PrimitiveStyle::with_fill(SELECTION)).draw(fb).ok();
+                selection(fb, row);
             }
             text(fb, label, row.center(), &FONT_8X13);
         }
@@ -87,13 +85,12 @@ impl VolumeIndicator {
         if self.until.is_none() {
             return;
         }
-        let panel = Rectangle::new(Point::new(fb.size().width as i32 - 130, 8), Size::new(122, 34));
-        let style = PrimitiveStyleBuilder::new().fill_color(PANEL).stroke_color(TEXT).stroke_width(1).build();
-        panel.into_styled(style).draw(fb).ok();
+        let area = Rectangle::new(Point::new(fb.size().width as i32 - 130, 8), Size::new(122, 34));
+        panel(fb, area);
         let label = if volume == 0 { "Muted".to_owned() } else { format!("Volume {volume}%") };
-        text(fb, &label, Point::new(panel.center().x, panel.top_left.y + 11), &FONT_8X13);
+        text(fb, &label, Point::new(area.center().x, area.top_left.y + 11), &FONT_8X13);
         // Bar showing the level.
-        let bar = Rectangle::new(panel.top_left + Point::new(8, 21), Size::new(106, 6));
+        let bar = Rectangle::new(area.top_left + Point::new(8, 21), Size::new(106, 6));
         bar.into_styled(PrimitiveStyle::with_stroke(TEXT, 1)).draw(fb).ok();
         Rectangle::new(bar.top_left, Size::new(106 * u32::from(volume) / 100, 6))
             .into_styled(PrimitiveStyle::with_fill(SELECTION))
@@ -102,7 +99,7 @@ impl VolumeIndicator {
     }
 }
 
-fn text(fb: &mut Canvas, text: &str, center: Point, font: &embedded_graphics::mono_font::MonoFont<'_>) {
-    let style = TextStyleBuilder::new().alignment(Alignment::Center).baseline(Baseline::Middle).build();
-    Text::with_text_style(text, center, MonoTextStyle::new(font, TEXT), style).draw(fb).ok();
+/// White text centred on `center`.
+fn text(fb: &mut Canvas, text: &str, center: Point, font: &MonoFont<'_>) {
+    ui::text(fb, text, center, font, TEXT, Alignment::Center);
 }

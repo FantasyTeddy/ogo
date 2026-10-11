@@ -3,14 +3,11 @@
 use std::collections::VecDeque;
 
 use embedded_graphics::{
-    mono_font::{
-        ascii::{FONT_10X20, FONT_8X13},
-        MonoFont, MonoTextStyle,
-    },
+    mono_font::ascii::{FONT_10X20, FONT_8X13},
     primitives::{Circle, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
-    text::{Alignment, Baseline, Text, TextStyleBuilder},
+    text::Alignment,
 };
-use ogo_sdk::prelude::*;
+use ogo_sdk::{prelude::*, ui::text};
 
 const CELL: i32 = 16;
 const HUD_HEIGHT: i32 = 16;
@@ -280,11 +277,6 @@ impl Snake {
 
 fn cell_origin((x, y): (i32, i32)) -> (i32, i32) {
     (x * CELL, HUD_HEIGHT + y * CELL)
-}
-
-fn text(fb: &mut Framebuffer, text: &str, position: Point, font: &MonoFont<'_>, color: Rgb565, alignment: Alignment) {
-    let style = TextStyleBuilder::new().alignment(alignment).baseline(Baseline::Middle).build();
-    Text::with_text_style(text, position, MonoTextStyle::new(font, color), style).draw(fb).ok();
 }
 
 ogo_sdk::main!(Snake);

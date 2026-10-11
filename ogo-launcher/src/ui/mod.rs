@@ -7,26 +7,23 @@ use embedded_graphics::{
     image::{Image, ImageRawLE},
     mono_font::{
         ascii::{FONT_10X20, FONT_6X10, FONT_8X13, FONT_9X15_BOLD},
-        MonoFont, MonoTextStyle,
+        MonoTextStyle,
     },
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{Circle, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
-use ogo_board::{display, BatteryLevel, Canvas, Display, DisplayResultExt};
+pub use ogo_board::ui::{DIM, SUCCESS, TEXT, WARNING};
+use ogo_board::{
+    display,
+    ui::{progress_bar, selection, text, ACCENT, BACKGROUND, BAR, SELECTION},
+    BatteryLevel, Canvas, Display, DisplayResultExt,
+};
 use ogo_format::text::{truncate, wrap};
 
 use crate::library::{Entry, Library, GAMES_DIR, ICON_SIZE};
 
-const BACKGROUND: Rgb565 = Rgb565::BLACK;
-const BAR: Rgb565 = Rgb565::new(4, 8, 4);
-const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
-pub const TEXT: Rgb565 = Rgb565::WHITE;
-pub const DIM: Rgb565 = Rgb565::CSS_GRAY;
-pub const WARNING: Rgb565 = Rgb565::CSS_ORANGE;
-pub const SUCCESS: Rgb565 = Rgb565::CSS_LIGHT_GREEN;
-const ACCENT: Rgb565 = Rgb565::new(30, 27, 8);
 /// Center of the step numbers on the WiFi screen.
 const STEP_X: i32 = 34;
 
@@ -219,13 +216,7 @@ impl Ui {
         text(canvas, &truncate(title, 30), Point::new(center_x, 70), &FONT_10X20, TEXT, Alignment::Center);
         text(canvas, status, Point::new(center_x, 104), &FONT_8X13, DIM, Alignment::Center);
         if let Some(fraction) = fraction {
-            let bar = Rectangle::new(Point::new(center_x - 120, 126), Size::new(240, 14));
-            bar.into_styled(PrimitiveStyle::with_stroke(DIM, 1)).draw(canvas).ok();
-            let filled = (236.0 * fraction.clamp(0.0, 1.0)) as u32;
-            Rectangle::new(bar.top_left + Point::new(2, 2), Size::new(filled, 10))
-                .into_styled(PrimitiveStyle::with_fill(SELECTION))
-                .draw(canvas)
-                .ok();
+            progress_bar(canvas, Rectangle::new(Point::new(center_x - 120, 126), Size::new(240, 14)), fraction, DIM);
         }
         canvas.present(display)
     }
@@ -287,10 +278,7 @@ impl Ui {
             let top = items_top + 8 + i as i32 * ROW_HEIGHT as i32;
             let middle = top + ROW_HEIGHT as i32 / 2;
             if i == view.selected {
-                Rectangle::new(Point::new(0, top), Size::new(WIDTH, ROW_HEIGHT))
-                    .into_styled(PrimitiveStyle::with_fill(SELECTION))
-                    .draw(canvas)
-                    .ok();
+                selection(canvas, Rectangle::new(Point::new(0, top), Size::new(WIDTH, ROW_HEIGHT)));
             }
             match item {
                 SettingsItem::Level { label, percent, value } => {
@@ -352,10 +340,7 @@ impl Ui {
         for (row, (index, entry)) in entries.iter().enumerate().skip(state.first).take(VISIBLE_ROWS).enumerate() {
             let top = row as i32 * ROW_HEIGHT as i32;
             if index == state.selected {
-                Rectangle::new(Point::new(0, top), Size::new(LIST_WIDTH - SCROLLBAR_WIDTH, ROW_HEIGHT))
-                    .into_styled(PrimitiveStyle::with_fill(SELECTION))
-                    .draw(canvas)
-                    .ok();
+                selection(canvas, Rectangle::new(Point::new(0, top), Size::new(LIST_WIDTH - SCROLLBAR_WIDTH, ROW_HEIGHT)));
             }
             let (label, color) = match entry {
                 Entry::Game(game) => (truncate(&game.name, max_chars), TEXT),
@@ -454,10 +439,4 @@ fn placeholder_icon(canvas: &mut Canvas, top_left: Point, label: &str, color: Rg
     Rectangle::new(top_left, Size::new(ICON_SIZE, ICON_SIZE)).into_styled(style).draw(canvas).ok();
     let center = top_left + Point::new(ICON_SIZE as i32 / 2, ICON_SIZE as i32 / 2);
     text(canvas, label, center, &FONT_10X20, color, Alignment::Center);
-}
-
-/// Draws one line of text, vertically centered on `position`.
-fn text(canvas: &mut Canvas, text: &str, position: Point, font: &MonoFont<'_>, color: Rgb565, alignment: Alignment) {
-    let style = TextStyleBuilder::new().alignment(alignment).baseline(Baseline::Middle).build();
-    Text::with_text_style(text, position, MonoTextStyle::new(font, color), style).draw(canvas).ok();
 }
