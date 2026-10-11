@@ -129,7 +129,7 @@
           <button id="upload">Upload</button>
         </div>
         <progress id="progress" value="0" max="1" hidden></progress>
-        <p class="hint">An .ogo package, e.g. from <code>python tools/install_game.py games/snake --ogo snake.ogo</code>. A game with the same id is replaced.</p>
+        <p class="hint">An .ogo package, e.g. from <code>cargo xtask pack snake</code>. A game with the same id is replaced.</p>
       </section>
       <section>
         <h2>Games</h2>
@@ -178,7 +178,7 @@
           <button id="launcher-upload">Update</button>
         </div>
         <progress id="launcher-progress" value="0" max="1" hidden></progress>
-        <p class="hint">A <code>launcher.bin</code>, e.g. from <code>.\tools\flash.ps1 -SaveImage dist\launcher.bin</code>.
+        <p class="hint">A <code>launcher.bin</code>, e.g. from <code>cargo xtask release</code>.
           It goes into the other launcher slot; if the new launcher doesn't start properly, the device
           goes back to this one by itself.</p>
       </section>
@@ -300,7 +300,7 @@ async function loadStatus() {
   const running = s.slots.find((slot) => slot.running);
   $("version").textContent = "v" + s.version;
   $("built").textContent = running && running.built
-    ? `Build ${running.build_id}, ${formatBuilt(running.built)}` : "";
+    ? `Build ${running.build_id}${running.commit ? ", commit " + running.commit : ""}, ${formatBuilt(running.built)}` : "";
   $("slots").replaceChildren(...s.slots.map((slot) => {
     const el = document.createElement("div");
     el.className = "slot" + (slot.running ? " running" : "");
@@ -309,7 +309,7 @@ async function loadStatus() {
     const what = document.createElement("span");
     what.textContent = slot.kind == null ? "empty"
       : slot.kind !== "ogo-launcher" ? slot.kind
-      : `v${slot.version} · ${slot.build_id}${slot.built ? ", " + formatBuilt(slot.built, true) : ""}`;
+      : `v${slot.version} · ${slot.commit ?? slot.build_id}${slot.built ? ", " + formatBuilt(slot.built, true) : ""}`;
     el.append(name, what);
     return el;
   }));

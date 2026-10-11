@@ -332,6 +332,8 @@ fn status(req: Req, state: &WebState) -> anyhow::Result<()> {
         built: Option<String>,
         /// Tells builds of the same version apart, e.g. "3f9a2c1d".
         build_id: Option<String>,
+        /// Git commit, e.g. "220357ce"; only in builds made with `cargo xtask`.
+        commit: Option<String>,
     }
     #[derive(Serialize)]
     struct Status {
@@ -357,6 +359,7 @@ fn status(req: Req, state: &WebState) -> anyhow::Result<()> {
                 running: running == label,
                 kind: desc.map(|d| d.kind().to_owned()),
                 version: desc.map(|d| d.version().to_owned()),
+                commit: desc.and_then(|d| d.commit().map(str::to_owned)),
                 built: info.as_ref().map(|info| info.built.clone()),
                 build_id: info.map(|info| info.build_id),
             }

@@ -4,7 +4,8 @@
 //!
 //! ESP-IDF's description can't tell our apps apart: with esp-idf-sys, every app's project name is
 //! `libespidf` and all share one version setting. This one says `ogo-launcher`, `ogo-recovery` or
-//! `ogo-game`, and the crate version.
+//! `ogo-game`, the crate version, and the git commit it was built from (only for builds made with
+//! `cargo xtask`, which sets `OGO_COMMIT`).
 //!
 //! Every app declares it with [`image_desc!`]. [`crate::Board::take`] reads it, which keeps the
 //! linker from dropping it, and makes an app without one fail to link.
@@ -13,7 +14,7 @@ use esp_idf_svc::sys::{self, esp};
 
 use crate::boot::find_app_partition;
 
-const MAGIC: [u8; 4] = *b"OGO1";
+const MAGIC: [u8; 4] = *b"OGO2";
 /// `esp_image_header_t` + `esp_image_segment_header_t` + `esp_app_desc_t`.
 const OFFSET_IN_IMAGE: usize = 24 + 8 + 256;
 
@@ -23,12 +24,13 @@ pub struct ImageDesc {
     magic: [u8; 4],
     kind: [u8; 28],
     version: [u8; 32],
+    commit: [u8; 16],
 }
 
 impl ImageDesc {
     /// Used by [`image_desc!`]. Longer strings are cut.
-    pub const fn new(kind: &str, version: &str) -> Self {
-        Self { magic: MAGIC, kind: fixed(kind), version: fixed(version) }
+    pub const fn new(kind: &str, version: &str, commit: &str) -> Self {
+        Self { magic: MAGIC, kind: fixed(kind), version: fixed(version), commit: fixed(commit) }
     }
 
     /// e.g. "ogo-launcher"
@@ -40,10 +42,17 @@ impl ImageDesc {
     pub fn version(&self) -> &str {
         text(&self.version)
     }
+
+    /// The short git commit, e.g. "220357ce"; `None` for builds made without `cargo xtask`.
+    pub fn commit(&self) -> Option<&str> {
+        Some(text(&self.commit)).filter(|commit| !commit.is_empty())
+    }
 }
 
 /// Declares this app's [`ImageDesc`]. Use once, at the crate root of every ogo app:
 /// `ogo_board::image_desc!("ogo-launcher");`
+///
+/// The commit comes from `OGO_COMMIT` at compile time; cargo rebuilds the app when it changes.
 #[macro_export]
 macro_rules! image_desc {
     ($kind:expr) => {
@@ -51,7 +60,10 @@ macro_rules! image_desc {
         #[used]
         #[link_section = ".rodata_custom_desc"]
         pub static OGO_IMAGE_DESC: $crate::image::ImageDesc =
-            $crate::image::ImageDesc::new($kind, env!("CARGO_PKG_VERSION"));
+            $crate::image::ImageDesc::new($kind, env!("CARGO_PKG_VERSION"), match option_env!("OGO_COMMIT") {
+                Some(commit) => commit,
+                None => "",
+            });
     };
 }
 

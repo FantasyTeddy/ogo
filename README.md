@@ -58,26 +58,24 @@ minutes; later builds are fast.
 
 ## Build and flash
 
-Flash over USB with the script (replace `COM7` with your port):
-
-```powershell
-.\tools\flash.ps1 -All -Port COM7      # first time: bootloader, partition table, recovery and launcher
-.\tools\flash.ps1 -Port COM7           # afterwards: launcher only
-.\tools\flash.ps1 -Monitor             # launcher, then show the serial log
-```
-
-The script loads the environment, builds everything and flashes with this project's own bootloader
-(it starts recovery when MENU is held) and the partition table from [partitions.csv](partitions.csv).
-A plain `cargo espflash flash` would use espflash's default bootloader instead.
-
-For anything else, load the environment in each new PowerShell window first:
+Load the environment in each new PowerShell window first, then use the build tasks in
+[xtask/](xtask/) (replace `COM7` with your port; without `--port`, espflash picks or asks):
 
 ```powershell
 . .\env.ps1
-cargo build --release
+cargo xtask flash --all --port COM7    # first time: bootloader, partition table, recovery and launcher
+cargo xtask flash --port COM7          # afterwards: launcher only
+cargo xtask flash --monitor            # launcher, then show the serial log
+cargo xtask release                    # launcher.bin, recovery.bin and every game's .ogo in dist\
 ```
 
-Firmware ends up in `D:\ogot\xtensa-esp32-espidf\release\`.
+`flash` uses this project's own bootloader (it starts recovery when MENU is held) and the partition
+table from [partitions.csv](partitions.csv); a plain `cargo espflash flash` would use espflash's
+default bootloader instead. Every image built by `cargo xtask` carries the git commit, shown on the
+settings screen, the web page and in recovery.
+
+A plain `cargo build --release` also works; its firmware ends up in
+`D:\ogot\xtensa-esp32-espidf\release\`, without a commit.
 
 ## Games
 
@@ -85,7 +83,7 @@ Games are separate firmware images that the launcher copies from the SD card int
 slot and boots. To build a game and copy it to an SD card (here `E:\`):
 
 ```powershell
-python tools\install_game.py games\snake E:\
+cargo xtask pack snake --sd E:\
 ```
 
 On the device, select the game and press A. The first start (or after an update) installs it with a
@@ -93,8 +91,8 @@ progress bar. In a game, MENU opens the pause menu with "Exit to launcher", and 
 volume (kept for the launcher and other games too). Any reset while a game runs also lands back in
 the launcher. MENU in the game list opens the settings.
 
-Or over WiFi: pack the game with `python tools\install_game.py games\snake --ogo snake.ogo`, then
-upload it on the device's web page (see below).
+Or over WiFi: pack the game with `cargo xtask pack snake` (writes `dist\snake.ogo`, or pass
+`--ogo <file>`), then upload it on the device's web page (see below).
 
 To write a game, start from [games/snake](games/snake/) and read the crate docs at the top of
 [ogo-sdk/src/lib.rs](ogo-sdk/src/lib.rs).
@@ -120,10 +118,10 @@ WiFi is only on while this screen is open; **B** switches it off again.
 
 ### Updating the launcher
 
-Build an image and upload it on the **Settings** tab under "Update launcher":
+Build an image and upload `dist\launcher.bin` on the **Settings** tab under "Update launcher":
 
 ```powershell
-.\tools\flash.ps1 -SaveImage dist\launcher.bin
+cargo xtask release
 ```
 
 The device writes it into the launcher slot that isn't running and restarts. The new launcher
@@ -159,8 +157,7 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
 | [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |
-| [tools/flash.ps1](tools/flash.ps1) | Builds and flashes over USB |
-| [tools/install_game.py](tools/install_game.py) | Builds a game and copies it to an SD card, or packs it as `.ogo` |
+| [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash`), run on the PC |
 | [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
 | [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
 

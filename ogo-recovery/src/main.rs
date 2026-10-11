@@ -221,13 +221,19 @@ impl Recovery {
 fn describe(item: &Item) -> (String, String) {
     match item {
         Item::Start { label, name, info: Some(info) } => {
-            let what = ogo_board::image::in_slot(label)
+            let desc = ogo_board::image::in_slot(label);
+            let what = desc
                 .map(|desc| format!("{} {}", desc.kind(), desc.version()))
                 .unwrap_or_else(|| "not an ogo app".to_owned());
+            // The commit if the image has one, as it says more than the build ID.
+            let build = match desc.as_ref().and_then(|desc| desc.commit()) {
+                Some(commit) => format!("commit {commit}"),
+                None => format!("build {}", info.build_id),
+            };
             (format!("Start launcher {name}"), {
                 // "Oct 11 2026 19:24:47" -> "Oct 11 2026": the full line wouldn't fit the screen.
                 let date = info.built.get(..11).unwrap_or(&info.built);
-                format!("{what}, build {}, {date}", info.build_id)
+                format!("{what}, {build}, {date}")
             })
         }
         Item::Start { name, info: None, .. } => (format!("Start launcher {name}"), "empty".to_owned()),

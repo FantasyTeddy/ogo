@@ -1,7 +1,7 @@
 //! The settings screen (MENU): device info at the top, then brightness, volume and forgetting the
 //! WiFi network. Brightness and volume apply right away and are saved to NVS when leaving.
 
-use ogo_board::{boot, flash, sd, settings, Note, Settings};
+use ogo_board::{boot, flash, image, sd, settings, Note, Settings};
 
 use crate::{
     input::Nav,
@@ -27,8 +27,9 @@ pub struct Screen {
     selected: usize,
     /// The settings as in NVS, to tell whether leaving needs to save.
     saved: Settings,
-    /// Launcher line of the info section; computing the build ID takes a moment, so only once.
-    launcher_info: String,
+    /// Launcher and build lines of the info section; computing the build ID takes a moment, so
+    /// only once.
+    launcher_info: (String, String),
     /// A was pressed once on "Forget WiFi network"; the next A forgets.
     confirm_forget: bool,
 }
@@ -168,7 +169,12 @@ impl Launcher {
         };
         let volume_value = if self.settings.volume == 0 { "Off".to_owned() } else { format!("{}%", self.settings.volume) };
         let view = SettingsView {
-            info: vec![("Launcher", screen.launcher_info.clone()), ("SD card", sd_info), ("WiFi", wifi_info)],
+            info: vec![
+                ("Launcher", screen.launcher_info.0.clone()),
+                ("Build", screen.launcher_info.1.clone()),
+                ("SD card", sd_info),
+                ("WiFi", wifi_info),
+            ],
             items: vec![
                 SettingsItem::Level {
                     label: "Brightness",
@@ -192,8 +198,8 @@ impl Launcher {
     }
 }
 
-/// e.g. "v0.1.0 (3fa9c2e1), slot A"
-fn launcher_info() -> String {
+/// e.g. "v0.1.0, slot A" and "3fa9c2e1, commit 220357ce" (build ID and commit).
+fn launcher_info() -> (String, String) {
     let running = boot::running_partition_label();
     let slot = match running.as_str() {
         "launcher_a" => "A",
@@ -201,7 +207,11 @@ fn launcher_info() -> String {
         other => other,
     };
     let build_id = flash::app_info(&running).map_or_else(|| "?".to_owned(), |info| info.build_id);
-    format!("v{} ({build_id}), slot {slot}", env!("CARGO_PKG_VERSION"))
+    let build = match image::running().commit() {
+        Some(commit) => format!("{build_id}, commit {commit}"),
+        None => build_id,
+    };
+    (format!("v{}, slot {slot}", env!("CARGO_PKG_VERSION")), build)
 }
 
 /// e.g. "512 MB" or "14.8 GB"

@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "games/hello", "games/snake"]
+# Host tool with its own workspace (see .cargo/config.toml, alias xtask)
+exclude = ["xtask"]
 
 [workspace.package]
 version = "0.1.0"

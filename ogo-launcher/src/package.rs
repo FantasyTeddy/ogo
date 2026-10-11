@@ -66,7 +66,7 @@ fn check(dir: &Path) -> anyhow::Result<Game> {
 }
 
 /// Minimal tar reader: regular files only, names from the 100-byte name field (enough for the
-/// flat packages `tools/install_game.py --ogo` writes).
+/// flat packages `cargo xtask pack` writes).
 fn unpack(package: &Path, into: &Path) -> anyhow::Result<()> {
     let mut file = File::open(package).with_context(|| format!("can't open {}", package.display()))?;
     let mut header = [0u8; BLOCK];

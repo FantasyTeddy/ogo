@@ -6,7 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Snake, the first game built on ogo-sdk"
 
-# Read by tools/install_game.py for game.toml
+# Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]
 name = "Snake"
 sdk_version = 1

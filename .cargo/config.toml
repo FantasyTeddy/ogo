@@ -10,6 +10,10 @@ runner = "espflash flash --monitor"
 # ldproxy always prints "Running ldproxy" to stderr, which newer rustc reports as a warning
 rustflags = ["--cfg", "espidf_time64", "-A", "linker_messages"]
 
+[alias]
+# Build tasks (xtask/): cargo xtask pack | release | flash. xtask runs on the PC, not the ESP32.
+xtask = "run --quiet --manifest-path xtask/Cargo.toml --target x86_64-pc-windows-msvc --"
+
 [unstable]
 build-std = ["std", "panic_abort"]
 

@@ -6,7 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Minimal test game: shows a screen and returns to the launcher on MENU"
 
-# Read by tools/install_game.py for game.toml
+# Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]
 name = "Hello"
 sdk_version = 1

@@ -220,7 +220,7 @@ runs when the launcher deliberately started it.
 - Recovery's menu (built in M5): start launcher A or B (with version and build time), install
   `/ogo/updates/launcher.bin` from the SD card into launcher A, restart. "WiFi upload mode" follows
   in M7.
-- The bootloader is the one esp-idf-sys builds from `sdkconfig.defaults`; `tools/flash.ps1` passes
+- The bootloader is the one esp-idf-sys builds from `sdkconfig.defaults`; `cargo xtask flash` passes
   it to espflash, whose default bootloader lacks the MENU option.
 - The last resort is still USB serial flashing.
 
@@ -249,21 +249,26 @@ Consequences of rollback being enabled:
   the previously selected slot, usually the last game, which returns to the launcher right away.
 - A launcher that crashes on every start after returning from a game would ping-pong with the game.
   Recovery (MENU at power-on) gets out of that.
-- USB flashing writes `launcher_a` only, so `tools/flash.ps1` clears otadata every time: otherwise a
+- USB flashing writes `launcher_a` only, so `cargo xtask flash` clears otadata every time: otherwise a
   web update that had selected `launcher_b` would keep running instead of the fresh flash.
 
 **Image description.** ESP-IDF's `esp_app_desc_t` can't tell our apps apart: with esp-idf-sys every
 project name is `libespidf`, and all share one version setting. So every ogo app declares an
 `ImageDesc` with `ogo_board::image_desc!("ogo-launcher" | "ogo-recovery" | "ogo-game")` (the SDK's
 `main!` does it for games). It lives in `.rodata_custom_desc`, right after `esp_app_desc_t` at offset
-288 of the image, with a magic, the kind and the crate version. `Board::take` reads it, which keeps
-the linker from dropping it, and an app without one doesn't link.
+288 of the image, with a magic (`OGO2`), the kind, the crate version and the git commit.
+`Board::take` reads it, which keeps the linker from dropping it, and an app without one doesn't
+link. The commit comes from `OGO_COMMIT` at compile time, which `cargo xtask` sets to
+`git rev-parse --short=8 HEAD` (uncommitted changes aren't marked; the build ID tells those builds
+apart). Plain `cargo` builds leave it empty. The commit field came in M9 with the magic `OGO2`;
+older images (`OGO1`) count as "not an ogo app", so recovery and launcher are updated together
+(`cargo xtask flash --all`).
 
 **Build ID.** The first 8 hex digits of the image's SHA-256, computed from the slot with
 `esp_partition_get_sha256` (~0.1 s for 1.6 MB). It tells two builds of the same version apart, even
 uncommitted ones. ESP-IDF's `app_elf_sha256` field would be cheaper, but stays all zeros in images
-built with espflash. Release builds via `cargo xtask` (M9) should add the commit to the image
-description.
+built with espflash. The settings screen shows build ID and commit; the web page's slot tiles and
+recovery show the commit instead of the build ID when there is one.
 
 ---
 
@@ -306,7 +311,7 @@ As built in M6:
 | `/api/wifi` | POST | `{"ssid", "password"}`: save to NVS and join |
 | `/api/restart` | POST | Restart the device |
 
-Still to come: `/api/saves/<id>` (save backup, M9).
+Still to come: `/api/saves/<id>` (save backup, M10).
 
 - **Uploads** are streamed in 4 KB chunks to `/ogo/updates/upload.ogo` (max 10 MB), then unpacked by
   a minimal tar reader into `/ogo/games/.incoming/` (folders starting with a dot are ignored by the
@@ -315,7 +320,7 @@ Still to come: `/api/saves/<id>` (save backup, M9).
   `filetime`, which needs Unix calls ESP-IDF lacks, hence the own reader.)
 - WiFi and lwIP buffers may go to PSRAM (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP`). The launcher grew
   from 0.9 to 1.6 MB with WiFi and the HTTP server (62 % of its slot).
-- Planned for M9: mDNS (`ogo.local`) via the ESP-IDF `mdns` component.
+- Planned for M10: mDNS (`ogo.local`) via the ESP-IDF `mdns` component.
 
 ---
 
@@ -424,11 +429,21 @@ As built in M4 (`ogo-sdk`, example: `games/snake`):
 4. **Python version.** ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild
    always uses the first `python` on PATH. `env.ps1` loads `export-esp.ps1` and puts Python 3.12
    first. Dot-source it in each new shell: `. .\env.ps1`.
-5. **Flash:** `tools/flash.ps1` (launcher) or `tools/flash.ps1 -All` (also recovery). It builds,
-   finds the bootloader esp-idf-sys built, and runs `cargo espflash flash` with `--bootloader`,
-   `--target-app-partition` (cargo-espflash 4.3 ignores that key in `espflash.toml`), the partition
-   table from `espflash.toml`, and `--erase-parts otadata` (see §5). `-SaveImage <file>` builds a
-   `launcher.bin` for the web update instead, `-Features` passes cargo features.
+5. **Build tasks: `cargo xtask`** (M9). A host crate in `xtask/` with its own workspace (the main
+   workspace builds everything for the ESP32), run through an alias in `.cargo/config.toml` that
+   passes `--target x86_64-pc-windows-msvc`. Every image it builds carries the commit (§5).
+   - `flash [--all] [--port COM7] [--monitor] [--features ...]`: builds, finds the bootloader
+     esp-idf-sys built, and runs `cargo espflash flash` with `--bootloader`,
+     `--target-app-partition` (cargo-espflash 4.3 ignores that key in `espflash.toml`), the
+     partition table from `espflash.toml`, and `--erase-parts otadata` (see §5). `--all` also
+     flashes recovery.
+   - `pack <game> [--ogo <file> | --sd <root>]`: builds a game and writes `dist/<id>.ogo`, the
+     given file, or `<root>/ogo/games/<id>/`. `game.toml` comes from `[package]` and
+     `[package.metadata.ogo]` (name, sdk_version) in the game's Cargo.toml.
+   - `release [--features ...]`: `launcher.bin`, `recovery.bin` and an `.ogo` for every package
+     with `[package.metadata.ogo]`, into `dist/`. `--features` applies to the launcher (e.g.
+     `rollback-test`).
+
    `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
 6. **Useful crates:**
    - `esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`
@@ -453,8 +468,9 @@ moves quickly.
 | M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection. **Done 2026-10-11** |
 | M7 | Launcher self-OTA | Upload `launcher.bin` via the web page. A/B switch with rollback, tested with a deliberately broken build. **Done 2026-10-11** |
 | M8 | Settings screen | MENU opens settings with device info, brightness, volume and "forget WiFi network". Brightness and volume are stored in NVS and apply in games too, and VOL in games is saved. **Done 2026-10-11** |
-| M9 | Polish | Save backup download, mDNS, `cargo xtask pack` and release builds (commit in the image description), charging indicator |
-| M10 | Emulators | First emulator packaged as a "game" that browses ROMs on the SD card |
+| M9 | Build tooling | `cargo xtask pack / release / flash` replace the scripts, and every image carries the git commit. **Done 2026-10-11** |
+| M10 | Polish | Save backup download, mDNS, charging indicator |
+| M11 | Emulators | First emulator packaged as a "game" that browses ROMs on the SD card |
 
 M0 to M4 give you a usable device without any networking. M6 and M7 deliver the OTA goal.
 
@@ -470,12 +486,12 @@ M0 to M4 give you a usable device without any networking. M6 and M7 deliver the 
   silence, and a sound that finds it off starts after 150 ms of idle level while it wakes up.
 - **Partition-write API.** Writing a *specific* OTA slot needs `esp-idf-sys` FFI (unsafe). Wrap it in
   a small safe module.
-- **Emulators (M10).** Either port individual C emulators (e.g. gnuboy, nofrendo) behind the SDK, or
+- **Emulators (M11).** Either port individual C emulators (e.g. gnuboy, nofrendo) behind the SDK, or
   find out whether a Retro-Go build can be packaged as a single image. Retro-Go normally uses its own
   multi-partition layout, so it probably won't drop in as-is.
 - **Number of game slots.** One slot is simplest. Two slots save re-flashing when you alternate
   between games, but each would hold only ~4.7 MB. Decide this after measuring game sizes.
-- **Charging detection (M9).** The ODROID-GO wires no charge-status or USB-power signal to the ESP32
+- **Charging detection (M10).** The ODROID-GO wires no charge-status or USB-power signal to the ESP32
   (Retro-Go's board config only has the battery ADC). Plugging in raises the measured voltage by
   ~0.1–0.2 V at once (3.72 → 3.87 V measured), so a heuristic can show a charging icon on such a jump
   or a steady rise, and hide it on a sudden drop. It can't tell at power-on while already plugged in
