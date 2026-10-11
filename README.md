@@ -4,9 +4,9 @@ A launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go) hand
 It installs native Rust games from the SD card into a flash slot and boots them. Games and launcher
 updates are managed from a web page served by the device itself.
 
-> **Status:** early development. Milestones M0–M3 are done: the launcher lists the games on the SD
-> card, installs the selected one into the game slot and boots it, and games return to the launcher.
-> Hold SELECT at power-on for a hardware test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
+> **Status:** early development. Milestones M0–M4 are done: the launcher lists the games on the SD
+> card, installs the selected one into the game slot and boots it. Games are built on `ogo-sdk`;
+> `games/snake` is the first one. Hold SELECT at power-on for a hardware test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
 
 ## Planned features
 
@@ -81,8 +81,11 @@ Games are separate firmware images that the launcher copies from the SD card int
 slot and boots. To build a game and copy it to an SD card (here `E:\`):
 
 ```powershell
-python tools\install_game.py games\hello E:\
+python tools\install_game.py games\snake E:\
 ```
+
+To write a game, start from [games/snake](games/snake/) and read the crate docs at the top of
+[ogo-sdk/src/lib.rs](ogo-sdk/src/lib.rs).
 
 On the device, select the game and press A. The first start (or after an update) installs it with a
 progress bar; MENU in the game returns to the launcher. Any reset while a game runs also lands back in
@@ -94,7 +97,9 @@ the launcher.
 |---|---|
 | [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card) and the launcher/game boot contract |
 | [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, hardware test screen |
-| [games/hello/](games/hello/) | Minimal test game |
+| [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
+| [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
+| [games/hello/](games/hello/) | Minimal test game using `ogo-board` directly |
 | [partitions.csv](partitions.csv) | Flash layout |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design, flash layout, boot flows and roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
