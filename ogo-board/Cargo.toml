@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Board support for the ODROID-GO: display, buttons, speaker, battery, LED and SD card"
 
 [dependencies]
+ogo-format.workspace = true
 anyhow.workspace = true
 log.workspace = true
 esp-idf-svc.workspace = true

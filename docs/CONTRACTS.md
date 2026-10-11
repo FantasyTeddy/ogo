@@ -10,8 +10,8 @@ any of these can break a launcher, recovery or game built earlier, so check this
 | [SD card layout](#sd-card-layout) | [library.rs](../ogo-launcher/src/library.rs), [saves.rs](../ogo-sdk/src/saves.rs) |
 | [NVS keys](#nvs-keys) | [boot.rs](../ogo-board/src/boot.rs), [settings.rs](../ogo-board/src/settings.rs), [launcher settings.rs](../ogo-launcher/src/settings.rs) |
 | [Boot contract](#boot-contract) | [boot.rs](../ogo-board/src/boot.rs) |
-| [Image description](#image-description) | [image.rs](../ogo-board/src/image.rs) |
-| [`game.toml` and `.ogo` packages](#gametoml-and-ogo-packages) | [library.rs](../ogo-launcher/src/library.rs), [package.rs](../ogo-launcher/src/package.rs), [xtask](../xtask/src/main.rs) |
+| [Image description](#image-description) | [ogo-format image.rs](../ogo-format/src/image.rs), [ogo-board image.rs](../ogo-board/src/image.rs) |
+| [`game.toml` and `.ogo` packages](#gametoml-and-ogo-packages) | [game.rs](../ogo-format/src/game.rs), [package.rs](../ogo-format/src/package.rs) |
 | [Web API](#web-api) | [web.rs](../ogo-launcher/src/web.rs) |
 | [Compatibility](#compatibility) | `sdk_version` |
 
@@ -144,8 +144,8 @@ sha256 = "693bbd…"      # of game.bin, lowercase hex
 A file of another size is ignored.
 
 **`.ogo` package**: an uncompressed ustar archive with `game.toml`, `game.bin` and optionally
-`icon.rgb565`, with flat names. Other entries are skipped. The launcher has its own small tar reader
-(the `tar` crate pulls in `filetime`, which needs Unix calls ESP-IDF lacks).
+`icon.rgb565`, with flat names. Other entries are skipped. `ogo-format` has its own small tar reader
+and writer (the `tar` crate pulls in `filetime`, which needs Unix calls ESP-IDF lacks).
 
 The launcher accepts a game folder or package when:
 - `game.toml` parses, `id` is valid and matches the folder name

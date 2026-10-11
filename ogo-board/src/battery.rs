@@ -7,16 +7,13 @@ use esp_idf_svc::hal::{
 
 use crate::adc::{Adc1, Adc1Channel, CHANNEL_CONFIG};
 
-/// Voltages treated as empty and full for the percentage (Li-Po under light load).
-const EMPTY_MV: u32 = 3500;
-const FULL_MV: u32 = 4200;
 /// Samples averaged per reading, to smooth out ADC noise.
 const SAMPLES: u32 = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BatteryLevel {
     pub millivolts: u32,
-    /// 0-100, linear between `EMPTY_MV` and `FULL_MV`. Rough, but good enough for an indicator.
+    /// 0-100, see `ogo_format::battery::percent`. Rough, but good enough for an indicator.
     pub percent: u8,
 }
 
@@ -39,7 +36,6 @@ impl Battery {
             sum += u32::from(self.adc.read(&mut self.channel)?);
         }
         let millivolts = sum / SAMPLES * 2;
-        let percent = (millivolts.clamp(EMPTY_MV, FULL_MV) - EMPTY_MV) * 100 / (FULL_MV - EMPTY_MV);
-        Ok(BatteryLevel { millivolts, percent: percent as u8 })
+        Ok(BatteryLevel { millivolts, percent: ogo_format::battery::percent(millivolts) })
     }
 }

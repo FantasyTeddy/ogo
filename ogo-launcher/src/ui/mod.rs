@@ -15,6 +15,7 @@ use embedded_graphics::{
     text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
 use ogo_board::{display, BatteryLevel, Canvas, Display, DisplayResultExt};
+use ogo_format::text::{truncate, wrap};
 
 use crate::library::{Entry, Library, GAMES_DIR, ICON_SIZE};
 
@@ -459,50 +460,4 @@ fn placeholder_icon(canvas: &mut Canvas, top_left: Point, label: &str, color: Rg
 fn text(canvas: &mut Canvas, text: &str, position: Point, font: &MonoFont<'_>, color: Rgb565, alignment: Alignment) {
     let style = TextStyleBuilder::new().alignment(alignment).baseline(Baseline::Middle).build();
     Text::with_text_style(text, position, MonoTextStyle::new(font, color), style).draw(canvas).ok();
-}
-
-/// Shortens `text` to `max_chars`, ending in "..." if it was cut.
-fn truncate(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        return text.to_owned();
-    }
-    let kept: String = text.chars().take(max_chars.saturating_sub(3)).collect();
-    format!("{}...", kept.trim_end())
-}
-
-/// Word-wraps `text` into at most `max_lines` lines of `max_chars`. Words longer than a line are
-/// cut, and the last line ends in "..." if text was left over.
-fn wrap(text: &str, max_chars: usize, max_lines: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    for word in text.split_whitespace() {
-        let mut word = word.to_owned();
-        loop {
-            let needed = if current.is_empty() { word.chars().count() } else { current.chars().count() + 1 + word.chars().count() };
-            if needed <= max_chars {
-                if !current.is_empty() {
-                    current.push(' ');
-                }
-                current.push_str(&word);
-                break;
-            }
-            if !current.is_empty() {
-                lines.push(std::mem::take(&mut current));
-                continue;
-            }
-            // A single word longer than a line: split it.
-            let head: String = word.chars().take(max_chars).collect();
-            word = word.chars().skip(max_chars).collect();
-            lines.push(head);
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    if lines.len() > max_lines {
-        lines.truncate(max_lines);
-        let last = lines.last_mut().expect("max_lines > 0");
-        *last = truncate(&format!("{last}..."), max_chars);
-    }
-    lines
 }

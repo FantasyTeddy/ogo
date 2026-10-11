@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "games/hello", "games/snake"]
-# Host tool with its own workspace (see .cargo/config.toml, alias xtask)
-exclude = ["xtask"]
+# Own workspaces: they also build for the PC (xtask runs there, ogo-format is tested there)
+exclude = ["xtask", "ogo-format"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ rust-version = "1.82"
 [workspace.dependencies]
 ogo-board = { path = "ogo-board" }
 ogo-sdk = { path = "ogo-sdk" }
+ogo-format = { path = "ogo-format" }
 anyhow = "1"
 log = "0.4"
 esp-idf-svc = "0.53"

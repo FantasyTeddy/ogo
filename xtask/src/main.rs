@@ -3,12 +3,13 @@
 //! - `pack <game>`: builds a game and writes an `.ogo` package, or copies it to an SD card.
 //! - `release`: builds the launcher, the recovery app and all games into `dist/`.
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
+//! - `test`: runs the tests on the PC (`ogo-format`).
 //!
 //! Every firmware image built here carries the git commit (`OGO_COMMIT`, see
 //! `ogo_board::image_desc!`).
 
 use std::{
-    env, fs,
+    env, fs, io,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -16,7 +17,8 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use clap::{Parser, Subcommand};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use ogo_format::game::Manifest;
+use serde::{de::DeserializeOwned, Deserialize};
 use sha2::{Digest, Sha256};
 
 /// First byte of every ESP32 app image.
@@ -24,6 +26,8 @@ const IMAGE_MAGIC: u8 = 0xE9;
 const DIST_DIR: &str = "dist";
 const LAUNCHER: &str = "ogo-launcher";
 const RECOVERY: &str = "ogo-recovery";
+/// The PC, for host builds; the workspace's default target is the ESP32.
+const HOST_TARGET: &str = "x86_64-pc-windows-msvc";
 
 #[derive(Parser)]
 #[command(about = "Build tasks for ogo")]
@@ -66,6 +70,8 @@ enum Task {
         #[arg(long)]
         features: Option<String>,
     },
+    /// Run the tests on the PC (ogo-format).
+    Test,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -85,6 +91,7 @@ fn main() -> anyhow::Result<()> {
         }
         Task::Release { features } => project.release(features.as_deref()),
         Task::Flash { port, all, monitor, features } => project.flash(port.as_deref(), all, monitor, features.as_deref()),
+        Task::Test => project.cargo(&["test", "--manifest-path", "ogo-format/Cargo.toml", "--target", HOST_TARGET]),
     }
 }
 
@@ -215,32 +222,22 @@ impl Project {
     }
 
     fn build_game(&self, game: &Game) -> anyhow::Result<GameFiles> {
-        #[derive(Serialize)]
-        struct GameToml<'a> {
-            id: &'a str,
-            name: &'a str,
-            version: &'a str,
-            author: &'a str,
-            sdk_version: u32,
-            sha256: String,
-        }
-
         ensure!(
-            !game.id.is_empty() && game.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+            ogo_format::game::is_valid_id(&game.id),
             "package name {:?} is not a valid game id (use a-z, 0-9 and -)",
             game.id
         );
         let target_dir = self.target_dir()?;
         let image = self.build_image(&game.id, None, &target_dir.join("ogo-images").join(format!("{}.bin", game.id)))?;
-        let toml = toml::to_string(&GameToml {
-            id: &game.id,
-            name: &game.name,
-            version: &game.version,
-            author: &game.author,
+        let manifest = Manifest {
+            id: game.id.clone(),
+            name: game.name.clone(),
+            version: game.version.clone(),
+            author: game.author.clone(),
             sdk_version: game.sdk_version,
             sha256: hex(&Sha256::digest(&image)),
-        })?;
-        let mut files = vec![("game.toml", toml.into_bytes()), ("game.bin", image)];
+        };
+        let mut files = vec![("game.toml", manifest.to_toml().into_bytes()), ("game.bin", image)];
         let icon = game.dir.join("icon.rgb565");
         if icon.is_file() {
             files.push(("icon.rgb565", fs::read(&icon)?));
@@ -334,22 +331,14 @@ impl Project {
     }
 }
 
-/// Plain ustar with flat file names: what the launcher's package reader expects.
 fn write_ogo(game: &GameFiles, path: &Path) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let mut tar = tar::Builder::new(fs::File::create(path).with_context(|| format!("can't create {}", path.display()))?);
-    for (name, content) in &game.files {
-        let mut header = tar::Header::new_ustar();
-        header.set_size(content.len() as u64);
-        header.set_entry_type(tar::EntryType::Regular);
-        header.set_mode(0o644);
-        header.set_mtime(now);
-        tar.append_data(&mut header, name, content.as_slice())?;
-    }
-    tar.into_inner()?;
+    let file = fs::File::create(path).with_context(|| format!("can't create {}", path.display()))?;
+    let files: Vec<(&str, &[u8])> = game.files.iter().map(|(name, content)| (*name, content.as_slice())).collect();
+    ogo_format::package::write(io::BufWriter::new(file), &files, now)?;
     println!("Packed {} into {}", game.id, path.display());
     Ok(())
 }

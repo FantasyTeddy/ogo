@@ -1109,7 +1109,16 @@ dependencies = [
  "esp-idf-svc",
  "log",
  "mipidsi",
+ "ogo-format",
  "sha2",
+]
+
+[[package]]
+name = "ogo-format"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]
@@ -1122,6 +1131,7 @@ dependencies = [
  "esp-idf-svc",
  "log",
  "ogo-board",
+ "ogo-format",
  "serde",
  "serde_json",
  "toml 1.1.8+spec-1.1.0",

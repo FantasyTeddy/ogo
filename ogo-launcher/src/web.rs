@@ -416,7 +416,7 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
 fn game_id(uri: &str) -> Option<String> {
     let path = uri.split('?').next()?;
     let id = path.strip_prefix("/api/games/")?.split('/').next()?;
-    library::is_valid_id(id).then(|| id.to_owned())
+    ogo_format::game::is_valid_id(id).then(|| id.to_owned())
 }
 
 fn upload(mut req: Req, state: &WebState) -> anyhow::Result<()> {
@@ -500,33 +500,10 @@ fn icon(req: Req, state: &WebState) -> anyhow::Result<()> {
     if pixels.len() != (ICON_SIZE * ICON_SIZE * 2) as usize {
         return json(req, 404, &Message::new("No icon"));
     }
-    let bmp = rgb565_bmp(&pixels, ICON_SIZE);
+    let bmp = ogo_format::game::icon_bmp(&pixels, ICON_SIZE);
     req.into_response(200, None, &[("Content-Type", "image/bmp"), ("Cache-Control", "no-cache")])?
         .write_all(&bmp)?;
     Ok(())
-}
-
-/// A top-down BMP with RGB565 bitfields around the raw little-endian pixels.
-fn rgb565_bmp(pixels: &[u8], size: u32) -> Vec<u8> {
-    const HEADERS: u32 = 14 + 40 + 12;
-    let mut bmp = Vec::with_capacity(HEADERS as usize + pixels.len());
-    bmp.extend_from_slice(b"BM");
-    bmp.extend_from_slice(&(HEADERS + pixels.len() as u32).to_le_bytes());
-    bmp.extend_from_slice(&0u32.to_le_bytes());
-    bmp.extend_from_slice(&HEADERS.to_le_bytes());
-    bmp.extend_from_slice(&40u32.to_le_bytes());
-    bmp.extend_from_slice(&(size as i32).to_le_bytes());
-    bmp.extend_from_slice(&(-(size as i32)).to_le_bytes()); // negative height: rows top to bottom
-    bmp.extend_from_slice(&1u16.to_le_bytes());
-    bmp.extend_from_slice(&16u16.to_le_bytes());
-    bmp.extend_from_slice(&3u32.to_le_bytes()); // BI_BITFIELDS
-    bmp.extend_from_slice(&(pixels.len() as u32).to_le_bytes());
-    bmp.extend_from_slice(&[0; 16]);
-    for mask in [0xF800u32, 0x07E0, 0x001F] {
-        bmp.extend_from_slice(&mask.to_le_bytes());
-    }
-    bmp.extend_from_slice(pixels);
-    bmp
 }
 
 fn set_wifi(mut req: Req, state: &WebState) -> anyhow::Result<()> {

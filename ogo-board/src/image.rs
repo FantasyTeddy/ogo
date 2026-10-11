@@ -11,43 +11,10 @@
 //! linker from dropping it, and makes an app without one fail to link.
 
 use esp_idf_svc::sys::{self, esp};
+pub use ogo_format::image::ImageDesc;
+use ogo_format::image::{OFFSET_IN_IMAGE, SIZE};
 
 use crate::boot::find_app_partition;
-
-const MAGIC: [u8; 4] = *b"OGO2";
-/// `esp_image_header_t` + `esp_image_segment_header_t` + `esp_app_desc_t`.
-const OFFSET_IN_IMAGE: usize = 24 + 8 + 256;
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct ImageDesc {
-    magic: [u8; 4],
-    kind: [u8; 28],
-    version: [u8; 32],
-    commit: [u8; 16],
-}
-
-impl ImageDesc {
-    /// Used by [`image_desc!`]. Longer strings are cut.
-    pub const fn new(kind: &str, version: &str, commit: &str) -> Self {
-        Self { magic: MAGIC, kind: fixed(kind), version: fixed(version), commit: fixed(commit) }
-    }
-
-    /// e.g. "ogo-launcher"
-    pub fn kind(&self) -> &str {
-        text(&self.kind)
-    }
-
-    /// The crate version, e.g. "0.1.0".
-    pub fn version(&self) -> &str {
-        text(&self.version)
-    }
-
-    /// The short git commit, e.g. "220357ce"; `None` for builds made without `cargo xtask`.
-    pub fn commit(&self) -> Option<&str> {
-        Some(text(&self.commit)).filter(|commit| !commit.is_empty())
-    }
-}
 
 /// Declares this app's [`ImageDesc`]. Use once, at the crate root of every ogo app:
 /// `ogo_board::image_desc!("ogo-launcher");`
@@ -81,28 +48,7 @@ pub fn running() -> ImageDesc {
 /// The description of the image in app slot `label`, or `None` if it holds no ogo image.
 pub fn in_slot(label: &str) -> Option<ImageDesc> {
     let partition = find_app_partition(label).ok()?;
-    let mut bytes = [0u8; core::mem::size_of::<ImageDesc>()];
+    let mut bytes = [0u8; SIZE];
     esp!(unsafe { sys::esp_partition_read(partition, OFFSET_IN_IMAGE, bytes.as_mut_ptr().cast(), bytes.len()) }).ok()?;
-    if bytes[..4] != MAGIC {
-        return None;
-    }
-    // All fields are byte arrays, so any bytes form a valid ImageDesc.
-    Some(unsafe { core::mem::transmute::<[u8; core::mem::size_of::<ImageDesc>()], ImageDesc>(bytes) })
-}
-
-const fn fixed<const N: usize>(s: &str) -> [u8; N] {
-    let bytes = s.as_bytes();
-    let mut out = [0u8; N];
-    let mut i = 0;
-    // Leave room for a terminating zero.
-    while i < bytes.len() && i < N - 1 {
-        out[i] = bytes[i];
-        i += 1;
-    }
-    out
-}
-
-fn text(field: &[u8]) -> &str {
-    let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
-    core::str::from_utf8(&field[..end]).unwrap_or("?")
+    ImageDesc::from_bytes(&bytes)
 }

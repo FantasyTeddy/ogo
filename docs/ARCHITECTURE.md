@@ -51,16 +51,23 @@ the internet.
 
 | Crate | Purpose |
 |---|---|
-| [ogo-board](../ogo-board/src/lib.rs) | Board support (display, backlight, buttons, speaker, SD card, battery, LED) and the shared contracts: boot contract (`boot`), image description (`image`), flash writing (`flash`), settings (`settings`) |
+| [ogo-format](../ogo-format/src/lib.rs) | Everything that doesn't need the ESP32: `game.toml`, the `.ogo` reader and writer, the image description layout, settings steps, text fitting, battery percentage. Own workspace, tested on the PC |
+| [ogo-board](../ogo-board/src/lib.rs) | Board support (display, backlight, buttons, speaker, SD card, battery, LED) and the contracts that touch the hardware: boot contract (`boot`), image description in flash (`image`), flash writing (`flash`), settings in NVS (`settings`) |
 | [ogo-sdk](../ogo-sdk/src/lib.rs) | What games build on: the `Game` trait, frame loop, input, sound, saves, pause menu, VOL |
 | [ogo-launcher](../ogo-launcher/src/main.rs) | The launcher firmware |
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |
 | [games/snake](../games/snake/src/main.rs) | Example game on the SDK |
 | [games/hello](../games/hello/src/main.rs) | Minimal test game using `ogo-board` directly |
-| [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash` |
+| [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash`, `test` |
 
 Launcher and recovery use `ogo-board` directly; games use `ogo-sdk`, which wraps it. Everything
-about switching between slots goes through `ogo_board::boot`, so the rules are in one place.
+about switching between slots goes through `ogo_board::boot`, so the rules are in one place. Formats
+that the PC side writes and the device reads (`game.toml`, `.ogo`, the image description) are
+defined once in `ogo-format`, which xtask uses too.
+
+`ogo-format` and `xtask` have their own workspaces, excluded from the main one: the main workspace
+builds everything for the ESP32 (`build.target` in `.cargo/config.toml`), while these two also build
+for the PC. The firmware crates still depend on `ogo-format` by path.
 
 ## Launcher
 
@@ -190,6 +197,7 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
      or an SD card's `/ogo/games/<id>/`.
    - `release [--features …]` builds `launcher.bin`, `recovery.bin` and every game's `.ogo` into
      `dist/`. `--features` applies to the launcher.
+   - `test` runs the unit tests of `ogo-format` on the PC.
 
 The esp-rs crates (`esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`) come from git, as in the template
 (see `[patch.crates-io]` in [Cargo.toml](../Cargo.toml)). The ecosystem moves quickly: check versions

@@ -77,6 +77,7 @@ cargo xtask flash --all --port COM7    # first time: bootloader, partition table
 cargo xtask flash --port COM7          # afterwards: launcher only
 cargo xtask flash --monitor            # launcher, then show the serial log
 cargo xtask release                    # launcher.bin, recovery.bin and every game's .ogo in dist\
+cargo xtask test                       # unit tests, on the PC
 ```
 
 `flash` uses this project's own bootloader (it starts recovery when MENU is held) and the partition
@@ -160,13 +161,14 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 | [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, WiFi and web page, settings screen, boot screen, hardware test screen |
 | [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
+| [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/hello/](games/hello/) | Minimal test game using `ogo-board` directly |
 | [partitions.csv](partitions.csv) | Flash layout |
 | [docs/](docs/) | Architecture, contracts, game guide, hardware notes, roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
-| [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash`), run on the PC |
+| [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test`), run on the PC |
 | [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
 | [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
 

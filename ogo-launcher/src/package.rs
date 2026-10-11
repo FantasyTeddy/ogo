@@ -7,7 +7,7 @@
 
 use std::{
     fs::{self, File},
-    io::{self, Read},
+    io,
     path::{Path, PathBuf},
 };
 
@@ -18,10 +18,6 @@ use ogo_board::{
 };
 
 use crate::library::{self, Game};
-
-/// Files a package may contain; anything else is skipped.
-const PACKAGE_FILES: [&str; 3] = ["game.toml", "game.bin", "icon.rgb565"];
-const BLOCK: usize = 512;
 
 /// Unpacks and checks `package`, then installs it as `<games_dir>/<id>/`, replacing an older
 /// version. Returns the game.
@@ -65,66 +61,14 @@ fn check(dir: &Path) -> anyhow::Result<Game> {
     Ok(game)
 }
 
-/// Minimal tar reader: regular files only, names from the 100-byte name field (enough for the
-/// flat packages `cargo xtask pack` writes).
+/// Unpacks the package files into `into`.
 fn unpack(package: &Path, into: &Path) -> anyhow::Result<()> {
-    let mut file = File::open(package).with_context(|| format!("can't open {}", package.display()))?;
-    let mut header = [0u8; BLOCK];
-    let mut found = Vec::new();
-    loop {
-        if read_block(&mut file, &mut header)?.is_none() || header.iter().all(|&b| b == 0) {
-            break;
-        }
-        let name = field_str(&header[0..100]);
-        let size = octal(&header[124..136]).context("not a valid .ogo package (bad tar header)")?;
-        let kind = header[156];
-        // Name without leading "./" or folders.
-        let name = name.rsplit('/').next().unwrap_or_default().to_owned();
-        let regular = kind == b'0' || kind == 0;
-
-        if regular && PACKAGE_FILES.contains(&name.as_str()) {
-            let mut out = File::create(into.join(&name))?;
-            io::copy(&mut (&mut file).take(size), &mut out).context("not a valid .ogo package (truncated)")?;
-            found.push(name);
-        } else {
-            io::copy(&mut (&mut file).take(size), &mut io::sink())?;
-        }
-        // Data is padded to whole blocks.
-        let padding = (BLOCK as u64 - size % BLOCK as u64) % BLOCK as u64;
-        io::copy(&mut (&mut file).take(padding), &mut io::sink())?;
-    }
-    for required in ["game.toml", "game.bin"] {
-        if !found.iter().any(|name| name == required) {
-            bail!("the package has no {required}");
-        }
-    }
+    let file = File::open(package).with_context(|| format!("can't open {}", package.display()))?;
+    // 4 KB, like the upload chunks: this runs while WiFi needs internal RAM too.
+    ogo_format::package::read(io::BufReader::with_capacity(4096, file), |name, data| {
+        io::copy(data, &mut File::create(into.join(name))?).map(|_| ())
+    })?;
     Ok(())
-}
-
-/// Reads one block; `None` at the end of the file.
-fn read_block(file: &mut File, block: &mut [u8; BLOCK]) -> anyhow::Result<Option<()>> {
-    let mut filled = 0;
-    while filled < BLOCK {
-        let count = file.read(&mut block[filled..])?;
-        if count == 0 {
-            if filled == 0 {
-                return Ok(None);
-            }
-            bail!("not a valid .ogo package (truncated)");
-        }
-        filled += count;
-    }
-    Ok(Some(()))
-}
-
-fn field_str(field: &[u8]) -> String {
-    let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
-    String::from_utf8_lossy(&field[..end]).into_owned()
-}
-
-fn octal(field: &[u8]) -> Option<u64> {
-    let text = field_str(field);
-    u64::from_str_radix(text.trim(), 8).ok()
 }
 
 /// Where uploads are stored while they arrive.

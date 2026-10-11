@@ -1,19 +1,17 @@
-//! Settings shared by the launcher and games, stored in NVS (namespace `ogo`).
+//! Settings shared by the launcher and games, stored in NVS (namespace `ogo`). The steps and
+//! defaults are in `ogo_format::settings`.
 //!
 //! The launcher's settings screen changes them; games read them at start ([`crate::Board::take_with`]
 //! applies them), and the SDK saves volume changes made with VOL. Missing or unreadable keys fall
 //! back to the defaults, so an empty NVS is fine.
 
 use esp_idf_svc::nvs::{EspDefaultNvs, EspDefaultNvsPartition};
+pub use ogo_format::settings::{cycle, step, BRIGHTNESS_STEPS, VOLUME_STEPS};
+use ogo_format::settings::{nearest_step, DEFAULT_BRIGHTNESS, DEFAULT_VOLUME};
 
 pub const NVS_NAMESPACE: &str = "ogo";
 const KEY_BRIGHTNESS: &str = "brightness";
 const KEY_VOLUME: &str = "volume";
-
-/// Backlight levels in percent. The lowest still shows the screen; see [`crate::Backlight`].
-pub const BRIGHTNESS_STEPS: [u8; 10] = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-/// Volume levels in percent, as cycled by VOL in games.
-pub const VOLUME_STEPS: [u8; 5] = [0, 25, 50, 75, 100];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Settings {
@@ -25,7 +23,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { brightness: 100, volume: 50 }
+        Self { brightness: DEFAULT_BRIGHTNESS, volume: DEFAULT_VOLUME }
     }
 }
 
@@ -61,20 +59,4 @@ impl Settings {
         nvs.set_u8(KEY_VOLUME, volume)?;
         Ok(())
     }
-}
-
-/// The step `delta` steps away from `current`, clamped to the ends.
-pub fn step(steps: &[u8], current: u8, delta: isize) -> u8 {
-    let index = steps.iter().position(|&s| s >= current).unwrap_or(steps.len() - 1);
-    steps[(index as isize + delta).clamp(0, steps.len() as isize - 1) as usize]
-}
-
-/// The step after `current`, starting over after the last one.
-pub fn cycle(steps: &[u8], current: u8) -> u8 {
-    let index = steps.iter().position(|&s| s >= current).unwrap_or(0);
-    steps[(index + 1) % steps.len()]
-}
-
-fn nearest_step(steps: &[u8], value: u8) -> u8 {
-    *steps.iter().min_by_key(|&&s| s.abs_diff(value)).expect("steps aren't empty")
 }
