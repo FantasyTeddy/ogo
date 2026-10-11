@@ -1041,14 +1041,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogo-board"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "embedded-graphics",
+ "esp-idf-svc",
+ "log",
+ "mipidsi",
+]
+
+[[package]]
 name = "ogo-launcher"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "embedded-graphics",
  "embuild",
  "esp-idf-svc",
  "log",
- "mipidsi",
+ "ogo-board",
 ]
 
 [[package]]

@@ -7,7 +7,8 @@ target-dir = "D:/ogot"
 [target.'cfg(target_os = "espidf")']
 linker = "ldproxy"
 runner = "espflash flash --monitor"
-rustflags = ["--cfg", "espidf_time64"]
+# ldproxy always prints "Running ldproxy" to stderr, which newer rustc reports as a warning
+rustflags = ["--cfg", "espidf_time64", "-A", "linker_messages"]
 
 [unstable]
 build-std = ["std", "panic_abort"]

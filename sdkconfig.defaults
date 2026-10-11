@@ -9,3 +9,7 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_SPIRAM=y
 # Needed on ESP32 revision v1.0 (the chip on this board)
 CONFIG_SPIRAM_CACHE_WORKAROUND=y
+
+# Long filenames on the SD card (the default is 8.3 names only)
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255

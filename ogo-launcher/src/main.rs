@@ -1,27 +1,47 @@
-//! M0: hello world. Logs over serial and draws a test screen on the LCD.
+//! M1: hardware test screen for `ogo-board`.
+//!
+//! Shows every button, the raw D-pad readings, the battery level and the SD card contents.
+//! A and B beep, Volume cycles the speaker volume, Start re-reads the SD card.
+
+use std::{fs, time::Instant};
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_10X20, MonoTextStyle},
+    mono_font::{
+        ascii::{FONT_10X20, FONT_6X10, FONT_8X13},
+        MonoTextStyle, MonoTextStyleBuilder,
+    },
     pixelcolor::Rgb565,
     prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
-    text::{Alignment, Text},
+    primitives::{PrimitiveStyleBuilder, Rectangle},
+    text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
-use esp_idf_svc::hal::{
-    delay::{Ets, FreeRtos},
-    gpio::PinDriver,
-    peripherals::Peripherals,
-    spi::{config::Config as SpiConfig, SpiDeviceDriver, SpiDriver, SpiDriverConfig},
-    units::FromValueType,
-};
-use mipidsi::{
-    interface::SpiInterface,
-    models::ILI9341Rgb565,
-    options::{ColorOrder, Orientation, Rotation},
-    Builder,
-};
+use esp_idf_svc::hal::delay::FreeRtos;
+use ogo_board::{sd, Board, Button, ButtonState, DisplayResultExt, SdCard, Speaker};
 
-fn main() {
+const POLL_MS: u32 = 20;
+const DPAD_REDRAW_POLLS: u32 = 5;
+const BATTERY_REDRAW_POLLS: u32 = 50;
+const VOLUME_STEPS: [u8; 5] = [0, 25, 50, 75, 100];
+
+const BUTTON_LABELS: [(Button, &str); 10] = [
+    (Button::Up, "UP"),
+    (Button::Down, "DOWN"),
+    (Button::Left, "LEFT"),
+    (Button::Right, "RIGHT"),
+    (Button::A, "A"),
+    (Button::B, "B"),
+    (Button::Select, "SELECT"),
+    (Button::Start, "START"),
+    (Button::Menu, "MENU"),
+    (Button::Volume, "VOL"),
+];
+
+const BOX_SIZE: Size = Size::new(56, 28);
+const INFO_X: i32 = 8;
+const INFO_Y: i32 = 112;
+const LINE_HEIGHT: i32 = 18;
+
+fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_svc::sys::link_patches();
@@ -29,86 +49,174 @@ fn main() {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    log::info!("Hello from ogo-launcher (M0)");
+    log::info!("ogo-launcher M1 hardware test");
 
-    let peripherals = Peripherals::take().unwrap();
-    let pins = peripherals.pins;
+    let mut board = Board::take()?;
+    let display = &mut board.display;
 
-    // The SD card shares the SPI bus with the LCD. Keep its CS high so it stays off the bus.
-    let mut sd_cs = PinDriver::output(pins.gpio22).unwrap();
-    sd_cs.set_high().unwrap();
-
-    // SPI3 (VSPI): these are its IOMUX pins, which allows 40 MHz. Routing them through
-    // SPI2 would go via the GPIO matrix, which caps the clock at ~26 MHz.
-    let spi = SpiDriver::new(
-        peripherals.spi3,
-        pins.gpio18,       // SCLK
-        pins.gpio23,       // MOSI
-        Some(pins.gpio19), // MISO
-        &SpiDriverConfig::new(),
+    display.clear(Rgb565::BLACK).display_err()?;
+    Text::new("M1 hardware test", Point::new(8, 20), MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE))
+        .draw(display).display_err()?;
+    Text::with_alignment(
+        "A/B beep  VOL volume  START re-read SD",
+        Point::new(160, 234),
+        MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_GRAY),
+        Alignment::Center,
     )
-    .unwrap();
-    let lcd_spi = SpiDeviceDriver::new(
-        spi,
-        Some(pins.gpio5), // LCD CS
-        &SpiConfig::new().baudrate(40.MHz().into()),
-    )
-    .unwrap();
-    let dc = PinDriver::output(pins.gpio21).unwrap();
+    .draw(display).display_err()?;
 
-    let mut buffer = [0u8; 512];
-    let di = SpiInterface::new(lcd_spi, dc, &mut buffer);
-    // The ILI9341 is portrait natively; the Odroid-Go holds it landscape (320x240).
-    // The panel is mounted mirrored, so rotating alone shows the image flipped left to right.
-    // No reset pin is wired, so mipidsi falls back to a software reset.
-    let mut display = Builder::new(ILI9341Rgb565, di)
-        .orientation(Orientation::new().rotate(Rotation::Deg90).flip_horizontal())
-        .color_order(ColorOrder::Bgr)
-        .init(&mut Ets)
-        .unwrap();
+    let mut buttons = ButtonState::default();
+    draw_buttons(display, buttons)?;
+    let mut led_on = false;
+    let mut sd_reads = 1;
+    draw_info(display, 2, &status_line(board.speaker.volume(), led_on))?;
+    draw_sd(display, board.sd.as_ref(), sd_reads)?;
 
-    let mut backlight = PinDriver::output(pins.gpio14).unwrap();
-    backlight.set_high().unwrap();
+    for poll in 0u32.. {
+        let previous = buttons;
+        buttons = board.buttons.read()?;
 
-    draw_test_screen(&mut display).unwrap();
-    log::info!("Test screen drawn");
+        if buttons != previous {
+            draw_buttons(&mut board.display, buttons)?;
+            if buttons.any() != led_on {
+                led_on = buttons.any();
+                board.led.set_on(led_on)?;
+                draw_info(&mut board.display, 2, &status_line(board.speaker.volume(), led_on))?;
+            }
+        }
+        if poll % DPAD_REDRAW_POLLS == 0 {
+            let raw = board.buttons.dpad_raw();
+            draw_info(&mut board.display, 0, &format!("D-pad raw  X {:4}  Y {:4}", raw.x, raw.y))?;
+        }
+        if poll % BATTERY_REDRAW_POLLS == 0 {
+            let level = board.battery.read()?;
+            let text = format!(
+                "Battery    {}.{:02} V  {:3} %",
+                level.millivolts / 1000,
+                level.millivolts % 1000 / 10,
+                level.percent
+            );
+            draw_info(&mut board.display, 1, &text)?;
+        }
 
-    loop {
-        FreeRtos::delay_ms(1000);
+        if buttons.just_pressed(previous, Button::A) {
+            beep(&mut board.speaker, 1000, 80);
+        }
+        if buttons.just_pressed(previous, Button::B) {
+            beep(&mut board.speaker, 440, 80);
+        }
+        if buttons.just_pressed(previous, Button::Volume) {
+            let current = VOLUME_STEPS.iter().position(|&v| v == board.speaker.volume()).unwrap_or(0);
+            board.speaker.set_volume(VOLUME_STEPS[(current + 1) % VOLUME_STEPS.len()])?;
+            draw_info(&mut board.display, 2, &status_line(board.speaker.volume(), led_on))?;
+            beep(&mut board.speaker, 880, 60);
+        }
+        if buttons.just_pressed(previous, Button::Start) {
+            sd_reads += 1;
+            draw_sd(&mut board.display, board.sd.as_ref(), sd_reads)?;
+        }
+
+        FreeRtos::delay_ms(POLL_MS);
+    }
+    Ok(())
+}
+
+/// A failed beep shouldn't stop the test screen, so it is only logged.
+fn beep(speaker: &mut Speaker, frequency_hz: u32, duration_ms: u32) {
+    if let Err(e) = speaker.beep(frequency_hz, duration_ms) {
+        log::error!("Beep failed: {e:?}");
     }
 }
 
-/// Corner labels show the orientation, the bars show the color order.
-fn draw_test_screen<D>(display: &mut D) -> Result<(), D::Error>
+fn status_line(volume: u8, led_on: bool) -> String {
+    format!("Volume     {volume:3} %   LED {}", if led_on { "on" } else { "off" })
+}
+
+/// Two rows of five boxes; a box is filled while its button is held.
+fn draw_buttons<D>(display: &mut D, state: ButtonState) -> anyhow::Result<()>
 where
     D: DrawTarget<Color = Rgb565>,
+    D::Error: core::fmt::Debug,
 {
-    display.clear(Rgb565::BLACK)?;
-
-    let white = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-    Text::with_alignment("Hello, Odroid-Go!", Point::new(160, 80), white, Alignment::Center)
-        .draw(display)?;
-
-    for (i, (color, label)) in [
-        (Rgb565::RED, "R"),
-        (Rgb565::GREEN, "G"),
-        (Rgb565::BLUE, "B"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let x = 70 + i as i32 * 64;
-        Rectangle::new(Point::new(x, 110), Size::new(52, 52))
-            .into_styled(PrimitiveStyle::with_fill(color))
-            .draw(display)?;
-        Text::with_alignment(label, Point::new(x + 26, 184), white, Alignment::Center)
-            .draw(display)?;
+    for (i, (button, label)) in BUTTON_LABELS.iter().enumerate() {
+        let held = state.is_held(*button);
+        let top_left = Point::new(8 + (i % 5) as i32 * 62, 34 + (i / 5) as i32 * 36);
+        let style = PrimitiveStyleBuilder::new()
+            .stroke_color(Rgb565::CSS_GRAY)
+            .stroke_width(1)
+            .fill_color(if held { Rgb565::GREEN } else { Rgb565::BLACK })
+            .build();
+        Rectangle::new(top_left, BOX_SIZE).into_styled(style).draw(display).display_err()?;
+        let text_color = if held { Rgb565::BLACK } else { Rgb565::WHITE };
+        Text::with_text_style(
+            label,
+            top_left + Point::new(BOX_SIZE.width as i32 / 2, BOX_SIZE.height as i32 / 2),
+            MonoTextStyle::new(&FONT_6X10, text_color),
+            TextStyleBuilder::new()
+                .alignment(Alignment::Center)
+                .baseline(Baseline::Middle)
+                .build(),
+        )
+        .draw(display).display_err()?;
     }
+    Ok(())
+}
 
-    Text::new("TL", Point::new(4, 18), white).draw(display)?;
-    Text::with_alignment("TR", Point::new(316, 18), white, Alignment::Right).draw(display)?;
-    Text::new("BL", Point::new(4, 234), white).draw(display)?;
-    Text::with_alignment("BR", Point::new(316, 234), white, Alignment::Right).draw(display)?;
+/// One full-width line of the info area, overwriting what was there.
+fn draw_info<D>(display: &mut D, line: i32, text: &str) -> anyhow::Result<()>
+where
+    D: DrawTarget<Color = Rgb565>,
+    D::Error: core::fmt::Debug,
+{
+    let style = MonoTextStyleBuilder::new()
+        .font(&FONT_8X13)
+        .text_color(Rgb565::WHITE)
+        .background_color(Rgb565::BLACK)
+        .build();
+    // 38 columns of 8 px fill the line, clearing longer previous text.
+    let text = format!("{text:<38.38}");
+    Text::with_baseline(&text, Point::new(INFO_X, INFO_Y + line * LINE_HEIGHT), style, Baseline::Top)
+        .draw(display).display_err()?;
+    Ok(())
+}
 
+/// Lists the card's root folder. Reading the card between LCD updates exercises the shared bus.
+fn draw_sd<D>(display: &mut D, card: Option<&SdCard>, read_count: u32) -> anyhow::Result<()>
+where
+    D: DrawTarget<Color = Rgb565>,
+    D::Error: core::fmt::Debug,
+{
+    let Some(card) = card else {
+        draw_info(display, 3, "SD card    not mounted")?;
+        for line in 4..6 {
+            draw_info(display, line, "")?;
+        }
+        return Ok(());
+    };
+
+    let started = Instant::now();
+    let mut names: Vec<String> = match fs::read_dir(sd::MOUNT_POINT) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect(),
+        Err(e) => {
+            log::warn!("Reading {} failed: {e}", sd::MOUNT_POINT);
+            draw_info(display, 3, &format!("SD card    read error: {e}"))?;
+            return Ok(());
+        }
+    };
+    names.sort();
+    log::info!("SD root: {names:?}");
+
+    let ogo = if fs::metadata(card.path("ogo")).is_ok() { "present" } else { "missing" };
+    let elapsed_ms = started.elapsed().as_millis();
+    draw_info(
+        display,
+        3,
+        &format!("SD card    {} MB, {} entries", card.capacity_bytes() >> 20, names.len()),
+    )?;
+    draw_info(display, 4, &format!("  /ogo {ogo}   read #{read_count} in {elapsed_ms} ms"))?;
+    draw_info(display, 5, &format!("  {}", names.join(" ")))?;
     Ok(())
 }

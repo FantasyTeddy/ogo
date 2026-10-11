@@ -9,9 +9,10 @@ name = "ogo-launcher"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
 [dependencies]
+ogo-board.workspace = true
+anyhow.workspace = true
 log.workspace = true
 esp-idf-svc.workspace = true
-mipidsi.workspace = true
 embedded-graphics.workspace = true
 
 [build-dependencies]

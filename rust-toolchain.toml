@@ -1,2 +1,4 @@
 [toolchain]
-channel = "esp"
+# Installed side by side with any other Xtensa toolchain:
+#   espup install --name esp-1.97 --toolchain-version 1.97.0.0 --targets esp32 --std --export-file "$HOME\export-esp-1.97.ps1"
+channel = "esp-1.97"

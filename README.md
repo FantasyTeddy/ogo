@@ -4,8 +4,9 @@ A launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go) hand
 It installs native Rust games from the SD card into a flash slot and boots them. Games and launcher
 updates are managed from a web page served by the device itself.
 
-> **Status:** early development. Milestone M0 is done: the firmware builds on Windows, logs over
-> serial and draws a test screen on the LCD. See the [roadmap](docs/DESIGN.md#9-roadmap).
+> **Status:** early development. Milestones M0 and M1 are done: the `ogo-board` crate drives the
+> display, buttons, speaker, battery sense and SD card, and the launcher currently shows a hardware
+> test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
 
 ## Planned features
 
@@ -33,9 +34,11 @@ Developed on Windows with PowerShell.
 2. **Xtensa toolchain and flashing tools:**
    ```powershell
    cargo install espup espflash cargo-espflash ldproxy
-   espup install
+   espup install --name esp-1.97 --toolchain-version 1.97.0.0 --targets esp32 --std --export-file "$HOME\export-esp-1.97.ps1"
    ```
-   `espup` writes `export-esp.ps1` to your home folder.
+   The project is pinned to this toolchain in [rust-toolchain.toml](rust-toolchain.toml). The named
+   install sits next to any other Xtensa toolchain you have. Note that `espup` also sets
+   `LIBCLANG_PATH` in your user environment.
 3. **Python 3.12.** ESP-IDF 5.5 doesn't install on newer versions such as 3.15. `env.ps1` expects it at
    `%LOCALAPPDATA%\Python\pythoncore-3.12-64`; edit the path there if yours is elsewhere.
 4. **A drive `D:`** for build output. Build output goes to `D:\ogot` because ESP-IDF refuses to build
@@ -56,7 +59,7 @@ In every new PowerShell window, load the environment first:
 Then build, flash and open the serial monitor (replace `COM7` with your port):
 
 ```powershell
-cargo espflash flash --release --port COM7 --monitor
+cargo espflash flash --release --package ogo-launcher --port COM7 --monitor
 ```
 
 To build only:
@@ -71,14 +74,15 @@ The firmware ends up in `D:\ogot\xtensa-esp32-espidf\release\ogo-launcher`.
 
 | Path | Contents |
 |---|---|
-| [ogo-launcher/](ogo-launcher/) | Launcher firmware (currently the M0 test screen) |
+| [ogo-board/](ogo-board/) | Board support: display, buttons, speaker, battery, LED, SD card |
+| [ogo-launcher/](ogo-launcher/) | Launcher firmware (currently the M1 hardware test screen) |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design, flash layout, boot flows and roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings (flash size, PSRAM, stack sizes) |
 | [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |
 
-More crates (`ogo-board`, `ogo-sdk`, `ogo-recovery`, example games, `xtask`) are added as the
-milestones progress.
+More crates (`ogo-sdk`, `ogo-recovery`, example games, `xtask`) are added as the milestones
+progress.
 
 ## Restoring the original firmware
 

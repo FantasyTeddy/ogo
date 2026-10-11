@@ -1,8 +1,8 @@
 # Sets up a PowerShell session for building. Dot-source it once per shell:
 #   . .\env.ps1
 
-# Rust Xtensa toolchain (written by `espup install`)
-. "$HOME\export-esp.ps1"
+# Rust Xtensa toolchain pinned in rust-toolchain.toml (export file written by `espup install`)
+. "$HOME\export-esp-1.97.ps1"
 
 # ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild
 # always uses the first `python` on PATH, so put Python 3.12 in front.

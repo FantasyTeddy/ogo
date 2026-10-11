@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ogo-launcher"]
+members = ["ogo-board", "ogo-launcher"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,6 +8,8 @@ edition = "2021"
 rust-version = "1.82"
 
 [workspace.dependencies]
+ogo-board = { path = "ogo-board" }
+anyhow = "1"
 log = "0.4"
 esp-idf-svc = "0.53"
 embuild = "0.33.5"

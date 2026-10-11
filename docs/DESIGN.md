@@ -35,14 +35,15 @@ server, or interpreted/WASM games.
 | Display | 2.4" ILI9341, 320×240, SPI | `mipidsi` + `embedded-graphics` |
 | SD card | microSD, **shares the SPI bus with the LCD** | Both need a shared-bus driver with separate CS lines |
 | Input | D-pad (2 ADC axes), A, B, Select, Start, Menu, Volume | Menu is a good recovery button at boot. Volume is on GPIO0, a strapping pin: holding it at reset enters serial download mode |
-| Audio | Speaker on DAC GPIO26 through an amplifier, enabled by GPIO25 | Simple PCM/tones via the DAC or I2S-DAC mode. Drive GPIO25 high to unmute |
+| Audio | Speaker on DAC GPIO26 through an amplifier, enabled by GPIO25 | Simple PCM/tones via the DAC or I2S-DAC mode. The amplifier needs time to wake up (see below) |
 | Battery | Li-Po, voltage sensed via ADC | Battery indicator in the launcher |
 
 Pin numbers, checked against the official library's
 [`src/utility/Config.h`](https://github.com/hardkernel/ODROID-GO/blob/master/src/utility/Config.h)
 on 2026-10-11: LCD CS 5, DC 21, backlight 14, no reset pin; SD CS 22; SPI CLK 18 / MOSI 23 /
 MISO 19; A 32, B 33, Select 27, Start 39, Menu 13, Volume 0; D-pad X 34, Y 35; LED 2; speaker
-enable 25, speaker out 26. Battery sense on 36 is not in that file; confirm it in M1.
+enable 25, speaker out 26; battery sense 36 (not in that file, but confirmed in M1). All are in
+`ogo-board/src/pins.rs`.
 
 Display details confirmed in M0:
 - Use **SPI3 (VSPI)**. Pins 18/23/19/5 are its IOMUX pins, which allows 40 MHz. Through SPI2 the
@@ -50,6 +51,22 @@ Display details confirmed in M0:
 - Orientation for landscape 320×240: rotate 90° **and** flip horizontally (the panel is mounted
   mirrored). Color order is BGR.
 - Keep SD CS (22) high while only the LCD is in use.
+
+Other hardware details confirmed in M1:
+- **Shared SPI bus.** One `SpiDriver` (with DMA) is shared by the LCD device and the SD host. ESP-IDF's
+  SPI master driver serializes transactions per bus, so no extra locking is needed.
+- **SD card.** FAT with long filenames needs `CONFIG_FATFS_LFN_HEAP`; the default is 8.3 names only.
+- **D-pad.** Each axis reads ~0 at rest, 4095 for left/up and ~1880 for right/down (12-bit, 12 dB
+  attenuation). Thresholds 1024 and 3072, the same as Retro-Go.
+- **Battery.** 1:2 divider. Measured 3.87 V while charging and 3.72 V on battery. The percentage is
+  linear between 3.5 and 4.2 V, as in Retro-Go, so it's only a rough guide.
+- **Speaker.** GPIO25 enables the amplifier (high = on) and GPIO26 carries the signal on DAC channel 1.
+  The official library's name `SPEAKER_ENABLE_PIN` is right; driving both pins differentially (as
+  Retro-Go's config suggests) only works when GPIO25 stays above the amplifier's enable threshold.
+  The amplifier needs tens of milliseconds to wake up, so enabling it per beep swallows short beeps.
+  It therefore stays on unless the volume is 0. Between tones the DAC holds a mid level, because an
+  undriven input crackles. Tones use the DAC's hardware cosine generator (four volume steps, ≥130 Hz).
+- **LED** (GPIO2). The software drives it, but no LED was visible on the test unit.
 
 Each ESP32 app partition is mapped through the MMU to the same virtual addresses. **So one game image
 runs from any app slot without being rebuilt.** That is what makes "copy from SD, then boot" work.
@@ -283,7 +300,7 @@ SDK responsibilities:
    first. Dot-source it in each new shell: `. .\env.ps1`.
 5. **Flash + monitor:**
    ```
-   cargo espflash flash --release --port COM7 --monitor
+   cargo espflash flash --release --package ogo-launcher --port COM7 --monitor
    ```
    Add `--partition-table partitions.csv` once the custom table exists (M5).
 6. **Useful crates:**
@@ -301,7 +318,7 @@ moves quickly.
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | Toolchain & hello world | A Rust app built on Windows draws text on the LCD and logs over serial. **Done 2026-10-11** |
-| M1 | `ogo-board` crate | Display, all buttons, speaker beep, SD card (shared bus with LCD), battery reading all work |
+| M1 | `ogo-board` crate | Display, all buttons, speaker beep, SD card (shared bus with LCD), battery reading all work. **Done 2026-10-11** (LED not visually confirmed) |
 | M2 | Launcher UI (offline) | Scrollable game list read from `/ogo/games/*/game.toml`, with icons and battery |
 | M3 | Install & launch | Picking a game flashes `game_0` (with progress + hash skip) and boots it |
 | M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist |
@@ -319,8 +336,11 @@ M0 to M4 give you a usable device without any networking. M6 and M7 deliver the 
 
 - **Binary size.** Rust `std` + WiFi images can reach 1.5 MB or more. Measure this in M0/M6 and adjust
   the partition table *before* M5 freezes it. Changing the table later means a USB re-flash.
-- **Shared SPI bus.** The LCD and the SD card share the bus. The launcher must not stream to the LCD
-  via DMA while reading the SD card. Lock the bus or use `embedded-hal-bus`.
+- **Shared SPI bus.** Resolved in M1: ESP-IDF's SPI master driver arbitrates between the LCD and
+  SD devices. Recheck once the SDK pushes full frames by DMA while a game reads saves.
+- **Speaker idle noise (M4).** With the amplifier always on, faint static is audible close to the
+  speaker. In M4, switch the amplifier off after ~1 s of silence and wait for it to wake up before
+  the next sound. Also compare against Go-Play's idle noise.
 - **Partition-write API.** Writing a *specific* OTA slot needs `esp-idf-sys` FFI (unsafe). Wrap it in
   a small safe module.
 - **Emulators (M9).** Either port individual C emulators (e.g. gnuboy, nofrendo) behind the SDK, or
