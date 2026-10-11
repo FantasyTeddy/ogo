@@ -17,7 +17,8 @@
 //! ```
 //!
 //! The SDK makes sure any reset returns to the launcher, runs `update` at a fixed rate and `draw`
-//! once per update, and handles MENU (pause menu with "Exit to launcher") and VOL (volume).
+//! once per update, and handles MENU (pause menu with "Exit to launcher") and VOL (volume). It
+//! applies the brightness and volume from the launcher's settings, and saves VOL changes.
 //!
 //! A game crate needs, besides `ogo-sdk`: a `build.rs` calling `embuild::espidf::sysenv::output()`,
 //! and a direct dependency on `esp-idf-svc` even if unused, because the build script only gets
@@ -31,9 +32,10 @@ mod saves;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use esp_idf_svc::nvs::EspDefaultNvs;
 use ogo_board::{
     boot::{self, Boot},
-    Board, Button,
+    settings, Board, Button, Settings,
 };
 
 pub use ctx::{Ctx, Input};
@@ -93,21 +95,31 @@ pub fn run<G: Game>(game_id: &str) -> ! {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     // Before anything else can fail: make sure the next reset starts the launcher.
-    match Boot::take().and_then(|mut boot| boot.return_to_launcher_on_reset()) {
-        Ok(()) => log::info!("{game_id} running from {}", boot::running_partition_label()),
-        Err(e) => log::error!("Can't make the launcher the boot slot again: {e:?}"),
-    }
+    let nvs = match Boot::take().and_then(|mut boot| boot.return_to_launcher_on_reset().map(|()| boot)) {
+        Ok(boot) => {
+            log::info!("{game_id} running from {}", boot::running_partition_label());
+            Settings::open_nvs(boot.nvs_partition())
+                .inspect_err(|e| log::warn!("Can't open the settings: {e:?}"))
+                .ok()
+        }
+        Err(e) => {
+            log::error!("Can't make the launcher the boot slot again: {e:?}");
+            None
+        }
+    };
 
-    if let Err(e) = run_game::<G>(game_id) {
+    if let Err(e) = run_game::<G>(game_id, nvs) {
         log::error!("{game_id} stopped: {e:?}");
     }
     boot::restart()
 }
 
-fn run_game<G: Game>(game_id: &str) -> anyhow::Result<()> {
-    let Board { display, backlight: _backlight, buttons, speaker, battery, led, sd, modem: _ } = Board::take()?;
+fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Result<()> {
+    let settings = nvs.as_ref().map(Settings::load).unwrap_or_default();
+    let Board { display, backlight: _backlight, buttons, speaker, battery, led, sd, modem: _ } =
+        Board::take_with(&settings, |_| Ok(()))?;
     let mut presenter = Presenter::new(display)?;
-    let mut ctx = Ctx::new(game_id, buttons, speaker, battery, led, sd);
+    let mut ctx = Ctx::new(game_id, buttons, speaker, battery, led, sd, nvs);
     let mut game = G::new(&mut ctx);
 
     let frame_time = Duration::from_micros(1_000_000 / u64::from(G::FPS.max(1)));
@@ -119,9 +131,10 @@ fn run_game<G: Game>(game_id: &str) -> anyhow::Result<()> {
         ctx.poll()?;
 
         if ctx.input().pressed(Button::Volume) {
-            let next = VolumeIndicator::next_volume(ctx.sound().volume());
+            let next = settings::cycle(&settings::VOLUME_STEPS, ctx.sound().volume());
             ctx.sound().set_volume(next);
             ctx.sound().play(MENU_SOUND);
+            ctx.volume_changed();
             volume.show();
         }
 

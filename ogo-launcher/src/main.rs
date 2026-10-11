@@ -1,8 +1,8 @@
 //! ogo-launcher: lists the games on the SD card, installs the selected one into the game slot
 //! and boots it.
 //!
-//! SELECT opens the WiFi screen with the web page (see `web`). Hold SELECT at power-on for the
-//! hardware test screen.
+//! SELECT opens the WiFi screen with the web page (see `web`), MENU the settings screen. Hold
+//! SELECT at power-on for the hardware test screen.
 
 mod connect;
 mod hwtest;
@@ -12,6 +12,7 @@ mod library;
 mod network;
 mod package;
 mod settings;
+mod settings_screen;
 mod ui;
 mod web;
 
@@ -23,7 +24,7 @@ use std::{
 use esp_idf_svc::{hal::delay::FreeRtos, nvs::EspDefaultNvs};
 use ogo_board::{
     boot::{Boot, UpdateResult},
-    BatteryLevel, Board, Button, Note,
+    BatteryLevel, Board, Button, Note, Settings,
 };
 
 use input::{Nav, Navigator};
@@ -40,8 +41,6 @@ const BATTERY_INTERVAL: Duration = Duration::from_secs(5);
 const MESSAGE_DURATION: Duration = Duration::from_secs(2);
 const SOUND_ERROR: &[Note] = &[Note::new(440, 90), Note::new(330, 140)];
 const SOUND_UPDATED: &[Note] = &[Note::new(523, 80), Note::new(784, 80), Note::new(1047, 140)];
-/// NVS namespace for launcher settings (shared with the boot contract's keys).
-const NVS_NAMESPACE: &str = "ogo";
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
@@ -52,8 +51,10 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let boot = Boot::take()?;
+    let nvs = Settings::open_nvs(boot.nvs_partition())?;
+    let settings = Settings::load(&nvs);
     let mut boot_screen_shown = Instant::now();
-    let mut board = Board::take_with(|display| {
+    let mut board = Board::take_with(&settings, |display| {
         ui::draw_boot_screen(display)?;
         boot_screen_shown = Instant::now();
         Ok(())
@@ -70,7 +71,7 @@ fn main() -> anyhow::Result<()> {
     ogo_board::boot::mark_running_valid();
 
     log::info!("ogo-launcher, running from {}", ogo_board::boot::running_partition_label());
-    let mut launcher = Launcher::new(board, boot)?;
+    let mut launcher = Launcher::new(board, boot, nvs, settings);
     launcher.wait_for_boot_screen(boot_screen_shown)?;
     launcher.run()
 }
@@ -88,7 +89,12 @@ struct Launcher {
     /// A notice covers the list until the next button press.
     notice: bool,
     battery: Option<BatteryLevel>,
+    /// The `ogo` NVS namespace: settings and the WiFi network.
     nvs: EspDefaultNvs,
+    /// As currently applied; saved when the settings screen closes.
+    settings: Settings,
+    /// The settings screen, while it's open.
+    settings_screen: Option<settings_screen::Screen>,
     /// Created the first time the WiFi screen opens.
     network: Option<network::Network>,
     /// The WiFi screen, while it's open.
@@ -97,11 +103,10 @@ struct Launcher {
 
 impl Launcher {
     /// Scans the SD card; the boot screen stays up meanwhile.
-    fn new(mut board: Board, boot: Boot) -> anyhow::Result<Self> {
+    fn new(mut board: Board, boot: Boot, nvs: EspDefaultNvs, settings: Settings) -> Self {
         let library = library::scan(board.sd.as_ref());
-        let nvs = EspDefaultNvs::new(boot.nvs_partition(), NVS_NAMESPACE, true)?;
         let battery = board.battery.read().ok();
-        Ok(Self {
+        Self {
             board,
             boot,
             ui: Ui::new(),
@@ -112,9 +117,11 @@ impl Launcher {
             notice: false,
             battery,
             nvs,
+            settings,
+            settings_screen: None,
             network: None,
             connect: None,
-        })
+        }
     }
 
     /// Tells whether a launcher update from the web page worked or was rolled back.
@@ -150,8 +157,8 @@ impl Launcher {
     }
 
     fn run(mut self) -> anyhow::Result<()> {
-        self.ui.draw_top_bar(&mut self.board.display, "Games", self.battery)?;
-        self.ui.draw_footer(&mut self.board.display, None)?;
+        self.draw_top_bar()?;
+        self.draw_footer(None)?;
         self.draw_library()?;
         self.report_update()?;
 
@@ -164,6 +171,8 @@ impl Launcher {
                     if nav == Nav::Back {
                         self.close_connect()?;
                     }
+                } else if self.settings_screen.is_some() {
+                    self.handle_settings(nav)?;
                 } else {
                     self.handle(nav)?;
                 }
@@ -172,16 +181,14 @@ impl Launcher {
 
             if self.message.is_some_and(|until| now >= until) {
                 self.message = None;
-                let footer = self.connect.is_some().then_some("B back");
-                self.ui.draw_footer(&mut self.board.display, footer)?;
+                self.draw_footer(None)?;
             }
             if now >= next_battery_read {
                 next_battery_read = now + BATTERY_INTERVAL;
                 let level = self.board.battery.read().ok();
                 if level != self.battery {
                     self.battery = level;
-                    let title = if self.connect.is_some() { "WiFi" } else { "Games" };
-                    self.ui.draw_top_bar(&mut self.board.display, title, self.battery)?;
+                    self.draw_top_bar()?;
                 }
             }
 
@@ -203,11 +210,12 @@ impl Launcher {
         match nav {
             Nav::Up => self.list.move_by(-1, len, true),
             Nav::Down => self.list.move_by(1, len, true),
-            Nav::PageUp => self.list.move_by(-page, len, false),
-            Nav::PageDown => self.list.move_by(page, len, false),
+            Nav::Left => self.list.move_by(-page, len, false),
+            Nav::Right => self.list.move_by(page, len, false),
             Nav::Select => return self.select(),
             Nav::Rescan => return self.rescan(),
             Nav::Connect => return self.open_connect(),
+            Nav::Settings => return self.open_settings(),
             Nav::Back => {}
         }
         if self.list != before {
@@ -294,7 +302,34 @@ impl Launcher {
 
     fn show_message(&mut self, message: &str) -> anyhow::Result<()> {
         self.message = Some(Instant::now() + MESSAGE_DURATION);
-        self.ui.draw_footer(&mut self.board.display, Some(message))
+        self.draw_footer(Some(message))
+    }
+
+    /// The current screen's controls, or `message` in their place.
+    fn draw_footer(&mut self, message: Option<&str>) -> anyhow::Result<()> {
+        let controls = if self.connect.is_some() {
+            connect::CONTROLS
+        } else if self.settings_screen.is_some() {
+            self.settings_controls()
+        } else {
+            ui::GAMES_CONTROLS
+        };
+        self.ui.draw_footer(&mut self.board.display, controls, message)
+    }
+
+    fn draw_top_bar(&mut self) -> anyhow::Result<()> {
+        let title = self.title();
+        self.ui.draw_top_bar(&mut self.board.display, title, self.battery)
+    }
+
+    fn title(&self) -> &'static str {
+        if self.connect.is_some() {
+            "WiFi"
+        } else if self.settings_screen.is_some() {
+            "Settings"
+        } else {
+            "Games"
+        }
     }
 
     fn draw_library(&mut self) -> anyhow::Result<()> {

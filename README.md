@@ -22,7 +22,9 @@ and launcher updates will be managed from a web page served by the device itself
   network, see battery and free space
 - Launcher updates from the web page, into the other of two launcher slots; if the new launcher
   doesn't start properly, the device goes back to the previous one by itself
-- Planned: save backups, settings screen, emulators packaged as games
+- Settings screen (MENU): device info, brightness and volume (both also used by games), forget the
+  WiFi network
+- Planned: save backups, emulators packaged as games
 
 The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -88,7 +90,8 @@ python tools\install_game.py games\snake E:\
 
 On the device, select the game and press A. The first start (or after an update) installs it with a
 progress bar. In a game, MENU opens the pause menu with "Exit to launcher", and VOL changes the
-volume. Any reset while a game runs also lands back in the launcher.
+volume (kept for the launcher and other games too). Any reset while a game runs also lands back in
+the launcher. MENU in the game list opens the settings.
 
 Or over WiFi: pack the game with `python tools\install_game.py games\snake --ogo snake.ogo`, then
 upload it on the device's web page (see below).

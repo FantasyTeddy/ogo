@@ -5,12 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use esp_idf_svc::sys;
-use ogo_board::{boot, Battery, BatteryLevel, Button, ButtonState, Buttons, Led, SdCard, Speaker};
+use esp_idf_svc::{nvs::EspDefaultNvs, sys};
+use ogo_board::{boot, Battery, BatteryLevel, Button, ButtonState, Buttons, Led, SdCard, Settings, Speaker};
 
 use crate::saves::Saves;
 
 const BATTERY_INTERVAL: Duration = Duration::from_secs(5);
+/// A volume change is saved this long after the last VOL press: by then the amplifier is usually
+/// off already (see `ogo_board::speaker`), so muting it for the flash write doesn't cut a sound.
+const VOLUME_SAVE_DELAY: Duration = Duration::from_secs(4);
 
 /// Button state for the current frame.
 #[derive(Debug, Default, Clone, Copy)]
@@ -50,6 +53,10 @@ pub struct Ctx {
     next_battery_read: Instant,
     led: Led,
     saves: Saves,
+    /// The settings in NVS; `None` if they couldn't be opened.
+    nvs: Option<EspDefaultNvs>,
+    /// When to save a changed volume.
+    volume_save_at: Option<Instant>,
     frame: u64,
     // Keeps the card mounted for the saves.
     _sd: Option<SdCard>,
@@ -63,6 +70,7 @@ impl Ctx {
         mut battery_sensor: Battery,
         led: Led,
         sd: Option<SdCard>,
+        nvs: Option<EspDefaultNvs>,
     ) -> Self {
         let battery = battery_sensor.read().ok();
         Self {
@@ -74,6 +82,8 @@ impl Ctx {
             next_battery_read: Instant::now() + BATTERY_INTERVAL,
             led,
             saves: Saves::new(sd.as_ref(), game_id),
+            nvs,
+            volume_save_at: None,
             frame: 0,
             _sd: sd,
         }
@@ -87,7 +97,28 @@ impl Ctx {
             self.next_battery_read = now + BATTERY_INTERVAL;
             self.battery = self.battery_sensor.read().ok();
         }
+        if self.volume_save_at.is_some_and(|at| now >= at) {
+            self.save_volume();
+        }
         Ok(())
+    }
+
+    /// VOL was pressed: save the new volume soon.
+    pub(crate) fn volume_changed(&mut self) {
+        self.volume_save_at = Some(Instant::now() + VOLUME_SAVE_DELAY);
+    }
+
+    fn save_volume(&mut self) {
+        self.volume_save_at = None;
+        let Some(nvs) = &self.nvs else {
+            return;
+        };
+        // Writing flash stalls the audio DMA, which would click.
+        self.speaker.set_muted(true);
+        if let Err(e) = Settings::save_volume(nvs, self.speaker.volume()) {
+            log::warn!("Saving the volume failed: {e:?}");
+        }
+        self.speaker.set_muted(false);
     }
 
     pub(crate) fn advance_frame(&mut self) {
@@ -136,6 +167,9 @@ impl Ctx {
     /// Restarts into the launcher. Saves are written immediately, so nothing is lost.
     pub fn exit_to_launcher(&mut self) -> ! {
         log::info!("Exiting to the launcher");
+        if self.volume_save_at.is_some() {
+            self.save_volume();
+        }
         boot::restart()
     }
 }

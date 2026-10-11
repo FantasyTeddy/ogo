@@ -13,6 +13,7 @@ pub mod flash;
 pub mod image;
 pub mod pins;
 pub mod sd;
+pub mod settings;
 pub mod speaker;
 
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
@@ -32,6 +33,7 @@ pub use buttons::{Button, ButtonState, Buttons, DpadRaw};
 pub use canvas::Canvas;
 pub use display::{Backlight, Display, DisplayResultExt};
 pub use sd::SdCard;
+pub use settings::Settings;
 pub use speaker::{Note, Speaker};
 
 /// Largest single SPI transfer, in bytes. Used for LCD pixel batches and SD sectors.
@@ -51,14 +53,19 @@ pub struct Board {
 }
 
 impl Board {
-    /// Takes the ESP32 peripherals and initializes all board hardware. Call once.
+    /// Takes the ESP32 peripherals and initializes all board hardware, with the default
+    /// [`Settings`] (full brightness). Call once.
     pub fn take() -> anyhow::Result<Self> {
-        Self::take_with(|_| Ok(()))
+        Self::take_with(&Settings::default(), |_| Ok(()))
     }
 
-    /// Like [`Board::take`], but calls `first_frame` as soon as the display works, before the
-    /// backlight turns on and before the slower SD card setup. Use it to show a boot screen.
-    pub fn take_with(first_frame: impl FnOnce(&mut Display) -> anyhow::Result<()>) -> anyhow::Result<Self> {
+    /// Like [`Board::take`], but applies `settings` (brightness, volume), and calls `first_frame`
+    /// as soon as the display works, before the backlight turns on and before the slower SD card
+    /// setup. Use it to show a boot screen.
+    pub fn take_with(
+        settings: &Settings,
+        first_frame: impl FnOnce(&mut Display) -> anyhow::Result<()>,
+    ) -> anyhow::Result<Self> {
         let own = image::running();
         log::info!("{} {}", own.kind(), own.version());
         let p = Peripherals::take()?;
@@ -79,8 +86,8 @@ impl Board {
         // The panel still shows whatever the previous app left; clear it before it becomes visible.
         display.clear(Rgb565::BLACK).display_err()?;
         first_frame(&mut display)?;
-        let mut backlight = Backlight::new(pins.gpio14)?;
-        backlight.set_on(true)?;
+        let mut backlight = Backlight::new(p.ledc.timer0, p.ledc.channel0, pins.gpio14)?;
+        backlight.set_brightness(settings.brightness)?;
 
         let sd = match SdCard::mount(spi, pins.gpio22) {
             Ok(card) => {
@@ -107,7 +114,8 @@ impl Board {
             pins.gpio35,
         )?;
         let battery = Battery::new(adc, pins.gpio36)?;
-        let speaker = Speaker::new(pins.gpio25, pins.gpio26)?;
+        let mut speaker = Speaker::new(pins.gpio25, pins.gpio26)?;
+        speaker.set_volume(settings.volume);
         let led = Led::new(pins.gpio2)?;
 
         Ok(Self { display, backlight, buttons, speaker, battery, led, sd, modem: Some(p.modem) })

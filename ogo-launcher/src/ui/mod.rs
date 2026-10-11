@@ -1,4 +1,5 @@
-//! Launcher screen: top bar with battery, game list, detail panel and footer.
+//! Launcher screen: top bar with battery, game list, detail panel and footer. The WiFi and settings
+//! screens replace the list and detail panel.
 //!
 //! Each area is drawn into its own [`Canvas`] and presented in one transfer.
 
@@ -20,13 +21,33 @@ use crate::library::{Entry, Library, GAMES_DIR, ICON_SIZE};
 const BACKGROUND: Rgb565 = Rgb565::BLACK;
 const BAR: Rgb565 = Rgb565::new(4, 8, 4);
 const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
-const TEXT: Rgb565 = Rgb565::WHITE;
+pub const TEXT: Rgb565 = Rgb565::WHITE;
 pub const DIM: Rgb565 = Rgb565::CSS_GRAY;
 pub const WARNING: Rgb565 = Rgb565::CSS_ORANGE;
 pub const SUCCESS: Rgb565 = Rgb565::CSS_LIGHT_GREEN;
 const ACCENT: Rgb565 = Rgb565::new(30, 27, 8);
 /// Center of the step numbers on the WiFi screen.
 const STEP_X: i32 = 34;
+
+/// Footer controls of the game list.
+pub const GAMES_CONTROLS: &str = "A start  START rescan  SELECT WiFi  MENU settings";
+
+/// What the settings screen shows.
+#[derive(Debug, Clone)]
+pub struct SettingsView {
+    /// Read-only lines at the top: label and value.
+    pub info: Vec<(&'static str, String)>,
+    pub items: Vec<SettingsItem>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum SettingsItem {
+    /// A level shown as a bar, changed with Left/Right. `value` is the text next to the bar.
+    Level { label: &'static str, percent: u8, value: String },
+    /// Done with A. A disabled action is drawn dimmed.
+    Action { label: String, color: Rgb565, enabled: bool },
+}
 
 /// What the WiFi screen shows.
 #[derive(Debug, Clone, Default)]
@@ -51,6 +72,9 @@ const DETAIL_WIDTH: u32 = WIDTH - LIST_WIDTH;
 const ROW_HEIGHT: u32 = 28;
 /// Rows that fit into the list.
 pub const VISIBLE_ROWS: usize = (BODY_HEIGHT / ROW_HEIGHT) as usize;
+/// Settings screen: where values start, and the level bars.
+const SETTINGS_VALUE_X: i32 = 100;
+const SETTINGS_BAR_WIDTH: u32 = 140;
 const SCROLLBAR_WIDTH: u32 = 3;
 const LIST_TEXT_X: i32 = 8;
 
@@ -147,14 +171,14 @@ impl Ui {
         canvas.present(display)
     }
 
-    /// The footer shows the controls, or `message` in their place.
-    pub fn draw_footer(&mut self, display: &mut Display, message: Option<&str>) -> anyhow::Result<()> {
+    /// The footer shows the screen's `controls`, or `message` in their place.
+    pub fn draw_footer(&mut self, display: &mut Display, controls: &str, message: Option<&str>) -> anyhow::Result<()> {
         let canvas = &mut self.footer;
         canvas.clear(BAR).ok();
         let center = Point::new(WIDTH as i32 / 2, FOOTER_HEIGHT as i32 / 2);
         match message {
             Some(message) => text(canvas, message, center, &FONT_6X10, TEXT, Alignment::Center),
-            None => text(canvas, "A start  L/R page  SELECT WiFi  START rescan", center, &FONT_6X10, DIM, Alignment::Center),
+            None => text(canvas, controls, center, &FONT_6X10, DIM, Alignment::Center),
         }
         canvas.present(display)
     }
@@ -237,6 +261,55 @@ impl Ui {
         if let Some((activity, color)) = &view.activity {
             for (i, line) in wrap(activity, 38, 2).iter().enumerate() {
                 text(canvas, line, Point::new(center_x, 168 + i as i32 * 14), &FONT_8X13, *color, Alignment::Center);
+            }
+        }
+        canvas.present(display)
+    }
+
+    /// The settings screen: info lines at the top, then the items to change.
+    pub fn draw_settings(&mut self, display: &mut Display, view: &SettingsView) -> anyhow::Result<()> {
+        let canvas = &mut self.body;
+        canvas.clear(BACKGROUND).ok();
+        let max_chars = (WIDTH as i32 - SETTINGS_VALUE_X - LIST_TEXT_X) as usize / FONT_8X13.character_size.width as usize;
+        for (i, (label, value)) in view.info.iter().enumerate() {
+            let y = 14 + i as i32 * 18;
+            text(canvas, label, Point::new(LIST_TEXT_X + 4, y), &FONT_8X13, DIM, Alignment::Left);
+            text(canvas, &truncate(value, max_chars), Point::new(SETTINGS_VALUE_X, y), &FONT_8X13, TEXT, Alignment::Left);
+        }
+        let items_top = 14 + view.info.len() as i32 * 18;
+        Rectangle::new(Point::new(LIST_TEXT_X, items_top), Size::new(WIDTH - 2 * LIST_TEXT_X as u32, 1))
+            .into_styled(PrimitiveStyle::with_fill(BAR))
+            .draw(canvas)
+            .ok();
+
+        for (i, item) in view.items.iter().enumerate() {
+            let top = items_top + 8 + i as i32 * ROW_HEIGHT as i32;
+            let middle = top + ROW_HEIGHT as i32 / 2;
+            if i == view.selected {
+                Rectangle::new(Point::new(0, top), Size::new(WIDTH, ROW_HEIGHT))
+                    .into_styled(PrimitiveStyle::with_fill(SELECTION))
+                    .draw(canvas)
+                    .ok();
+            }
+            match item {
+                SettingsItem::Level { label, percent, value } => {
+                    text(canvas, label, Point::new(LIST_TEXT_X + 4, middle), &FONT_8X13, TEXT, Alignment::Left);
+                    let bar = Rectangle::new(Point::new(SETTINGS_VALUE_X, middle - 4), Size::new(SETTINGS_BAR_WIDTH, 9));
+                    bar.into_styled(PrimitiveStyle::with_stroke(TEXT, 1)).draw(canvas).ok();
+                    let filled = (SETTINGS_BAR_WIDTH - 4) * u32::from(*percent) / 100;
+                    Rectangle::new(bar.top_left + Point::new(2, 2), Size::new(filled, 5))
+                        .into_styled(PrimitiveStyle::with_fill(ACCENT))
+                        .draw(canvas)
+                        .ok();
+                    let value_position = Point::new(WIDTH as i32 - LIST_TEXT_X - 4, middle);
+                    text(canvas, value, value_position, &FONT_8X13, TEXT, Alignment::Right);
+                }
+                SettingsItem::Action { label, color, enabled } => {
+                    let color = if *enabled { *color } else { DIM };
+                    let max_chars = (WIDTH as i32 - 2 * (LIST_TEXT_X + 4)) as usize / FONT_8X13.character_size.width as usize;
+                    let position = Point::new(LIST_TEXT_X + 4, middle);
+                    text(canvas, &truncate(label, max_chars), position, &FONT_8X13, color, Alignment::Left);
+                }
             }
         }
         canvas.present(display)

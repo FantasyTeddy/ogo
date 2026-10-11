@@ -19,7 +19,6 @@ use crate::ctx::Input;
 const PANEL: Rgb565 = Rgb565::new(4, 8, 4);
 const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
 const TEXT: Rgb565 = Rgb565::WHITE;
-const VOLUME_STEPS: [u8; 5] = [0, 25, 50, 75, 100];
 const VOLUME_SHOWN_FOR: Duration = Duration::from_millis(1200);
 pub const MENU_SOUND: &[Note] = &[Note::new(660, 30)];
 
@@ -77,12 +76,6 @@ pub struct VolumeIndicator {
 }
 
 impl VolumeIndicator {
-    /// The volume after `current`, cycling through 0, 25, 50, 75, 100 %.
-    pub fn next_volume(current: u8) -> u8 {
-        let index = VOLUME_STEPS.iter().position(|&v| v >= current).unwrap_or(0);
-        VOLUME_STEPS[(index + 1) % VOLUME_STEPS.len()]
-    }
-
     pub fn show(&mut self) {
         self.until = Some(Instant::now() + VOLUME_SHOWN_FOR);
     }

@@ -18,6 +18,8 @@ use crate::{
     Launcher, SOUND_ERROR,
 };
 
+/// Footer controls of the WiFi screen.
+pub const CONTROLS: &str = "B back";
 const SOUND_INSTALLED: &[Note] = &[Note::new(660, 60), Note::new(880, 60), Note::new(1320, 100)];
 /// Time to show "restarting" and let the HTTP response reach the browser.
 const RESTART_DELAY_MS: u32 = 1500;
@@ -35,7 +37,7 @@ impl Launcher {
     pub(crate) fn open_connect(&mut self) -> anyhow::Result<()> {
         let pin = random_pin();
         self.ui.draw_top_bar(&mut self.board.display, "WiFi", self.battery)?;
-        self.ui.draw_footer(&mut self.board.display, Some("B back"))?;
+        self.ui.draw_footer(&mut self.board.display, CONTROLS, None)?;
         match self.start_session(pin, None) {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -105,8 +107,8 @@ impl Launcher {
     /// Stops the web server and WiFi, and goes back to the game list.
     pub(crate) fn close_connect(&mut self) -> anyhow::Result<()> {
         let changed = self.end_session();
-        self.ui.draw_top_bar(&mut self.board.display, "Games", self.battery)?;
-        self.ui.draw_footer(&mut self.board.display, None)?;
+        self.draw_top_bar()?;
+        self.draw_footer(None)?;
         if changed {
             self.rescan()
         } else {

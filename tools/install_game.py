@@ -8,7 +8,7 @@ Usage:  python tools/install_game.py games/snake E:\\
         python tools/install_game.py games/snake --ogo snake.ogo
 
 The id and version come from [package] in the crate's Cargo.toml, the display name and
-sdk_version from [package.metadata.ogo]. `cargo xtask pack` replaces this script in M8.
+sdk_version from [package.metadata.ogo]. `cargo xtask pack` replaces this script in M9.
 """
 
 import argparse

@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use esp_idf_svc::hal::{
     delay::Ets,
     gpio::{Output, OutputPin, PinDriver},
+    ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver, LowSpeed, Resolution, CHANNEL0, TIMER0},
     spi::{config::Config as SpiConfig, SpiDeviceDriver, SpiDriver},
     units::FromValueType,
 };
@@ -57,22 +58,42 @@ impl<T, E: core::fmt::Debug> DisplayResultExt<T> for Result<T, E> {
     }
 }
 
-/// LCD backlight. On/off only for now; brightness via PWM comes with the settings screen (M8).
+/// LCD backlight, dimmed by PWM (LEDC).
 pub struct Backlight {
-    pin: PinDriver<'static, Output>,
+    channel: LedcDriver<'static>,
+    // Dropping the timer driver would stop the timer.
+    _timer: LedcTimerDriver<'static, LowSpeed>,
 }
 
+/// High enough not to flicker, low enough for 13-bit steps from the 80 MHz clock.
+const BACKLIGHT_PWM_HZ: u32 = 5_000;
+/// Duty cycle at the lowest brightness: dim, but the screen stays readable.
+const MIN_DUTY: f32 = 0.04;
+
 impl Backlight {
-    pub(crate) fn new(pin: impl OutputPin + 'static) -> anyhow::Result<Self> {
-        Ok(Self { pin: PinDriver::output(pin)? })
+    /// Starts dark; [`Backlight::set_brightness`] switches it on.
+    pub(crate) fn new(
+        timer: TIMER0<'static>,
+        channel: CHANNEL0<'static>,
+        pin: impl OutputPin + 'static,
+    ) -> anyhow::Result<Self> {
+        let config = TimerConfig::new().frequency(BACKLIGHT_PWM_HZ.Hz()).resolution(Resolution::Bits13);
+        let timer = LedcTimerDriver::new(timer, &config)?;
+        let mut channel = LedcDriver::new(channel, &timer, pin)?;
+        channel.set_duty(0)?;
+        Ok(Self { channel, _timer: timer })
     }
 
-    pub fn set_on(&mut self, on: bool) -> anyhow::Result<()> {
-        if on {
-            self.pin.set_high()?;
-        } else {
-            self.pin.set_low()?;
-        }
+    /// Brightness in percent; 0 switches the backlight off. The eye sees brightness roughly as
+    /// the square root of the duty cycle, so the duty grows quadratically, from [`MIN_DUTY`] at
+    /// 1 % up to 100 %.
+    pub fn set_brightness(&mut self, percent: u8) -> anyhow::Result<()> {
+        let fraction = match percent.min(100) {
+            0 => 0.0,
+            p => MIN_DUTY + (1.0 - MIN_DUTY) * (f32::from(p) / 100.0).powi(2),
+        };
+        let max = self.channel.get_max_duty();
+        self.channel.set_duty((max as f32 * fraction).round() as u32)?;
         Ok(())
     }
 }

@@ -23,12 +23,13 @@ use esp_idf_svc::{
     sys::{self, esp},
 };
 
+use crate::settings::NVS_NAMESPACE;
+
 /// The flash slot games are installed into.
 pub const GAME_PARTITION: &str = "game_0";
 /// Used if NVS doesn't say which launcher slot started the game.
 const DEFAULT_LAUNCHER_PARTITION: &str = "launcher_a";
 
-const NVS_NAMESPACE: &str = "ogo";
 /// Label of the launcher slot that started the game.
 const KEY_LAUNCHER: &str = "launcher";
 /// SHA-256 (hex) of the image in `game_0`. NVS keys are limited to 15 characters.

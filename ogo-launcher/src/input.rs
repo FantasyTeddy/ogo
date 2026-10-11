@@ -11,12 +11,16 @@ const REPEAT_INTERVAL: Duration = Duration::from_millis(90);
 pub enum Nav {
     Up,
     Down,
-    PageUp,
-    PageDown,
+    /// A page up in lists.
+    Left,
+    /// A page down in lists.
+    Right,
     Select,
     Rescan,
     /// SELECT: open the WiFi / web page screen.
     Connect,
+    /// MENU: open the settings screen.
+    Settings,
     /// B: leave the current screen.
     Back,
 }
@@ -41,6 +45,9 @@ impl Navigator {
         }
         if state.just_pressed(previous, Button::Select) {
             return Some(Nav::Connect);
+        }
+        if state.just_pressed(previous, Button::Menu) {
+            return Some(Nav::Settings);
         }
         if state.just_pressed(previous, Button::B) {
             return Some(Nav::Back);
@@ -68,7 +75,7 @@ fn direction(button: Button) -> Nav {
     match button {
         Button::Up => Nav::Up,
         Button::Down => Nav::Down,
-        Button::Left => Nav::PageUp,
-        _ => Nav::PageDown,
+        Button::Left => Nav::Left,
+        _ => Nav::Right,
     }
 }

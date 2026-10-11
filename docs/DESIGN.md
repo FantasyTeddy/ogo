@@ -151,6 +151,39 @@ For reference, the M0 hello world (`std`, logging, display) is about 450 KB.
   settings.toml      # optional human-editable settings (WiFi etc.)
 ```
 
+### NVS (namespace `ogo`)
+
+| Key | Type | Written by | Purpose |
+|---|---|---|---|
+| `launcher` | str | launcher | Launcher slot that started the game (§5) |
+| `game0_sha256`, `game0_addr` | str, u32 | launcher | What `game_0` holds, to skip reinstalls (§5) |
+| `update_target` | str | launcher | Slot a launcher update went to, until the next start checks it (§5) |
+| `wifi_ssid`, `wifi_pass` | str | launcher | The WiFi network set on the web page (§6) |
+| `brightness` | u8 | launcher (settings screen) | Backlight in percent: 10, 20, … 100. Default 100 |
+| `volume` | u8 | launcher (settings screen), games (VOL) | Volume in percent: 0, 25, 50, 75, 100. Default 50 |
+
+`ogo_board::settings` reads and writes `brightness` and `volume`. Missing keys mean the defaults, so
+games built before M8 still work with an M8 launcher, and the other way round.
+
+### Settings screen (M8)
+
+MENU in the game list opens it; B or MENU closes it. From the top:
+
+- **Info:** launcher version, build ID and running slot; SD card free/total; the saved WiFi network
+  (marked "(SD card)" if it comes from `/ogo/settings.toml`).
+- **Brightness:** Left/Right in 10 % steps. LEDC PWM at 5 kHz, 13 bits on GPIO14. The duty cycle grows
+  quadratically (perceived brightness is roughly the square root of it), from 4 % at the lowest
+  step, so the screen never goes dark.
+- **Volume:** Left/Right through the VOL steps, with a beep at the new volume.
+- **Forget WiFi network:** A, then A again to confirm. Removes the network from NVS, so the WiFi
+  screen opens the access point again. A network from `/ogo/settings.toml` can't be forgotten here;
+  the screen says so.
+
+Brightness and volume apply right away and are written to NVS once, when the screen closes.
+`Board::take_with` applies them before the backlight turns on, so neither the launcher nor games
+flash at full brightness first. Recovery uses `Board::take` with the defaults, so a bad setting
+can't make it unusable.
+
 ---
 
 ## 5. Boot, launch and recovery flows
@@ -229,7 +262,7 @@ the linker from dropping it, and an app without one doesn't link.
 **Build ID.** The first 8 hex digits of the image's SHA-256, computed from the slot with
 `esp_partition_get_sha256` (~0.1 s for 1.6 MB). It tells two builds of the same version apart, even
 uncommitted ones. ESP-IDF's `app_elf_sha256` field would be cheaper, but stays all zeros in images
-built with espflash. Release builds via `cargo xtask` (M8) should add the commit to the image
+built with espflash. Release builds via `cargo xtask` (M9) should add the commit to the image
 description.
 
 ---
@@ -240,7 +273,7 @@ As built in M6:
 
 - **WiFi screen.** SELECT in the game list opens it; B closes it. WiFi and the web server only run
   while it's open: the radio costs battery, games get the whole device, and the device is only
-  reachable while someone is looking at that screen. ("Always on" could become a setting in M8.)
+  reachable while someone is looking at that screen. ("Always on" could become a setting later.)
   Leaving the screen rescans the library if the page changed it.
 - **Joining.** When the screen opens, the device first scans for networks (~2 s, station mode only),
   then joins the network from NVS (set via the page) or, for a first setup, from
@@ -273,7 +306,7 @@ As built in M6:
 | `/api/wifi` | POST | `{"ssid", "password"}`: save to NVS and join |
 | `/api/restart` | POST | Restart the device |
 
-Still to come: `/api/launcher` (self-update, M7) and `/api/saves/<id>` (save backup, M8).
+Still to come: `/api/saves/<id>` (save backup, M9).
 
 - **Uploads** are streamed in 4 KB chunks to `/ogo/updates/upload.ogo` (max 10 MB), then unpacked by
   a minimal tar reader into `/ogo/games/.incoming/` (folders starting with a dot are ignored by the
@@ -282,7 +315,7 @@ Still to come: `/api/launcher` (self-update, M7) and `/api/saves/<id>` (save bac
   `filetime`, which needs Unix calls ESP-IDF lacks, hence the own reader.)
 - WiFi and lwIP buffers may go to PSRAM (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP`). The launcher grew
   from 0.9 to 1.6 MB with WiFi and the HTTP server (62 % of its slot).
-- Nice to have later: mDNS (`ogo.local`) via the ESP-IDF `mdns` component.
+- Planned for M9: mDNS (`ogo.local`) via the ESP-IDF `mdns` component.
 
 ---
 
@@ -364,8 +397,10 @@ As built in M4 (`ogo-sdk`, example: `games/snake`):
 - Sound: `Ctx::sound().play(&[Note])`, sines with fades (see the audio notes in §2). No PCM yet.
 - Saves are text files `/ogo/saves/<id>/<name>`, written via a temp file. `read::<T: FromStr>` and
   `write::<T: Display>`, plus raw bytes.
-- `Ctx::random()` uses the hardware RNG. VOL cycles the volume with an on-screen indicator (not yet
-  persisted; settings come in M8).
+- `Ctx::random()` uses the hardware RNG. VOL cycles the volume with an on-screen indicator.
+- Since M8 the SDK applies the brightness and volume from NVS at start, and saves a VOL change 4 s
+  after the last press (by then the amplifier is usually off, so muting it for the flash write
+  doesn't cut a sound), or right away when the game exits to the launcher.
 - Game crates need a `build.rs` with `embuild::espidf::sysenv::output()` and a direct
   `esp-idf-svc` dependency: the build script only sees ESP-IDF's linker arguments from a direct
   dependency.
@@ -417,8 +452,9 @@ moves quickly.
 | M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher. **Done 2026-10-11** |
 | M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection. **Done 2026-10-11** |
 | M7 | Launcher self-OTA | Upload `launcher.bin` via the web page. A/B switch with rollback, tested with a deliberately broken build. **Done 2026-10-11** |
-| M8 | Polish | Settings screen (WiFi, brightness, volume), save backup download, mDNS, `cargo xtask pack` and release builds (commit in the image description), charging indicator |
-| M9 | Emulators | First emulator packaged as a "game" that browses ROMs on the SD card |
+| M8 | Settings screen | MENU opens settings with device info, brightness, volume and "forget WiFi network". Brightness and volume are stored in NVS and apply in games too, and VOL in games is saved. **Done 2026-10-11** |
+| M9 | Polish | Save backup download, mDNS, `cargo xtask pack` and release builds (commit in the image description), charging indicator |
+| M10 | Emulators | First emulator packaged as a "game" that browses ROMs on the SD card |
 
 M0 to M4 give you a usable device without any networking. M6 and M7 deliver the OTA goal.
 
@@ -434,12 +470,12 @@ M0 to M4 give you a usable device without any networking. M6 and M7 deliver the 
   silence, and a sound that finds it off starts after 150 ms of idle level while it wakes up.
 - **Partition-write API.** Writing a *specific* OTA slot needs `esp-idf-sys` FFI (unsafe). Wrap it in
   a small safe module.
-- **Emulators (M9).** Either port individual C emulators (e.g. gnuboy, nofrendo) behind the SDK, or
+- **Emulators (M10).** Either port individual C emulators (e.g. gnuboy, nofrendo) behind the SDK, or
   find out whether a Retro-Go build can be packaged as a single image. Retro-Go normally uses its own
   multi-partition layout, so it probably won't drop in as-is.
 - **Number of game slots.** One slot is simplest. Two slots save re-flashing when you alternate
   between games, but each would hold only ~4.7 MB. Decide this after measuring game sizes.
-- **Charging detection (M8).** The ODROID-GO wires no charge-status or USB-power signal to the ESP32
+- **Charging detection (M9).** The ODROID-GO wires no charge-status or USB-power signal to the ESP32
   (Retro-Go's board config only has the battery ADC). Plugging in raises the measured voltage by
   ~0.1–0.2 V at once (3.72 → 3.87 V measured), so a heuristic can show a charging icon on such a jump
   or a steady rise, and hide it on a sudden drop. It can't tell at power-on while already plugged in
