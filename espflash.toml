@@ -1,0 +1,7 @@
+# Used by `cargo espflash`. The launcher belongs in launcher_a; the recovery (factory) slot stays
+# empty until M5, and the bootloader falls back to launcher_a.
+# cargo-espflash 4.3 ignores target_app_partition here, so pass --target-app-partition launcher_a
+# on the command line as well (see README).
+[idf]
+partition_table = "partitions.csv"
+target_app_partition = "launcher_a"

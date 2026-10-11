@@ -5,6 +5,7 @@
 
 mod adc;
 pub mod battery;
+pub mod boot;
 pub mod buttons;
 pub mod display;
 pub mod pins;

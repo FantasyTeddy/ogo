@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ogo-board", "ogo-launcher"]
+members = ["ogo-board", "ogo-launcher", "games/hello"]
 
 [workspace.package]
 version = "0.1.0"
@@ -17,6 +17,7 @@ mipidsi = "0.10"
 embedded-graphics = "0.8"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+sha2 = "0.10"
 
 [profile.release]
 opt-level = "s"

@@ -25,7 +25,7 @@ const BAR: Rgb565 = Rgb565::new(4, 8, 4);
 const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
 const TEXT: Rgb565 = Rgb565::WHITE;
 const DIM: Rgb565 = Rgb565::CSS_GRAY;
-const WARNING: Rgb565 = Rgb565::CSS_ORANGE;
+pub const WARNING: Rgb565 = Rgb565::CSS_ORANGE;
 
 const WIDTH: u32 = display::WIDTH as u32;
 const HEIGHT: u32 = display::HEIGHT as u32;
@@ -165,6 +165,43 @@ impl Ui {
         self.draw_detail(&entries[state.selected], state.selected, entries.len(), icon);
         self.list.present(display)?;
         self.detail.present(display)
+    }
+
+    /// Full-body progress screen. Without `fraction`, the bar is left out.
+    pub fn draw_progress(
+        &mut self,
+        display: &mut Display,
+        title: &str,
+        status: &str,
+        fraction: Option<f32>,
+    ) -> anyhow::Result<()> {
+        let canvas = &mut self.body;
+        canvas.clear(BACKGROUND).ok();
+        let center_x = WIDTH as i32 / 2;
+        text(canvas, &truncate(title, 30), Point::new(center_x, 70), &FONT_10X20, TEXT, Alignment::Center);
+        text(canvas, status, Point::new(center_x, 104), &FONT_8X13, DIM, Alignment::Center);
+        if let Some(fraction) = fraction {
+            let bar = Rectangle::new(Point::new(center_x - 120, 126), Size::new(240, 14));
+            bar.into_styled(PrimitiveStyle::with_stroke(DIM, 1)).draw(canvas).ok();
+            let filled = (236.0 * fraction.clamp(0.0, 1.0)) as u32;
+            Rectangle::new(bar.top_left + Point::new(2, 2), Size::new(filled, 10))
+                .into_styled(PrimitiveStyle::with_fill(SELECTION))
+                .draw(canvas)
+                .ok();
+        }
+        canvas.present(display)
+    }
+
+    /// Full-body message, e.g. an error. `detail` is word-wrapped.
+    pub fn draw_notice(&mut self, display: &mut Display, title: &str, detail: &str, color: Rgb565) -> anyhow::Result<()> {
+        let canvas = &mut self.body;
+        canvas.clear(BACKGROUND).ok();
+        let center_x = WIDTH as i32 / 2;
+        text(canvas, &truncate(title, 30), Point::new(center_x, 60), &FONT_10X20, color, Alignment::Center);
+        for (i, line) in wrap(detail, 36, 6).iter().enumerate() {
+            text(canvas, line, Point::new(center_x, 94 + i as i32 * 16), &FONT_8X13, TEXT, Alignment::Center);
+        }
+        canvas.present(display)
     }
 
     fn draw_no_games(&mut self, display: &mut Display) -> anyhow::Result<()> {

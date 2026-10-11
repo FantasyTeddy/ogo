@@ -4,9 +4,9 @@ A launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go) hand
 It installs native Rust games from the SD card into a flash slot and boots them. Games and launcher
 updates are managed from a web page served by the device itself.
 
-> **Status:** early development. Milestones M0–M2 are done: the launcher lists the games on the SD
-> card with icons and a battery indicator, but can't start them yet (M3). Hold SELECT at power-on
-> for a hardware test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
+> **Status:** early development. Milestones M0–M3 are done: the launcher lists the games on the SD
+> card, installs the selected one into the game slot and boots it, and games return to the launcher.
+> Hold SELECT at power-on for a hardware test screen. See the [roadmap](docs/DESIGN.md#9-roadmap).
 
 ## Planned features
 
@@ -59,8 +59,13 @@ In every new PowerShell window, load the environment first:
 Then build, flash and open the serial monitor (replace `COM7` with your port):
 
 ```powershell
-cargo espflash flash --release --package ogo-launcher --port COM7 --monitor
+cargo espflash flash --release --package ogo-launcher --target-app-partition launcher_a --port COM7 --monitor
 ```
+
+This also writes the partition table from [partitions.csv](partitions.csv) (configured in
+[espflash.toml](espflash.toml)). The launcher goes into the `launcher_a` slot. The first time, or if
+the device keeps booting something else, add `--erase-parts otadata,recovery`: that clears the boot
+selection and the (still unused) recovery slot, so the bootloader falls back to `launcher_a`.
 
 To build only:
 
@@ -70,16 +75,32 @@ cargo build --release
 
 The firmware ends up in `D:\ogot\xtensa-esp32-espidf\release\ogo-launcher`.
 
+## Games
+
+Games are separate firmware images that the launcher copies from the SD card into the `game_0` flash
+slot and boots. To build a game and copy it to an SD card (here `E:\`):
+
+```powershell
+python tools\install_game.py games\hello E:\
+```
+
+On the device, select the game and press A. The first start (or after an update) installs it with a
+progress bar; MENU in the game returns to the launcher. Any reset while a game runs also lands back in
+the launcher.
+
 ## Project layout
 
 | Path | Contents |
 |---|---|
-| [ogo-board/](ogo-board/) | Board support: display, buttons, speaker, battery, LED, SD card |
-| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, hardware test screen |
+| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card) and the launcher/game boot contract |
+| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, hardware test screen |
+| [games/hello/](games/hello/) | Minimal test game |
+| [partitions.csv](partitions.csv) | Flash layout |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design, flash layout, boot flows and roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings (flash size, PSRAM, stack sizes) |
 | [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |
+| [tools/install_game.py](tools/install_game.py) | Builds a game and copies it to an SD card |
 | [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
 
 More crates (`ogo-sdk`, `ogo-recovery`, example games, `xtask`) are added as the milestones

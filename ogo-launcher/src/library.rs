@@ -28,12 +28,14 @@ struct Manifest {
     sha256: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Game {
     pub id: String,
     pub name: String,
     pub version: String,
     pub author: String,
+    /// SHA-256 of `game.bin`, lowercase hex.
+    pub sha256: String,
     pub dir: PathBuf,
     pub has_icon: bool,
 }
@@ -150,6 +152,7 @@ fn load_game(dir: &Path, folder: &str) -> Result<Game, String> {
         name: manifest.name,
         version: manifest.version,
         author: manifest.author,
+        sha256: manifest.sha256.to_ascii_lowercase(),
         dir: dir.to_owned(),
         has_icon,
     })

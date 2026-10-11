@@ -304,9 +304,11 @@ SDK responsibilities:
    first. Dot-source it in each new shell: `. .\env.ps1`.
 5. **Flash + monitor:**
    ```
-   cargo espflash flash --release --package ogo-launcher --port COM7 --monitor
+   cargo espflash flash --release --package ogo-launcher --target-app-partition launcher_a --port COM7 --monitor
    ```
-   Add `--partition-table partitions.csv` once the custom table exists (M5).
+   `espflash.toml` supplies `partitions.csv`. cargo-espflash 4.3 ignores `target_app_partition` in
+   that file, hence the flag. Until the recovery app exists (M5) the factory slot is empty and the
+   bootloader falls back to `launcher_a`; add `--erase-parts otadata,recovery` if it boots something else.
 6. **Useful crates:**
    - `esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`
    - `mipidsi`, `embedded-graphics`, `embedded-hal-bus` (shared SPI)
@@ -324,7 +326,7 @@ moves quickly.
 | M0 | Toolchain & hello world | A Rust app built on Windows draws text on the LCD and logs over serial. **Done 2026-10-11** |
 | M1 | `ogo-board` crate | Display, all buttons, speaker beep, SD card (shared bus with LCD), battery reading all work. **Done 2026-10-11** (LED not visually confirmed) |
 | M2 | Launcher UI (offline) | Scrollable game list read from `/ogo/games/*/game.toml`, with icons and battery. **Done 2026-10-11** |
-| M3 | Install & launch | Picking a game flashes `game_0` (with progress + hash skip) and boots it |
+| M3 | Install & launch | Picking a game flashes `game_0` (with progress + hash skip) and boots it. **Done 2026-10-11** |
 | M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist |
 | M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher |
 | M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection |

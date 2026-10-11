@@ -7,6 +7,9 @@
 //! The DAC never leaves DMA mode: an audio thread keeps feeding it, with the idle level when
 //! nothing plays. Switching DAC modes per sound, or leaving the input undriven, makes the
 //! amplifier click or crackle. Every note also fades in and out.
+//!
+//! The amplifier is switched off around anything that disturbs the DAC: before a restart
+//! ([`crate::boot::restart`]) and while writing flash ([`Speaker::set_muted`]).
 //! Continuous game audio comes with the SDK (M4).
 
 use core::f32::consts::{PI, TAU};
@@ -16,7 +19,10 @@ use std::{
 };
 
 use esp_idf_svc::{
-    hal::gpio::{Output, OutputPin, PinDriver},
+    hal::{
+        delay::FreeRtos,
+        gpio::{Output, OutputPin, PinDriver},
+    },
     sys::{self, esp, EspError},
 };
 
@@ -33,6 +39,8 @@ const CHUNK_SAMPLES: usize = 256;
 const QUEUE_LEN: usize = 4;
 /// Fade-in and fade-out of every note.
 const FADE_MS: u32 = 5;
+/// Time for the DAC to settle on the idle level before the amplifier is switched on.
+const SETTLE_MS: u32 = 20;
 
 /// One tone in a sound. A frequency of 0 is a pause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +60,7 @@ pub struct Speaker {
     sounds: SyncSender<Vec<u8>>,
     /// 0-100
     volume: u8,
+    muted: bool,
 }
 
 impl Speaker {
@@ -67,7 +76,10 @@ impl Speaker {
             .stack_size(4096)
             .spawn(move || feed(dac, queue))?;
 
-        let mut speaker = Self { enable: PinDriver::output(enable)?, sounds, volume: 0 };
+        let mut enable = PinDriver::output(enable)?;
+        enable.set_low()?;
+        FreeRtos::delay_ms(SETTLE_MS);
+        let mut speaker = Self { enable, sounds, volume: 0, muted: false };
         speaker.set_volume(50)?;
         Ok(speaker)
     }
@@ -79,7 +91,18 @@ impl Speaker {
     /// Volume 0-100. 0 is silent and turns the amplifier off.
     pub fn set_volume(&mut self, volume: u8) -> anyhow::Result<()> {
         self.volume = volume.min(100);
-        if self.volume == 0 {
+        self.update_amplifier()
+    }
+
+    /// Switches the amplifier off without changing the volume, e.g. while writing flash: that
+    /// stalls the audio DMA, which would click. Sounds played while muted are lost.
+    pub fn set_muted(&mut self, muted: bool) -> anyhow::Result<()> {
+        self.muted = muted;
+        self.update_amplifier()
+    }
+
+    fn update_amplifier(&mut self) -> anyhow::Result<()> {
+        if self.volume == 0 || self.muted {
             self.enable.set_low()?;
         } else {
             self.enable.set_high()?;

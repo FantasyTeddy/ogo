@@ -16,6 +16,7 @@ esp-idf-svc.workspace = true
 embedded-graphics.workspace = true
 serde.workspace = true
 toml.workspace = true
+sha2.workspace = true
 
 [build-dependencies]
 embuild.workspace = true
