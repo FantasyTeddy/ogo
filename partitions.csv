@@ -1,4 +1,4 @@
-# Odroid-Go flash layout (16 MB), see docs/DESIGN.md §4. Final since M5: changing it means
+# Odroid-Go flash layout (16 MB), see docs/CONTRACTS.md. Final since M5: changing it means
 # re-flashing over USB and reinstalling every launcher slot.
 # Name,      Type, SubType, Offset,   Size
 nvs,         data, nvs,     0x9000,   0x4000

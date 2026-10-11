@@ -1,5 +1,5 @@
 //! `.ogo` game packages: an uncompressed tar with `game.toml`, `game.bin` and optionally
-//! `icon.rgb565` (docs/DESIGN.md §7).
+//! `icon.rgb565` (docs/CONTRACTS.md).
 //!
 //! A package is unpacked into a hidden folder next to the games, checked like a library entry
 //! (plus the sha256 of `game.bin` and its size), and only then moved into place, so a broken

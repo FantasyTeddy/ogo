@@ -1,4 +1,4 @@
-//! The boot contract between the launcher and games (docs/DESIGN.md §5).
+//! The boot contract between the launcher and games (docs/CONTRACTS.md).
 //!
 //! - The launcher installs a game into the `game_0` slot, records which launcher slot it runs
 //!   from, makes `game_0` the boot slot and restarts.

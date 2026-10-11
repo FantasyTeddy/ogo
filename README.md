@@ -3,13 +3,14 @@
 # ogo
 
 A game launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go) handheld, written in
-Rust. It installs native Rust games from the SD card into a flash slot and boots them. Later, games
-and launcher updates will be managed from a web page served by the device itself.
+Rust. It installs native Rust games from the SD card into a flash slot and boots them. Games and
+launcher updates are managed from a web page served by the device itself.
 
-> **Status:** early development. Milestones M0–M7 are done: the launcher lists the games on the SD
+> **Status:** early development. Milestones M0–M9 are done: the launcher lists the games on the SD
 > card, installs the selected one and boots it; games are built on `ogo-sdk` (`games/snake` is the
 > first one); a recovery app starts when MENU is held at power-on; games and launcher updates can be
-> uploaded from a web page over WiFi. See the [roadmap](docs/DESIGN.md#9-roadmap).
+> uploaded from a web page over WiFi; a settings screen sets brightness and volume; `cargo xtask`
+> builds, packs and flashes. See the [roadmap](docs/ROADMAP.md).
 
 ## Features
 
@@ -26,7 +27,14 @@ and launcher updates will be managed from a web page served by the device itself
   WiFi network
 - Planned: save backups, emulators packaged as games
 
-The full design is in [docs/DESIGN.md](docs/DESIGN.md).
+More documentation in [docs/](docs/):
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md): how it's built and why
+- [CONTRACTS.md](docs/CONTRACTS.md): partition table, SD card and NVS layout, boot contract, file
+  formats, web API
+- [GAMES.md](docs/GAMES.md): writing a game
+- [HARDWARE.md](docs/HARDWARE.md): pins and measured hardware details
+- [ROADMAP.md](docs/ROADMAP.md): milestones and open questions
 
 ## Hardware
 
@@ -94,8 +102,8 @@ the launcher. MENU in the game list opens the settings.
 Or over WiFi: pack the game with `cargo xtask pack snake` (writes `dist\snake.ogo`, or pass
 `--ogo <file>`), then upload it on the device's web page (see below).
 
-To write a game, start from [games/snake](games/snake/) and read the crate docs at the top of
-[ogo-sdk/src/lib.rs](ogo-sdk/src/lib.rs).
+To write a game, see [docs/GAMES.md](docs/GAMES.md); [games/snake](games/snake/) is a complete
+example.
 
 ## Web page
 
@@ -126,7 +134,7 @@ cargo xtask release
 
 The device writes it into the launcher slot that isn't running and restarts. The new launcher
 confirms itself once it's up; if it crashes before that, the device returns to the previous one and
-says so. Settings → Device shows both slots with version and build ID.
+says so. Settings → Device shows both slots with version and commit.
 
 ## Recovery
 
@@ -136,7 +144,8 @@ there:
 
 ```powershell
 . .\env.ps1
-cargo espflash save-image --chip esp32 --flash-size 16mb --release --package ogo-launcher E:\ogo\updates\launcher.bin
+cargo xtask release
+Copy-Item dist\launcher.bin E:\ogo\updates\launcher.bin
 ```
 
 If MENU wasn't held (for example right after flashing), recovery starts the launcher by itself.
@@ -146,14 +155,14 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 
 | Path | Contents |
 |---|---|
-| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing and the launcher/game boot contract |
-| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, WiFi and web page, boot screen, hardware test screen |
+| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing, shared settings, the image description and the launcher/game boot contract |
+| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, WiFi and web page, settings screen, boot screen, hardware test screen |
 | [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/hello/](games/hello/) | Minimal test game using `ogo-board` directly |
 | [partitions.csv](partitions.csv) | Flash layout |
-| [docs/DESIGN.md](docs/DESIGN.md) | Design, flash layout, boot flows and roadmap |
+| [docs/](docs/) | Architecture, contracts, game guide, hardware notes, roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
 | [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |

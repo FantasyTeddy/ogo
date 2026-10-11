@@ -1,4 +1,4 @@
-//! The web page and its JSON API (docs/DESIGN.md §6).
+//! The web page and its JSON API (docs/CONTRACTS.md, "Web API").
 //!
 //! Everything under `/api/` except the login needs a session: `POST /api/login` with the PIN shown
 //! on the device sets a session cookie. After [`MAX_FAILED_LOGINS`] wrong PINs the device picks a
@@ -266,7 +266,7 @@ fn scan(req: Req, state: &WebState) -> anyhow::Result<()> {
 }
 
 /// `POST /api/launcher`: a launcher image (`launcher.bin`) as the raw body. Written straight into
-/// the launcher slot that isn't running; the launcher then selects it and restarts (§5).
+/// the launcher slot that isn't running; the launcher then selects it and restarts.
 fn update_launcher(mut req: Req, state: &WebState) -> anyhow::Result<()> {
     let total = content_len(&req);
     if total == 0 {
