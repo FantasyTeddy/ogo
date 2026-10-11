@@ -15,6 +15,10 @@ pub enum Nav {
     PageDown,
     Select,
     Rescan,
+    /// SELECT: open the WiFi / web page screen.
+    Connect,
+    /// B: leave the current screen.
+    Back,
 }
 
 /// Press events; Up/Down/Left/Right repeat while held.
@@ -34,6 +38,12 @@ impl Navigator {
         }
         if state.just_pressed(previous, Button::Start) {
             return Some(Nav::Rescan);
+        }
+        if state.just_pressed(previous, Button::Select) {
+            return Some(Nav::Connect);
+        }
+        if state.just_pressed(previous, Button::B) {
+            return Some(Nav::Back);
         }
 
         for button in [Button::Up, Button::Down, Button::Left, Button::Right] {

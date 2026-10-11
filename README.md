@@ -6,10 +6,10 @@ A game launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go)
 Rust. It installs native Rust games from the SD card into a flash slot and boots them. Later, games
 and launcher updates will be managed from a web page served by the device itself.
 
-> **Status:** early development. Milestones M0–M5 are done: the launcher lists the games on the SD
+> **Status:** early development. Milestones M0–M6 are done: the launcher lists the games on the SD
 > card, installs the selected one and boots it; games are built on `ogo-sdk` (`games/snake` is the
-> first one); a recovery app starts when MENU is held at power-on. See the
-> [roadmap](docs/DESIGN.md#9-roadmap).
+> first one); a recovery app starts when MENU is held at power-on; games can be uploaded and deleted
+> from a web page over WiFi. See the [roadmap](docs/DESIGN.md#9-roadmap).
 
 ## Features
 
@@ -18,8 +18,10 @@ and launcher updates will be managed from a web page served by the device itself
 - Games built on a small SDK (`ogo-sdk`): frame loop, input, sound, saves, pause menu, exit back to the launcher
 - Recovery app, entered by holding MENU at power-on: start either launcher slot, or reinstall the
   launcher from the SD card
-- Planned: web UI over WiFi (upload and delete games, download saves), launcher self-update over the
-  air with A/B slots and rollback, emulators packaged as games
+- Web page over WiFi, protected by a PIN shown on the device: upload and delete games, pick the WiFi
+  network, see battery and free space
+- Planned: launcher self-update over the air with A/B slots and rollback, save backups, emulators
+  packaged as games
 
 The full design is in [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -87,8 +89,30 @@ On the device, select the game and press A. The first start (or after an update)
 progress bar. In a game, MENU opens the pause menu with "Exit to launcher", and VOL changes the
 volume. Any reset while a game runs also lands back in the launcher.
 
+Or over WiFi: pack the game with `python tools\install_game.py games\snake --ogo snake.ogo`, then
+upload it on the device's web page (see below).
+
 To write a game, start from [games/snake](games/snake/) and read the crate docs at the top of
 [ogo-sdk/src/lib.rs](ogo-sdk/src/lib.rs).
+
+## Web page
+
+Press **SELECT** in the game list. The device shows what to do, step by step:
+
+- The first time (no WiFi configured), join the device's own WiFi `ogo-XXXX` (no password), open
+  `http://192.168.71.1/` and enter the PIN shown. On the **Settings** tab, pick your WiFi; the device
+  then joins it and shows its new address.
+- Afterwards it joins your WiFi directly; open the address it shows from any device on that network.
+
+Instead of picking the WiFi on the page, you can put it on the SD card as `/ogo/settings.toml`:
+
+```toml
+[wifi]
+ssid = "MyNetwork"
+password = "secret"
+```
+
+WiFi is only on while this screen is open; **B** switches it off again.
 
 ## Recovery
 
@@ -109,7 +133,7 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 | Path | Contents |
 |---|---|
 | [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing and the launcher/game boot contract |
-| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, boot screen, hardware test screen |
+| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, WiFi and web page, boot screen, hardware test screen |
 | [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
@@ -120,7 +144,7 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
 | [env.ps1](env.ps1) | Shell setup: Xtensa toolchain and Python 3.12 |
 | [tools/flash.ps1](tools/flash.ps1) | Builds and flashes over USB |
-| [tools/install_game.py](tools/install_game.py) | Builds a game and copies it to an SD card |
+| [tools/install_game.py](tools/install_game.py) | Builds a game and copies it to an SD card, or packs it as `.ogo` |
 | [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
 | [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
 

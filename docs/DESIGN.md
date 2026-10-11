@@ -203,26 +203,53 @@ runs when the launcher deliberately started it.
 
 ## 6. On-device web UI
 
-- Served by `EspHttpServer` when the launcher's "Connect" screen is open, or always when WiFi is on
-  (this is a setting).
-- WiFi: station mode with credentials from NVS / `settings.toml`. If none are stored, fall back to
-  SoftAP mode (`ODROID-GO-xxxx`) so you can enter credentials in the browser.
-- Plain HTML + a bit of JS, embedded in the firmware with `include_str!`. No frameworks.
+As built in M6:
+
+- **WiFi screen.** SELECT in the game list opens it; B closes it. WiFi and the web server only run
+  while it's open: the radio costs battery, games get the whole device, and the device is only
+  reachable while someone is looking at that screen. ("Always on" could become a setting in M8.)
+  Leaving the screen rescans the library if the page changed it.
+- **Joining.** When the screen opens, the device first scans for networks (~2 s, station mode only),
+  then joins the network from NVS (set via the page) or, for a first setup, from
+  `/ogo/settings.toml` on the SD card (`[wifi] ssid = "…" password = "…"`). If there is none or
+  joining fails (~15 s timeout), it opens an access point `ogo-XXXX` without password, named after
+  the last two bytes of the chip's MAC address, so it's stable and unique. The access point runs in
+  mixed mode, so rescanning still works (the access point drops out for a moment).
+- **Device screen.** Numbered steps in the order you need them: (join the WiFi `ogo-XXXX`,) open
+  `http://<ip>/`, enter the PIN.
+- **PIN and sessions.** A random 4-digit PIN is shown on the device each time the screen opens. The
+  page shows only a PIN prompt until `POST /api/login` succeeds, which sets an `HttpOnly`,
+  `SameSite=Strict` session cookie (also needed for `<img>` icon requests, which can't send headers).
+  Every other `/api/` endpoint needs that session. After 5 wrong PINs the device picks a new one.
+- **Page.** Plain HTML/JS (`ogo-launcher/src/web/index.html`, embedded with `include_str!`), two tabs
+  with hash routing (`#games`, `#settings`). Battery (drawn like on the device) and free SD space sit
+  in the header. Networks are a list with signal bars and a lock, each row opening its own password
+  field; "Other network…" covers hidden ones.
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/` | GET | Page: game list, upload form, launcher version, battery, free SD space |
-| `/api/games` | GET | JSON list of installed games |
-| `/api/games` | POST | Upload a `.ogo` package (streamed to `/ogo/updates/`, then unpacked and validated) |
-| `/api/games/<id>` | DELETE | Remove a game (and optionally its saves) |
-| `/api/saves/<id>` | GET | Download a game's saves as a backup |
-| `/api/launcher` | POST | Upload `launcher.bin` → self-OTA (§5) |
-| `/api/reboot` | POST | Restart |
+| `/`, `/logo.png` | GET | The page and the logo (no session needed) |
+| `/api/login` | POST | `{"pin": "1234"}` → session cookie |
+| `/api/status` | GET | Version, battery, SD space, network |
+| `/api/games` | GET | All library entries, including broken ones with the reason |
+| `/api/games` | POST | Upload an `.ogo` package (raw body), see below |
+| `/api/games/<id>/icon.bmp` | GET | The icon as a 16-bit BMP (RGB565 bitfields, no conversion needed) |
+| `/api/games/<id>` | DELETE | Delete a game folder; its saves stay |
+| `/api/wifi/networks` | GET | Networks from the last scan |
+| `/api/wifi/scan` | POST | Scan again |
+| `/api/wifi` | POST | `{"ssid", "password"}`: save to NVS and join |
+| `/api/restart` | POST | Restart the device |
 
-- Security: the server is only reachable on your LAN. Add a simple PIN/token that is shown on the
-  device screen and required for write endpoints.
-- Uploads are streamed in chunks straight to the SD card or flash. Never hold a whole image in RAM.
-- Nice to have later: mDNS (`odroid-go.local`) via the ESP-IDF `mdns` component.
+Still to come: `/api/launcher` (self-update, M7) and `/api/saves/<id>` (save backup, M8).
+
+- **Uploads** are streamed in 4 KB chunks to `/ogo/updates/upload.ogo` (max 10 MB), then unpacked by
+  a minimal tar reader into `/ogo/games/.incoming/` (folders starting with a dot are ignored by the
+  library), checked like a library entry plus the `game.bin` sha256 and size, and only then moved to
+  `/ogo/games/<id>/`. A broken upload never replaces a working game. (The `tar` crate pulls in
+  `filetime`, which needs Unix calls ESP-IDF lacks, hence the own reader.)
+- WiFi and lwIP buffers may go to PSRAM (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP`). The launcher grew
+  from 0.9 to 1.6 MB with WiFi and the HTTP server (62 % of its slot).
+- Nice to have later: mDNS (`ogo.local`) via the ESP-IDF `mdns` component.
 
 ---
 
@@ -353,9 +380,9 @@ moves quickly.
 | M3 | Install & launch | Picking a game flashes `game_0` (with progress + hash skip) and boots it. **Done 2026-10-11** |
 | M4 | `ogo-sdk` + first game | `snake` built on the SDK. The boot-back trick and `exit_to_launcher()` work, and saves persist. **Done 2026-10-11** |
 | M5 | Recovery | Partition table final, MENU-at-boot enters `ogo-recovery`, which can boot the launcher. **Done 2026-10-11** |
-| M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection |
+| M6 | WiFi + web UI | Upload / delete games and view status from the browser. PIN protection. **Done 2026-10-11** |
 | M7 | Launcher self-OTA | Upload `launcher.bin` via the web page. A/B switch with rollback, tested with a deliberately broken build |
-| M8 | Polish | Settings screen (WiFi, brightness, volume), save backup download, mDNS, `cargo xtask pack` |
+| M8 | Polish | Settings screen (WiFi, brightness, volume), save backup download, mDNS, `cargo xtask pack`, charging indicator |
 | M9 | Emulators | First emulator packaged as a "game" that browses ROMs on the SD card |
 
 M0 to M4 give you a usable device without any networking. M6 and M7 deliver the OTA goal.
@@ -377,5 +404,10 @@ M0 to M4 give you a usable device without any networking. M6 and M7 deliver the 
   multi-partition layout, so it probably won't drop in as-is.
 - **Number of game slots.** One slot is simplest. Two slots save re-flashing when you alternate
   between games, but each would hold only ~4.7 MB. Decide this after measuring game sizes.
+- **Charging detection (M8).** The ODROID-GO wires no charge-status or USB-power signal to the ESP32
+  (Retro-Go's board config only has the battery ADC). Plugging in raises the measured voltage by
+  ~0.1–0.2 V at once (3.72 → 3.87 V measured), so a heuristic can show a charging icon on such a jump
+  or a steady rise, and hide it on a sudden drop. It can't tell at power-on while already plugged in
+  until the voltage has risen for a while, and the percentage reads high while charging.
 - **Version compatibility.** Games depend on the launcher's partition table and NVS keys. `sdk_version`
   in `game.toml` guards against mismatches. Bump it whenever the boot contract changes.

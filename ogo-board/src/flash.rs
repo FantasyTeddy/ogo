@@ -79,6 +79,20 @@ fn write_chunks(
     Ok(())
 }
 
+/// SHA-256 of a file as lowercase hex, read in chunks.
+pub fn file_sha256(path: &Path) -> anyhow::Result<String> {
+    let mut file = File::open(path).with_context(|| format!("can't open {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; CHUNK_BYTES];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(format!("{:x}", hasher.finalize()));
+        }
+        hasher.update(&buffer[..count]);
+    }
+}
+
 /// Version and build time of the firmware in an app slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppInfo {

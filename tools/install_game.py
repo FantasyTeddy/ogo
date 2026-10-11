@@ -1,9 +1,11 @@
-"""Builds a game crate and copies it to an SD card as <sd-root>/ogo/games/<id>/.
+"""Builds a game crate and copies it to an SD card as <sd-root>/ogo/games/<id>/, or packs it into
+an .ogo file to upload on the device's web page.
 
 Writes game.bin (the firmware image), game.toml (with its sha256) and, if the crate has one,
 icon.rgb565. Run it from the project folder after `. .\\env.ps1`, so cargo finds the toolchain.
 
-Usage:  python tools/install_game.py games/hello E:\\
+Usage:  python tools/install_game.py games/snake E:\\
+        python tools/install_game.py games/snake --ogo snake.ogo
 
 The id and version come from [package] in the crate's Cargo.toml, the display name and
 sdk_version from [package.metadata.ogo]. `cargo xtask pack` replaces this script in M8.
@@ -11,11 +13,13 @@ sdk_version from [package.metadata.ogo]. `cargo xtask pack` replaces this script
 
 import argparse
 import hashlib
+import io
 import re
-import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
@@ -26,11 +30,14 @@ IMAGE_MAGIC = 0xE9
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("crate", type=Path, help="game crate folder, e.g. games/hello")
-    parser.add_argument("sd_root", type=Path, help="root of the SD card, e.g. E:\\")
+    parser.add_argument("crate", type=Path, help="game crate folder, e.g. games/snake")
+    parser.add_argument("sd_root", type=Path, nargs="?", help="root of the SD card, e.g. E:\\")
+    parser.add_argument("--ogo", type=Path, help="write an .ogo package to this file instead")
     args = parser.parse_args()
 
-    if not args.sd_root.is_dir():
+    if (args.sd_root is None) == (args.ogo is None):
+        parser.error("give either an SD card root or --ogo")
+    if args.sd_root is not None and not args.sd_root.is_dir():
         print(f"{args.sd_root} is not a folder", file=sys.stderr)
         return 1
     manifest = tomllib.loads((args.crate / "Cargo.toml").read_text(encoding="utf-8"))
@@ -51,13 +58,9 @@ def main() -> int:
             check=True,
         )
         data = image.read_bytes()
-        if not data or data[0] != IMAGE_MAGIC:
-            print(f"{image} is not an ESP32 app image", file=sys.stderr)
-            return 1
-
-        target = args.sd_root / "ogo" / "games" / game_id
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(image, target / "game.bin")
+    if not data or data[0] != IMAGE_MAGIC:
+        print("cargo espflash didn't produce an ESP32 app image", file=sys.stderr)
+        return 1
 
     authors = package.get("authors", [])
     toml = (
@@ -68,11 +71,26 @@ def main() -> int:
         f'sdk_version = {ogo.get("sdk_version", 1)}\n'
         f'sha256      = "{hashlib.sha256(data).hexdigest()}"\n'
     )
-    (target / "game.toml").write_text(toml, encoding="utf-8")
+    files = {"game.toml": toml.encode(), "game.bin": data}
     icon = args.crate / "icon.rgb565"
     if icon.is_file():
-        shutil.copyfile(icon, target / "icon.rgb565")
+        files["icon.rgb565"] = icon.read_bytes()
 
+    if args.ogo is not None:
+        # Plain ustar with flat file names: what the launcher's package reader expects.
+        with tarfile.open(args.ogo, "w", format=tarfile.USTAR_FORMAT) as tar:
+            for name, content in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(content)
+                info.mtime = int(time.time())
+                tar.addfile(info, io.BytesIO(content))
+        print(f"Packed {game_id} ({len(data) // 1024} KB) into {args.ogo}")
+        return 0
+
+    target = args.sd_root / "ogo" / "games" / game_id
+    target.mkdir(parents=True, exist_ok=True)
+    for name, content in files.items():
+        (target / name).write_bytes(content)
     print(f"Installed {game_id} ({len(data) // 1024} KB) to {target}")
     return 0
 

@@ -1,21 +1,27 @@
 //! ogo-launcher: lists the games on the SD card, installs the selected one into the game slot
 //! and boots it.
 //!
-//! Hold SELECT at power-on for the hardware test screen.
+//! SELECT opens the WiFi screen with the web page (see `web`). Hold SELECT at power-on for the
+//! hardware test screen.
 
+mod connect;
 mod hwtest;
 mod input;
 mod install;
 mod library;
+mod network;
+mod package;
+mod settings;
 mod ui;
+mod web;
 
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
 };
 
-use esp_idf_svc::hal::delay::FreeRtos;
-use ogo_board::{boot::Boot, Board, Button, Note};
+use esp_idf_svc::{hal::delay::FreeRtos, nvs::EspDefaultNvs};
+use ogo_board::{boot::Boot, BatteryLevel, Board, Button, Note};
 
 use input::{Nav, Navigator};
 use ogo_board::flash::Progress;
@@ -28,6 +34,8 @@ const BOOT_SCREEN_MIN: Duration = Duration::from_millis(1500);
 const BATTERY_INTERVAL: Duration = Duration::from_secs(5);
 const MESSAGE_DURATION: Duration = Duration::from_secs(2);
 const SOUND_ERROR: &[Note] = &[Note::new(440, 90), Note::new(330, 140)];
+/// NVS namespace for launcher settings (shared with the boot contract's keys).
+const NVS_NAMESPACE: &str = "ogo";
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
@@ -66,12 +74,20 @@ struct Launcher {
     message: Option<Instant>,
     /// A notice covers the list until the next button press.
     notice: bool,
+    battery: Option<BatteryLevel>,
+    nvs: EspDefaultNvs,
+    /// Created the first time the WiFi screen opens.
+    network: Option<network::Network>,
+    /// The WiFi screen, while it's open.
+    connect: Option<connect::Session>,
 }
 
 impl Launcher {
     /// Scans the SD card; the boot screen stays up meanwhile.
-    fn new(board: Board, boot: Boot) -> anyhow::Result<Self> {
+    fn new(mut board: Board, boot: Boot) -> anyhow::Result<Self> {
         let library = library::scan(board.sd.as_ref());
+        let nvs = EspDefaultNvs::new(boot.nvs_partition(), NVS_NAMESPACE, true)?;
+        let battery = board.battery.read().ok();
         Ok(Self {
             board,
             boot,
@@ -81,6 +97,10 @@ impl Launcher {
             icons: HashMap::new(),
             message: None,
             notice: false,
+            battery,
+            nvs,
+            network: None,
+            connect: None,
         })
     }
 
@@ -96,8 +116,7 @@ impl Launcher {
     }
 
     fn run(mut self) -> anyhow::Result<()> {
-        let mut battery = self.board.battery.read().ok();
-        self.ui.draw_top_bar(&mut self.board.display, battery)?;
+        self.ui.draw_top_bar(&mut self.board.display, "Games", self.battery)?;
         self.ui.draw_footer(&mut self.board.display, None)?;
         self.draw_library()?;
 
@@ -106,19 +125,28 @@ impl Launcher {
         loop {
             let now = Instant::now();
             if let Some(nav) = navigator.update(self.board.buttons.read()?, now) {
-                self.handle(nav)?;
+                if self.connect.is_some() {
+                    if nav == Nav::Back {
+                        self.close_connect()?;
+                    }
+                } else {
+                    self.handle(nav)?;
+                }
             }
+            self.poll_connect()?;
 
             if self.message.is_some_and(|until| now >= until) {
                 self.message = None;
-                self.ui.draw_footer(&mut self.board.display, None)?;
+                let footer = self.connect.is_some().then_some("B back");
+                self.ui.draw_footer(&mut self.board.display, footer)?;
             }
             if now >= next_battery_read {
                 next_battery_read = now + BATTERY_INTERVAL;
                 let level = self.board.battery.read().ok();
-                if level != battery {
-                    battery = level;
-                    self.ui.draw_top_bar(&mut self.board.display, battery)?;
+                if level != self.battery {
+                    self.battery = level;
+                    let title = if self.connect.is_some() { "WiFi" } else { "Games" };
+                    self.ui.draw_top_bar(&mut self.board.display, title, self.battery)?;
                 }
             }
 
@@ -144,6 +172,8 @@ impl Launcher {
             Nav::PageDown => self.list.move_by(page, len, false),
             Nav::Select => return self.select(),
             Nav::Rescan => return self.rescan(),
+            Nav::Connect => return self.open_connect(),
+            Nav::Back => {}
         }
         if self.list != before {
             self.draw_library()?;

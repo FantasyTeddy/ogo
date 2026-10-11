@@ -12,6 +12,9 @@ CONFIG_SPIRAM_CACHE_WORKAROUND=y
 # The PSRAM self-test adds ~0.9 s to every start
 CONFIG_SPIRAM_MEMTEST=n
 
+# Let WiFi and the network stack put buffers into PSRAM; internal RAM is scarce
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
 # 1 ms scheduler ticks, for steady frame timing in games (the default is 10 ms)
 CONFIG_FREERTOS_HZ=1000
 

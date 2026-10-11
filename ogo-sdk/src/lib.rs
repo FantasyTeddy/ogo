@@ -101,7 +101,7 @@ pub fn run<G: Game>(game_id: &str) -> ! {
 }
 
 fn run_game<G: Game>(game_id: &str) -> anyhow::Result<()> {
-    let Board { display, backlight: _backlight, buttons, speaker, battery, led, sd } = Board::take()?;
+    let Board { display, backlight: _backlight, buttons, speaker, battery, led, sd, modem: _ } = Board::take()?;
     let mut presenter = Presenter::new(display)?;
     let mut ctx = Ctx::new(game_id, buttons, speaker, battery, led, sd);
     let mut game = G::new(&mut ctx);

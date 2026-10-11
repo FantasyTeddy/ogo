@@ -1,0 +1,208 @@
+//! The WiFi screen: while it's open, WiFi is on and the web page is served. Leaving it switches
+//! WiFi off again, and rescans the library if the web page changed it.
+
+use std::sync::{
+    mpsc::{self, Receiver},
+    Arc,
+};
+
+use anyhow::Context;
+use ogo_board::{boot, sd, Note};
+
+use crate::{
+    network::{Mode, Network},
+    settings::{self, WifiCredentials},
+    ui::{ConnectView, DIM, SUCCESS, WARNING},
+    web::{random_pin, WebEvent, WebServer, WebState},
+    Launcher, SOUND_ERROR,
+};
+
+const SOUND_INSTALLED: &[Note] = &[Note::new(660, 60), Note::new(880, 60), Note::new(1320, 100)];
+
+pub struct Session {
+    _server: WebServer,
+    state: Arc<WebState>,
+    events: Receiver<WebEvent>,
+    view: ConnectView,
+    /// The web page added or deleted games; rescan when leaving.
+    library_changed: bool,
+}
+
+impl Launcher {
+    pub(crate) fn open_connect(&mut self) -> anyhow::Result<()> {
+        let pin = random_pin();
+        self.ui.draw_top_bar(&mut self.board.display, "WiFi", self.battery)?;
+        self.ui.draw_footer(&mut self.board.display, Some("B back"))?;
+        match self.start_session(pin, None) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::error!("Starting WiFi failed: {e:?}");
+                self.board.speaker.play(SOUND_ERROR);
+                self.close_connect()?;
+                self.notice = true;
+                self.ui.draw_notice(&mut self.board.display, "WiFi didn't start", &format!("{e:#}"), WARNING)?;
+                self.show_message("Press any button")
+            }
+        }
+    }
+
+    /// Starts WiFi and the web server and shows where to connect. `credentials` overrides the saved ones.
+    fn start_session(&mut self, pin: String, credentials: Option<WifiCredentials>) -> anyhow::Result<()> {
+        let credentials = credentials.or_else(|| settings::load_wifi(&self.nvs, self.board.sd.as_ref()));
+        let heading = match &credentials {
+            Some(credentials) => format!("Joining {}...", credentials.ssid),
+            None => "Starting WiFi...".to_owned(),
+        };
+        self.ui.draw_connect(&mut self.board.display, &ConnectView { heading, ..Default::default() })?;
+
+        if self.network.is_none() {
+            let modem = self.board.modem.take().context("the radio is already in use")?;
+            self.network = Some(Network::new(modem, self.boot.nvs_partition())?);
+        }
+        let (mode, networks) = self.network.as_mut().expect("just created").start(credentials.as_ref())?;
+
+        let (sender, events) = mpsc::channel();
+        let state = Arc::new(WebState::new(
+            pin.clone(),
+            self.board.sd.as_ref().map(|_| sd::MOUNT_POINT.into()),
+            match &mode {
+                Mode::Station { ssid, .. } => format!("WiFi {ssid}"),
+                Mode::AccessPoint { ssid, .. } => format!("Access point {ssid}"),
+            },
+            networks,
+            self.battery,
+            sender,
+        ));
+        let server = WebServer::start(state.clone())?;
+
+        let mut view = ConnectView {
+            url: Some(format!("http://{}/", mode.ip())),
+            pin: Some(pin),
+            ..Default::default()
+        };
+        match &mode {
+            Mode::Station { ssid, .. } => {
+                view.heading = format!("Connected to {ssid}");
+            }
+            Mode::AccessPoint { ssid, failed, .. } => {
+                view.heading = "WiFi setup".into();
+                view.join_wifi = Some(ssid.clone());
+                if let Some(failed) = failed {
+                    view.activity = Some((failed.clone(), WARNING));
+                }
+            }
+        }
+        self.ui.draw_connect(&mut self.board.display, &view)?;
+        self.connect = Some(Session { _server: server, state, events, view, library_changed: false });
+        Ok(())
+    }
+
+    /// Stops the web server and WiFi, and goes back to the game list.
+    pub(crate) fn close_connect(&mut self) -> anyhow::Result<()> {
+        let changed = self.end_session();
+        self.ui.draw_top_bar(&mut self.board.display, "Games", self.battery)?;
+        self.ui.draw_footer(&mut self.board.display, None)?;
+        if changed {
+            self.rescan()
+        } else {
+            self.draw_library()
+        }
+    }
+
+    /// Returns whether the library changed during the session.
+    fn end_session(&mut self) -> bool {
+        let changed = self.connect.take().is_some_and(|session| session.library_changed);
+        if let Some(network) = &mut self.network {
+            if let Err(e) = network.stop() {
+                log::warn!("Stopping WiFi failed: {e:?}");
+            }
+        }
+        changed
+    }
+
+    /// Handles what happened on the web page since the last call.
+    pub(crate) fn poll_connect(&mut self) -> anyhow::Result<()> {
+        let Some(session) = &mut self.connect else {
+            return Ok(());
+        };
+        *session.state.battery.lock().unwrap() = self.battery;
+
+        let mut redraw = false;
+        let mut reconnect = None;
+        let mut scan = false;
+        while let Ok(event) = session.events.try_recv() {
+            redraw = true;
+            session.view.activity = Some(match event {
+                WebEvent::Uploading { received, total } => {
+                    (format!("Receiving upload... {} %", received * 100 / total.max(1)), DIM)
+                }
+                WebEvent::Installed { name } => {
+                    session.library_changed = true;
+                    self.board.speaker.play(SOUND_INSTALLED);
+                    (format!("Installed {name}"), SUCCESS)
+                }
+                WebEvent::Deleted { id } => {
+                    session.library_changed = true;
+                    (format!("Deleted {id}"), SUCCESS)
+                }
+                WebEvent::Failed(reason) => {
+                    self.board.speaker.play(SOUND_ERROR);
+                    (reason, WARNING)
+                }
+                WebEvent::WifiSaved(credentials) => {
+                    settings::save_wifi(&self.nvs, &credentials)?;
+                    let text = format!("Joining {}...", credentials.ssid);
+                    reconnect = Some(credentials);
+                    (text, DIM)
+                }
+                WebEvent::PinChanged(pin) => {
+                    session.view.pin = Some(pin);
+                    self.board.speaker.play(SOUND_ERROR);
+                    ("Too many wrong PINs: new PIN".to_owned(), WARNING)
+                }
+                WebEvent::ScanRequested => {
+                    scan = true;
+                    ("Scanning for networks...".to_owned(), DIM)
+                }
+                WebEvent::Restart => boot::restart(),
+            });
+        }
+        if redraw {
+            self.ui.draw_connect(&mut self.board.display, &session.view)?;
+        }
+        if scan {
+            if let Some(network) = &mut self.network {
+                match network.scan() {
+                    Ok(networks) => {
+                        let count = networks.len();
+                        *session.state.networks.lock().unwrap() = networks;
+                        session.view.activity = Some((format!("Found {count} networks"), DIM));
+                    }
+                    Err(e) => session.view.activity = Some((format!("Scan failed: {e:#}"), WARNING)),
+                }
+                self.ui.draw_connect(&mut self.board.display, &session.view)?;
+            }
+        }
+
+        if let Some(credentials) = reconnect {
+            let pin = session.pin();
+            let changed = self.end_session();
+            if let Err(e) = self.start_session(pin, Some(credentials)) {
+                log::error!("Rejoining WiFi failed: {e:?}");
+                self.close_connect()?;
+                return Ok(());
+            }
+            if let Some(session) = &mut self.connect {
+                session.library_changed |= changed;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Session {
+    fn pin(&self) -> String {
+        self.state.pin.lock().unwrap().clone()
+    }
+}
+

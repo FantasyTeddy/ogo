@@ -19,6 +19,7 @@ use esp_idf_svc::{
     hal::{
         adc::oneshot::AdcDriver,
         gpio::{Output, OutputPin, PinDriver},
+        modem::Modem,
         peripherals::Peripherals,
         spi::{Dma, SpiDriver, SpiDriverConfig},
     },
@@ -44,6 +45,8 @@ pub struct Board {
     pub led: Led,
     /// `None` if no card is inserted or it could not be mounted.
     pub sd: Option<SdCard>,
+    /// The WiFi/Bluetooth radio; take it to start WiFi.
+    pub modem: Option<Modem<'static>>,
 }
 
 impl Board {
@@ -104,7 +107,7 @@ impl Board {
         let speaker = Speaker::new(pins.gpio25, pins.gpio26)?;
         let led = Led::new(pins.gpio2)?;
 
-        Ok(Self { display, backlight, buttons, speaker, battery, led, sd })
+        Ok(Self { display, backlight, buttons, speaker, battery, led, sd, modem: Some(p.modem) })
     }
 }
 

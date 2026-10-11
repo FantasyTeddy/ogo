@@ -15,6 +15,14 @@ use esp_idf_svc::{
 
 pub const MOUNT_POINT: &str = "/sd";
 
+/// Total and free bytes on the mounted card, or `None` if no card is mounted.
+pub fn space() -> Option<(u64, u64)> {
+    let path = std::ffi::CString::new(MOUNT_POINT).ok()?;
+    let (mut total, mut free) = (0u64, 0u64);
+    esp_idf_svc::sys::esp!(unsafe { esp_idf_svc::sys::esp_vfs_fat_info(path.as_ptr(), &mut total, &mut free) }).ok()?;
+    Some((total, free))
+}
+
 /// Files that can be open at the same time.
 const MAX_OPEN_FILES: usize = 8;
 

@@ -10,7 +10,7 @@ use embedded_graphics::{
     },
     pixelcolor::Rgb565,
     prelude::*,
-    primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
+    primitives::{Circle, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
 use ogo_board::{display, BatteryLevel, Canvas, Display, DisplayResultExt};
@@ -21,8 +21,24 @@ const BACKGROUND: Rgb565 = Rgb565::BLACK;
 const BAR: Rgb565 = Rgb565::new(4, 8, 4);
 const SELECTION: Rgb565 = Rgb565::CSS_STEEL_BLUE;
 const TEXT: Rgb565 = Rgb565::WHITE;
-const DIM: Rgb565 = Rgb565::CSS_GRAY;
+pub const DIM: Rgb565 = Rgb565::CSS_GRAY;
 pub const WARNING: Rgb565 = Rgb565::CSS_ORANGE;
+pub const SUCCESS: Rgb565 = Rgb565::CSS_LIGHT_GREEN;
+const ACCENT: Rgb565 = Rgb565::new(30, 27, 8);
+/// Center of the step numbers on the WiFi screen.
+const STEP_X: i32 = 34;
+
+/// What the WiFi screen shows.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectView {
+    pub heading: String,
+    /// Shown as numbered steps, in this order: join this WiFi, open the URL, enter the PIN.
+    pub join_wifi: Option<String>,
+    pub url: Option<String>,
+    pub pin: Option<String>,
+    /// The latest thing that happened, e.g. an upload.
+    pub activity: Option<(String, Rgb565)>,
+}
 
 const WIDTH: u32 = display::WIDTH as u32;
 const HEIGHT: u32 = display::HEIGHT as u32;
@@ -97,11 +113,11 @@ impl Ui {
         }
     }
 
-    pub fn draw_top_bar(&mut self, display: &mut Display, battery: Option<BatteryLevel>) -> anyhow::Result<()> {
+    pub fn draw_top_bar(&mut self, display: &mut Display, title: &str, battery: Option<BatteryLevel>) -> anyhow::Result<()> {
         let canvas = &mut self.top_bar;
         canvas.clear(BAR).ok();
         let middle = TOP_BAR_HEIGHT as i32 / 2;
-        text(canvas, "Games", Point::new(8, middle), &FONT_9X15_BOLD, TEXT, Alignment::Left);
+        text(canvas, title, Point::new(8, middle), &FONT_9X15_BOLD, TEXT, Alignment::Left);
 
         // Battery: outline with a fill level, and the percentage to its left.
         let icon = Rectangle::new(Point::new(WIDTH as i32 - 32, middle - 5), Size::new(22, 11));
@@ -138,7 +154,7 @@ impl Ui {
         let center = Point::new(WIDTH as i32 / 2, FOOTER_HEIGHT as i32 / 2);
         match message {
             Some(message) => text(canvas, message, center, &FONT_6X10, TEXT, Alignment::Center),
-            None => text(canvas, "A start   L/R page   START rescan", center, &FONT_6X10, DIM, Alignment::Center),
+            None => text(canvas, "A start  L/R page  SELECT WiFi  START rescan", center, &FONT_6X10, DIM, Alignment::Center),
         }
         canvas.present(display)
     }
@@ -185,6 +201,43 @@ impl Ui {
                 .into_styled(PrimitiveStyle::with_fill(SELECTION))
                 .draw(canvas)
                 .ok();
+        }
+        canvas.present(display)
+    }
+
+    /// The WiFi screen: where to point the browser, the PIN, and what's going on.
+    pub fn draw_connect(&mut self, display: &mut Display, view: &ConnectView) -> anyhow::Result<()> {
+        let canvas = &mut self.body;
+        canvas.clear(BACKGROUND).ok();
+        let center_x = WIDTH as i32 / 2;
+        text(canvas, &truncate(&view.heading, 30), Point::new(center_x, 16), &FONT_10X20, TEXT, Alignment::Center);
+
+        // Numbered steps: a small label, and the thing to type or pick in large letters.
+        let mut steps: Vec<(String, String)> = Vec::new();
+        if let Some(ssid) = &view.join_wifi {
+            steps.push(("Join the WiFi (no password)".into(), ssid.clone()));
+        }
+        if let Some(url) = &view.url {
+            let label = if view.join_wifi.is_some() { "Open in a browser" } else { "In the same WiFi, open" };
+            steps.push((label.into(), url.clone()));
+        }
+        if let Some(pin) = &view.pin {
+            let spaced: String = pin.chars().flat_map(|c| [c, ' ']).collect();
+            steps.push(("Enter the PIN".into(), spaced.trim_end().to_owned()));
+        }
+        for (i, (label, value)) in steps.iter().enumerate() {
+            let top = 36 + i as i32 * 42;
+            let number = Point::new(STEP_X, top + 14);
+            Circle::with_center(number, 22).into_styled(PrimitiveStyle::with_fill(SELECTION)).draw(canvas).ok();
+            text(canvas, &(i + 1).to_string(), number, &FONT_8X13, TEXT, Alignment::Center);
+            text(canvas, label, Point::new(STEP_X + 22, top + 4), &FONT_6X10, DIM, Alignment::Left);
+            text(canvas, &truncate(value, 23), Point::new(STEP_X + 22, top + 21), &FONT_10X20, ACCENT, Alignment::Left);
+        }
+
+        if let Some((activity, color)) = &view.activity {
+            for (i, line) in wrap(activity, 38, 2).iter().enumerate() {
+                text(canvas, line, Point::new(center_x, 168 + i as i32 * 14), &FONT_8X13, *color, Alignment::Center);
+            }
         }
         canvas.present(display)
     }

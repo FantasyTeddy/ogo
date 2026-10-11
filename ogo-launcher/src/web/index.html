@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ogo</title>
+<style>
+  :root {
+    --bg: #14100e; --card: #221b18; --line: #3a2f2a; --hover: #2c2320; --text: #f4ece6; --dim: #b3a69d;
+    --accent: #f26b2a; --accent-dark: #c94d16; --bad: #ff8a5c; --ok: #7ad3a8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; gap: 14px; margin: 8px 0 14px; flex-wrap: wrap; }
+  header img { width: 64px; height: auto; }
+  header h1 { margin: 0; font-size: 26px; color: var(--accent); }
+  header p { margin: 0; color: var(--dim); font-size: 13px; }
+  .chips { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { display: flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 999px; padding: 3px 10px; font-size: 13px; color: var(--dim); white-space: nowrap; }
+  .chip svg { flex: none; }
+  nav { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  nav a { padding: 8px 14px; color: var(--dim); text-decoration: none; border-bottom: 2px solid transparent;
+          margin-bottom: -1px; }
+  nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+            padding: 14px 16px; margin-bottom: 14px; }
+  h2 { margin: 0 0 10px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  h2 .spacer { flex: 1; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--dim); } dd { margin: 0; }
+  input { background: var(--bg); color: var(--text); border: 1px solid var(--line);
+          border-radius: 6px; padding: 8px 10px; font: inherit; min-width: 0; }
+  input.grow { flex: 1 1 180px; }
+  input[type=file] { flex: 1 1 220px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+           padding: 8px 14px; font: inherit; cursor: pointer; }
+  button:hover { background: var(--accent-dark); }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--dim); }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  button:disabled { opacity: .5; cursor: default; }
+  ul.list { list-style: none; margin: 0; padding: 0; }
+  .games li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .games li:first-child { border-top: 0; }
+  .games img, .games .noicon { width: 48px; height: 48px; border-radius: 6px; flex: none;
+                                background: var(--line); image-rendering: pixelated; }
+  .games .info { flex: 1; min-width: 0; }
+  .name { font-weight: 600; overflow-wrap: anywhere; }
+  .meta { color: var(--dim); font-size: 13px; }
+  .error { color: var(--bad); font-size: 13px; }
+  .networks li { border-top: 1px solid var(--line); }
+  .networks li:first-child { border-top: 0; }
+  .networks .pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 6px;
+                    background: none; color: var(--text); border-radius: 6px; text-align: left; }
+  .networks .pick:hover { background: var(--hover); }
+  .networks .pick .name { flex: 1; font-weight: normal; }
+  .networks .current .name::after { content: " · connected"; color: var(--ok); font-size: 13px; }
+  .networks .join { padding: 0 6px 12px; }
+  .networks svg { flex: none; fill: currentColor; color: var(--dim); }
+  progress { width: 100%; height: 10px; accent-color: var(--accent); }
+  .toast { min-height: 1.4em; margin: 0 0 10px; color: var(--dim); }
+  .toast.bad { color: var(--bad); } .toast.ok { color: var(--ok); }
+  .hint { color: var(--dim); font-size: 13px; margin: 6px 0 0; }
+  #login { max-width: 360px; margin: 10vh auto 0; text-align: center; }
+  #login input { font-size: 28px; letter-spacing: 12px; text-align: center; width: 180px; }
+  #login .row { justify-content: center; margin-top: 12px; }
+  #login .toast { margin: 10px 0 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="/logo.png" alt="">
+    <div><h1>ogo</h1><p>Games on your ODROID-GO</p></div>
+    <div class="chips" id="chips" hidden>
+      <span class="chip" id="chip-battery" title="Battery">
+        <!-- Drawn like the battery on the device: outline, tip and a fill level. -->
+        <svg width="26" height="13" viewBox="0 0 26 13" aria-hidden="true">
+          <rect x="0.5" y="0.5" width="22" height="12" rx="2" fill="none" stroke="currentColor"/>
+          <rect x="23" y="4" width="2.5" height="5" rx="1" fill="currentColor"/>
+          <rect id="battery-level" x="2.5" y="2.5" width="0" height="8" rx="1"/>
+        </svg>
+        <span id="battery-text">–</span>
+      </span>
+      <span class="chip" id="chip-sd" title="SD card">
+        <svg width="11" height="14" viewBox="0 0 11 14" aria-hidden="true">
+          <path d="M3 0h7a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V3z" fill="currentColor"/>
+          <path d="M3.5 1.5v2.5M5.5 1.5v2.5M7.5 1.5v2.5" stroke="var(--card)" stroke-width="1"/>
+        </svg>
+        <span id="sd-text">–</span>
+      </span>
+    </div>
+  </header>
+
+  <section id="login">
+    <h2 style="justify-content: center">Enter the PIN shown on the device</h2>
+    <form id="login-form" class="row">
+      <input id="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="····" autofocus>
+      <button>Unlock</button>
+    </form>
+    <div id="login-toast" class="toast" role="status"></div>
+  </section>
+
+  <div id="app" hidden>
+    <nav>
+      <a href="#games" data-tab="games">Games</a>
+      <a href="#settings" data-tab="settings">Settings</a>
+    </nav>
+    <div id="toast" class="toast" role="status"></div>
+
+    <div data-page="games">
+      <section>
+        <h2>Add a game</h2>
+        <div class="row">
+          <input type="file" id="file" accept=".ogo">
+          <button id="upload">Upload</button>
+        </div>
+        <progress id="progress" value="0" max="1" hidden></progress>
+        <p class="hint">An .ogo package, e.g. from <code>python tools/install_game.py games/snake --ogo snake.ogo</code>. A game with the same id is replaced.</p>
+      </section>
+      <section>
+        <h2>Games</h2>
+        <ul class="list games" id="games"><li>Loading…</li></ul>
+      </section>
+    </div>
+
+    <div data-page="settings" hidden>
+      <section>
+        <h2>WiFi <span class="spacer"></span><button class="ghost small" id="scan">Scan again</button></h2>
+        <ul class="list networks" id="networks"></ul>
+        <p class="hint">Joining another network moves the device there; open the new address it shows.
+          In access point mode, scanning interrupts the connection for a few seconds.</p>
+      </section>
+      <section>
+        <h2>Device</h2>
+        <dl>
+          <dt>Launcher</dt><dd id="version">–</dd>
+          <dt>Network</dt><dd id="network">–</dd>
+        </dl>
+      </section>
+      <section class="row">
+        <button class="ghost" id="restart">Restart device</button>
+      </section>
+    </div>
+  </div>
+</main>
+
+<template id="network-row">
+  <li>
+    <button class="pick" type="button">
+      <svg class="signal" width="18" height="14" viewBox="0 0 18 14" aria-hidden="true">
+        <rect x="0" y="10" width="3" height="4" rx="1"/><rect x="5" y="7" width="3" height="7" rx="1"/>
+        <rect x="10" y="4" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="14" rx="1"/>
+      </svg>
+      <span class="name"></span>
+      <svg class="lock" width="12" height="14" viewBox="0 0 12 14" aria-label="password protected">
+        <path d="M3 6V4a3 3 0 0 1 6 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h1zm1.5 0h3V4a1.5 1.5 0 0 0-3 0v2z"/>
+      </svg>
+    </button>
+    <form class="join row" hidden>
+      <input class="grow ssid" placeholder="Network name" maxlength="32" hidden>
+      <input class="grow password" type="password" placeholder="Password" maxlength="64">
+      <button>Join</button>
+    </form>
+  </li>
+</template>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentNetwork = "";
+
+function toast(text, kind = "", id = "toast") {
+  const el = $(id);
+  el.textContent = text;
+  el.className = "toast " + kind;
+}
+
+async function api(method, path, body) {
+  const response = await fetch(path, { method, body });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    // Only explain if a session just ended; the login form says it all otherwise.
+    showLogin($("app").hidden ? "" : "The session ended (the WiFi screen was closed). Enter the new PIN.");
+    throw new Error(data.message);
+  }
+  if (!response.ok) throw new Error(data.message || response.statusText);
+  return data;
+}
+
+// --- Login ---
+
+function showLogin(message) {
+  $("app").hidden = true;
+  $("chips").hidden = true;
+  $("login").hidden = false;
+  toast(message || "", "", "login-toast");
+  $("pin").focus();
+}
+
+function showApp() {
+  $("login").hidden = true;
+  $("app").hidden = false;
+  $("chips").hidden = false;
+  showTab();
+  loadGames().catch((e) => toast(e.message, "bad"));
+  // The network list marks the current network, which the status names.
+  loadStatus().then(loadNetworks).catch((e) => toast(e.message, "bad"));
+}
+
+$("login-form").onsubmit = async (event) => {
+  event.preventDefault();
+  try {
+    await api("POST", "/api/login", JSON.stringify({ pin: $("pin").value }));
+    $("pin").value = "";
+    showApp();
+  } catch (e) {
+    toast(e.message, "bad", "login-toast");
+    $("pin").select();
+  }
+};
+
+// --- Tabs ---
+
+function showTab() {
+  const tab = location.hash === "#settings" ? "settings" : "games";
+  for (const page of document.querySelectorAll("[data-page]")) page.hidden = page.dataset.page !== tab;
+  for (const link of document.querySelectorAll("nav a")) link.classList.toggle("active", link.dataset.tab === tab);
+  toast("");
+}
+window.addEventListener("hashchange", showTab);
+
+// --- Status ---
+
+/** Bytes as e.g. "14.8 GB" or "320 MB" (binary units, like file managers show them). */
+function size(bytes) {
+  const gb = bytes / 2 ** 30;
+  if (gb >= 1) return `${gb.toFixed(gb < 100 ? 1 : 0)} GB`;
+  return `${Math.round(bytes / 2 ** 20)} MB`;
+}
+
+async function loadStatus() {
+  const s = await api("GET", "/api/status");
+
+  // Same colors as the device: red up to 15 %, yellow up to 30 %, green above.
+  const percent = s.battery_percent;
+  const level = $("battery-level");
+  level.setAttribute("width", percent == null ? 0 : (18 * percent / 100).toFixed(1));
+  level.setAttribute("fill", percent <= 15 ? "#ff4d4d" : percent <= 30 ? "#ffd84d" : "#4dd17a");
+  $("battery-text").textContent = percent == null ? "–" : `${percent} %`;
+  $("chip-battery").title = percent == null ? "Battery" : `Battery ${(s.battery_mv / 1000).toFixed(2)} V`;
+
+  $("sd-text").textContent = s.sd_free == null ? "No SD card" : `${size(s.sd_free)} free`;
+  $("chip-sd").title = s.sd_total == null ? "SD card" : `SD card: ${size(s.sd_free)} free of ${size(s.sd_total)}`;
+
+  $("version").textContent = "v" + s.version;
+  $("network").textContent = s.network;
+  currentNetwork = s.network.startsWith("WiFi ") ? s.network.slice(5) : "";
+}
+
+// --- Games ---
+
+async function loadGames() {
+  const games = await api("GET", "/api/games");
+  const list = $("games");
+  list.replaceChildren();
+  if (!games.length) {
+    list.innerHTML = "<li>No games yet.</li>";
+    return;
+  }
+  for (const game of games) {
+    const li = document.createElement("li");
+    const icon = game.has_icon ? document.createElement("img") : document.createElement("div");
+    if (game.has_icon) { icon.src = `/api/games/${game.id}/icon.bmp`; icon.alt = ""; }
+    else icon.className = "noicon";
+    const info = document.createElement("div");
+    info.className = "info";
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = game.name;
+    const meta = document.createElement("div");
+    if (game.error) { meta.className = "error"; meta.textContent = game.error; }
+    else { meta.className = "meta"; meta.textContent = `v${game.version}${game.author ? " · " + game.author : ""} · ${game.id}`; }
+    info.append(name, meta);
+    const remove = document.createElement("button");
+    remove.className = "ghost small";
+    remove.textContent = "Delete";
+    remove.onclick = async () => {
+      if (!confirm(`Delete ${game.name} from the SD card? Its saves stay.`)) return;
+      try { toast((await api("DELETE", `/api/games/${game.id}`)).message, "ok"); loadGames(); loadStatus(); }
+      catch (e) { toast(e.message, "bad"); }
+    };
+    li.append(icon, info, remove);
+    list.append(li);
+  }
+}
+
+$("upload").onclick = () => {
+  const file = $("file").files[0];
+  if (!file) return toast("Choose an .ogo file first", "bad");
+  const xhr = new XMLHttpRequest();
+  const progress = $("progress");
+  xhr.open("POST", "/api/games");
+  xhr.upload.onprogress = (e) => { progress.max = e.total; progress.value = e.loaded; };
+  xhr.onloadend = () => {
+    progress.hidden = true;
+    $("upload").disabled = false;
+    if (xhr.status === 401) return showLogin("The session ended (the WiFi screen was closed). Enter the new PIN.");
+    let message = xhr.statusText || "Upload failed";
+    try { message = JSON.parse(xhr.responseText).message; } catch {}
+    toast(message, xhr.status === 200 ? "ok" : "bad");
+    if (xhr.status === 200) { $("file").value = ""; loadGames(); loadStatus(); }
+  };
+  progress.hidden = false;
+  progress.value = 0;
+  $("upload").disabled = true;
+  toast(`Uploading ${file.name}…`);
+  xhr.send(file);
+};
+
+// --- WiFi ---
+
+function signalLevel(rssi) {
+  return rssi >= -60 ? 4 : rssi >= -70 ? 3 : rssi >= -80 ? 2 : 1;
+}
+
+function networkRow(network) {
+  const row = $("network-row").content.firstElementChild.cloneNode(true);
+  const pick = row.querySelector(".pick");
+  const form = row.querySelector(".join");
+  const password = form.querySelector(".password");
+  const ssidInput = form.querySelector(".ssid");
+
+  if (network) {
+    row.querySelector(".name").textContent = network.ssid;
+    const level = signalLevel(network.rssi);
+    row.querySelectorAll(".signal rect").forEach((bar, i) => bar.style.opacity = i < level ? 1 : 0.25);
+    row.querySelector(".signal").setAttribute("aria-label", `signal ${level} of 4`);
+    row.querySelector(".lock").hidden = !network.secured;
+    password.hidden = !network.secured;
+    if (network.ssid === currentNetwork) row.classList.add("current");
+  } else {
+    row.querySelector(".name").textContent = "Other network…";
+    row.querySelector(".signal").style.visibility = "hidden";
+    row.querySelector(".lock").hidden = true;
+    ssidInput.hidden = false;
+  }
+
+  pick.onclick = () => {
+    const opening = form.hidden;
+    for (const other of $("networks").querySelectorAll(".join")) other.hidden = true;
+    form.hidden = !opening;
+    if (opening) (network ? password : ssidInput).focus();
+    if (opening && network && !network.secured) form.querySelector("button").focus();
+  };
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const ssid = network ? network.ssid : ssidInput.value.trim();
+    if (!ssid) return toast("Enter the network name", "bad");
+    const body = JSON.stringify({ ssid, password: password.hidden ? "" : password.value });
+    try { toast((await api("POST", "/api/wifi", body)).message, "ok"); }
+    catch (e) { toast(e.message, "bad"); }
+  };
+  return row;
+}
+
+async function loadNetworks() {
+  const networks = await api("GET", "/api/wifi/networks");
+  const list = $("networks");
+  list.replaceChildren(...networks.map(networkRow), networkRow(null));
+}
+
+$("scan").onclick = async () => {
+  $("scan").disabled = true;
+  try {
+    await api("POST", "/api/wifi/scan");
+    toast("Scanning…");
+    // The device scans for about 2 s; in access point mode the connection may drop briefly.
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await loadNetworks();
+    toast("Network list updated", "ok");
+  } catch (e) {
+    toast("Scan failed: " + e.message, "bad");
+  } finally {
+    $("scan").disabled = false;
+  }
+};
+
+$("restart").onclick = async () => {
+  if (!confirm("Restart the device? This closes the WiFi screen.")) return;
+  try { toast((await api("POST", "/api/restart")).message, "ok"); }
+  catch (e) { toast(e.message, "bad"); }
+};
+
+// A session survives page reloads; only ask for the PIN if there's none.
+api("GET", "/api/status").then(showApp, () => {});
+</script>
+</body>
+</html>

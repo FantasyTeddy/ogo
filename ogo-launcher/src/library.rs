@@ -87,21 +87,30 @@ pub fn scan(sd: Option<&ogo_board::SdCard>) -> Library {
     let Some(sd) = sd else {
         return Library::NoSdCard;
     };
-    let games_dir = PathBuf::from(sd.path(GAMES_DIR));
-    let folders = match fs::read_dir(&games_dir) {
+    match scan_dir(&PathBuf::from(sd.path(GAMES_DIR))) {
+        Some(entries) => Library::Entries(entries),
+        None => Library::NoGamesDir,
+    }
+}
+
+/// The entries in `games_dir`, sorted by title; `None` if the folder can't be read.
+pub fn scan_dir(games_dir: &Path) -> Option<Vec<Entry>> {
+    let folders = match fs::read_dir(games_dir) {
         Ok(folders) => folders,
         Err(e) => {
             log::info!("No game library at {}: {e}", games_dir.display());
-            return Library::NoGamesDir;
+            return None;
         }
     };
 
     let mut entries: Vec<Entry> = folders
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
+        // Folders starting with a dot are work in progress, e.g. an upload being unpacked.
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
         .map(|entry| {
             let folder = entry.file_name().to_string_lossy().into_owned();
-            match load_game(&entry.path(), &folder) {
+            match load_game(&entry.path(), Some(&folder)) {
                 Ok(game) => Entry::Game(game),
                 Err(reason) => {
                     log::warn!("Skipping game folder {folder}: {reason}");
@@ -112,17 +121,18 @@ pub fn scan(sd: Option<&ogo_board::SdCard>) -> Library {
         .collect();
     entries.sort_by_key(|entry| entry.title().to_lowercase());
     log::info!("Found {} entries in {}", entries.len(), games_dir.display());
-    Library::Entries(entries)
+    Some(entries)
 }
 
-fn load_game(dir: &Path, folder: &str) -> Result<Game, String> {
+/// Reads and checks `dir/game.toml`. With `folder`, the id must match it.
+pub fn load_game(dir: &Path, folder: Option<&str>) -> Result<Game, String> {
     let text = fs::read_to_string(dir.join("game.toml")).map_err(|e| format!("game.toml: {e}"))?;
     let manifest: Manifest = toml::from_str(&text).map_err(|e| format!("game.toml: {}", e.message()))?;
 
     if !is_valid_id(&manifest.id) {
         return Err(format!("invalid id \"{}\" (use a-z, 0-9 and -)", manifest.id));
     }
-    if manifest.id != folder {
+    if folder.is_some_and(|folder| manifest.id != folder) {
         return Err(format!("id \"{}\" doesn't match the folder name", manifest.id));
     }
     if manifest.sdk_version != SUPPORTED_SDK_VERSION {
@@ -141,7 +151,7 @@ fn load_game(dir: &Path, folder: &str) -> Result<Game, String> {
     let has_icon = match fs::metadata(dir.join("icon.rgb565")) {
         Ok(meta) if meta.len() == ICON_BYTES => true,
         Ok(meta) => {
-            log::warn!("{folder}: icon.rgb565 has {} bytes, expected {ICON_BYTES}; ignoring it", meta.len());
+            log::warn!("{}: icon.rgb565 has {} bytes, expected {ICON_BYTES}; ignoring it", manifest.id, meta.len());
             false
         }
         Err(_) => false,
@@ -158,6 +168,6 @@ fn load_game(dir: &Path, folder: &str) -> Result<Game, String> {
     })
 }
 
-fn is_valid_id(id: &str) -> bool {
+pub fn is_valid_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
