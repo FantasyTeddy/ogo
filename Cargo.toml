@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["ogo-launcher"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+
+[workspace.dependencies]
+log = "0.4"
+esp-idf-svc = "0.53"
+embuild = "0.33.5"
+mipidsi = "0.10"
+embedded-graphics = "0.8"
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true    # Symbols are nice, and they don't increase the size on Flash
+opt-level = "z"
+
+# Taken from the esp-rs esp-idf-template
+[patch.crates-io]
+esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf.git" }
+esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf.git" }
+esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf.git" }

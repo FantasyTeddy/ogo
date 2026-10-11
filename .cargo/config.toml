@@ -1,0 +1,23 @@
+[build]
+target = "xtensa-esp32-espidf"
+# esp-idf-sys refuses to build when its output path is too long on Windows,
+# so build output goes to a short path outside the source tree.
+target-dir = "D:/ogot"
+
+[target.'cfg(target_os = "espidf")']
+linker = "ldproxy"
+runner = "espflash flash --monitor"
+rustflags = ["--cfg", "espidf_time64"]
+
+[unstable]
+build-std = ["std", "panic_abort"]
+
+[env]
+MCU = "esp32"
+ESP_IDF_VERSION = "v5.5.3"
+# Reuse the tools already installed in ~/.espressif instead of a per-project copy,
+# which also keeps build paths shorter on Windows.
+ESP_IDF_TOOLS_INSTALL_DIR = "global"
+ESP_IDF_SDKCONFIG_DEFAULTS = { value = "sdkconfig.defaults", relative = true }
+# Required by embuild when the target dir is moved
+CARGO_WORKSPACE_DIR = { value = "", relative = true }
