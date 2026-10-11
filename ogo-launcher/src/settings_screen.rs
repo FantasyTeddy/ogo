@@ -7,7 +7,7 @@ use crate::{
     input::Nav,
     settings::{self as wifi, WifiSource},
     ui::{SettingsItem, SettingsView, TEXT, WARNING},
-    Launcher, SOUND_ERROR,
+    Launcher, Screen, SOUND_ERROR,
 };
 
 /// Played when the volume changes, at the new volume.
@@ -23,7 +23,7 @@ enum Item {
 
 const ITEMS: [Item; 3] = [Item::Brightness, Item::Volume, Item::ForgetWifi];
 
-pub struct Screen {
+pub struct State {
     selected: usize,
     /// The settings as in NVS, to tell whether leaving needs to save.
     saved: Settings,
@@ -36,7 +36,7 @@ pub struct Screen {
 
 impl Launcher {
     pub(crate) fn open_settings(&mut self) -> anyhow::Result<()> {
-        self.settings_screen = Some(Screen {
+        self.screen = Screen::Settings(State {
             selected: 0,
             saved: self.settings,
             launcher_info: launcher_info(),
@@ -49,8 +49,8 @@ impl Launcher {
 
     /// Saves changed settings and goes back to the game list.
     fn close_settings(&mut self) -> anyhow::Result<()> {
-        if let Some(screen) = self.settings_screen.take() {
-            if self.settings != screen.saved {
+        if let Screen::Settings(state) = std::mem::replace(&mut self.screen, Screen::Games) {
+            if self.settings != state.saved {
                 // Writing flash stalls the audio DMA, which would click.
                 self.board.speaker.set_muted(true);
                 let result = self.settings.save(&self.nvs);
@@ -67,16 +67,16 @@ impl Launcher {
     }
 
     pub(crate) fn handle_settings(&mut self, nav: Nav) -> anyhow::Result<()> {
-        let Some(screen) = &mut self.settings_screen else {
+        let Screen::Settings(state) = &mut self.screen else {
             return Ok(());
         };
-        let item = ITEMS[screen.selected];
+        let item = ITEMS[state.selected];
         match nav {
             Nav::Back | Nav::Settings => return self.close_settings(),
             Nav::Up | Nav::Down => {
                 let delta = if nav == Nav::Up { ITEMS.len() - 1 } else { 1 };
-                screen.selected = (screen.selected + delta) % ITEMS.len();
-                screen.confirm_forget = false;
+                state.selected = (state.selected + delta) % ITEMS.len();
+                state.confirm_forget = false;
                 self.draw_footer(None)?;
             }
             Nav::Left | Nav::Right => {
@@ -110,7 +110,7 @@ impl Launcher {
 
     /// The first A asks for confirmation, the second forgets the network in NVS.
     fn forget_wifi(&mut self) -> anyhow::Result<()> {
-        let Some(screen) = &mut self.settings_screen else {
+        let Screen::Settings(state) = &mut self.screen else {
             return Ok(());
         };
         match wifi::saved_wifi(&self.nvs, self.board.sd.as_ref()) {
@@ -119,8 +119,8 @@ impl Launcher {
                 self.board.speaker.play(SOUND_ERROR);
                 return self.show_message("It's in /ogo/settings.toml on the SD card");
             }
-            Some((credentials, WifiSource::Nvs)) if screen.confirm_forget => {
-                screen.confirm_forget = false;
+            Some((credentials, WifiSource::Nvs)) if state.confirm_forget => {
+                state.confirm_forget = false;
                 self.board.speaker.set_muted(true);
                 let result = wifi::forget_wifi(&self.nvs);
                 self.board.speaker.set_muted(false);
@@ -136,13 +136,13 @@ impl Launcher {
                     }
                 }
             }
-            Some(_) => screen.confirm_forget = true,
+            Some(_) => state.confirm_forget = true,
         }
         self.draw_settings()
     }
 
     fn draw_settings(&mut self) -> anyhow::Result<()> {
-        let Some(screen) = &self.settings_screen else {
+        let Screen::Settings(state) = &self.screen else {
             return Ok(());
         };
         let saved = wifi::saved_wifi(&self.nvs, self.board.sd.as_ref());
@@ -156,7 +156,7 @@ impl Launcher {
             None => "No card".to_owned(),
         };
         let forget = match &saved {
-            Some((credentials, WifiSource::Nvs)) if screen.confirm_forget => SettingsItem::Action {
+            Some((credentials, WifiSource::Nvs)) if state.confirm_forget => SettingsItem::Action {
                 label: format!("Press A again to forget {}", credentials.ssid),
                 color: WARNING,
                 enabled: true,
@@ -170,8 +170,8 @@ impl Launcher {
         let volume_value = if self.settings.volume == 0 { "Off".to_owned() } else { format!("{}%", self.settings.volume) };
         let view = SettingsView {
             info: vec![
-                ("Launcher", screen.launcher_info.0.clone()),
-                ("Build", screen.launcher_info.1.clone()),
+                ("Launcher", state.launcher_info.0.clone()),
+                ("Build", state.launcher_info.1.clone()),
                 ("SD card", sd_info),
                 ("WiFi", wifi_info),
             ],
@@ -184,15 +184,18 @@ impl Launcher {
                 SettingsItem::Level { label: "Volume", percent: self.settings.volume, value: volume_value },
                 forget,
             ],
-            selected: screen.selected,
+            selected: state.selected,
         };
         self.ui.draw_settings(&mut self.board.display, &view)
     }
 
-    /// Footer controls for the settings screen.
-    pub(crate) fn settings_controls(&self) -> &'static str {
-        match self.settings_screen.as_ref().map(|screen| ITEMS[screen.selected]) {
-            Some(Item::ForgetWifi) => "U/D choose  A forget  B back",
+}
+
+impl State {
+    /// Footer controls, for the selected item.
+    pub(crate) fn controls(&self) -> &'static str {
+        match ITEMS[self.selected] {
+            Item::ForgetWifi => "U/D choose  A forget  B back",
             _ => "U/D choose  L/R change  B back",
         }
     }

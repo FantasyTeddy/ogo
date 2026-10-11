@@ -73,7 +73,9 @@ for the PC. The firmware crates still depend on `ogo-format` by path.
 
 [main.rs](../ogo-launcher/src/main.rs) owns the board and runs one loop: poll the buttons (turned into
 navigation events with key repeat by [input.rs](../ogo-launcher/src/input.rs)), handle them for the
-open screen, read the battery every 5 s, poll the web server's events. Drawing goes through
+open screen, read the battery every 5 s, poll the web server's events. The open screen is one value
+of `enum Screen` (game list, notice, WiFi, settings); the WiFi and settings screens keep their state
+in their variant and live in their own modules, so a new screen is a new variant and module. Drawing goes through
 [ui/mod.rs](../ogo-launcher/src/ui/mod.rs): each screen area is an off-screen `Canvas` sent to the
 LCD in one transfer, so redraws don't flicker.
 

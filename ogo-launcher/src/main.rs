@@ -76,7 +76,20 @@ fn main() -> anyhow::Result<()> {
     launcher.run()
 }
 
+/// What the launcher shows. Each screen handles its buttons in its own module.
+enum Screen {
+    /// The game list.
+    Games,
+    /// A message over the game list, until the next button press.
+    Notice,
+    /// WiFi and the web page (`connect`).
+    Wifi(connect::Session),
+    /// The settings (`settings_screen`).
+    Settings(settings_screen::State),
+}
+
 struct Launcher {
+    screen: Screen,
     board: Board,
     boot: Boot,
     ui: Ui,
@@ -86,19 +99,13 @@ struct Launcher {
     icons: HashMap<usize, Option<Vec<u8>>>,
     /// Footer message and when it disappears.
     message: Option<Instant>,
-    /// A notice covers the list until the next button press.
-    notice: bool,
     battery: Option<BatteryLevel>,
     /// The `ogo` NVS namespace: settings and the WiFi network.
     nvs: EspDefaultNvs,
     /// As currently applied; saved when the settings screen closes.
     settings: Settings,
-    /// The settings screen, while it's open.
-    settings_screen: Option<settings_screen::Screen>,
     /// Created the first time the WiFi screen opens.
     network: Option<network::Network>,
-    /// The WiFi screen, while it's open.
-    connect: Option<connect::Session>,
 }
 
 impl Launcher {
@@ -107,6 +114,7 @@ impl Launcher {
         let library = library::scan(board.sd.as_ref());
         let battery = board.battery.read().ok();
         Self {
+            screen: Screen::Games,
             board,
             boot,
             ui: Ui::new(),
@@ -114,13 +122,10 @@ impl Launcher {
             list: ListState::default(),
             icons: HashMap::new(),
             message: None,
-            notice: false,
             battery,
             nvs,
             settings,
-            settings_screen: None,
             network: None,
-            connect: None,
         }
     }
 
@@ -135,7 +140,7 @@ impl Launcher {
             Some(UpdateResult::RolledBack { slot }) => {
                 log::warn!("The update in {slot} was rolled back");
                 self.board.speaker.play(SOUND_ERROR);
-                self.notice = true;
+                self.screen = Screen::Notice;
                 let detail = format!(
                     "The new launcher in {slot} stopped before it was ready, so the device went back to this one."
                 );
@@ -167,14 +172,11 @@ impl Launcher {
         loop {
             let now = Instant::now();
             if let Some(nav) = navigator.update(self.board.buttons.read()?, now) {
-                if self.connect.is_some() {
-                    if nav == Nav::Back {
-                        self.close_connect()?;
-                    }
-                } else if self.settings_screen.is_some() {
-                    self.handle_settings(nav)?;
-                } else {
-                    self.handle(nav)?;
+                match self.screen {
+                    Screen::Games => self.handle_games(nav)?,
+                    Screen::Notice => self.dismiss_notice()?,
+                    Screen::Wifi(_) => self.handle_connect(nav)?,
+                    Screen::Settings(_) => self.handle_settings(nav)?,
                 }
             }
             self.poll_connect()?;
@@ -196,11 +198,12 @@ impl Launcher {
         }
     }
 
-    fn handle(&mut self, nav: Nav) -> anyhow::Result<()> {
-        if self.notice {
-            self.notice = false;
-            return self.draw_library();
-        }
+    fn dismiss_notice(&mut self) -> anyhow::Result<()> {
+        self.screen = Screen::Games;
+        self.draw_library()
+    }
+
+    fn handle_games(&mut self, nav: Nav) -> anyhow::Result<()> {
         let len = match &self.library {
             Library::Entries(entries) => entries.len(),
             _ => 0,
@@ -245,7 +248,7 @@ impl Launcher {
         if let Err(e) = result {
             log::error!("Launching {} failed: {e:?}", game.id);
             self.board.speaker.play(SOUND_ERROR);
-            self.notice = true;
+            self.screen = Screen::Notice;
             let detail = format!("{e:#}");
             self.ui.draw_notice(&mut self.board.display, &format!("Can't start {}", game.name), &detail, ui::WARNING)?;
             self.show_message("Press any button")?;
@@ -307,12 +310,10 @@ impl Launcher {
 
     /// The current screen's controls, or `message` in their place.
     fn draw_footer(&mut self, message: Option<&str>) -> anyhow::Result<()> {
-        let controls = if self.connect.is_some() {
-            connect::CONTROLS
-        } else if self.settings_screen.is_some() {
-            self.settings_controls()
-        } else {
-            ui::GAMES_CONTROLS
+        let controls = match &self.screen {
+            Screen::Games | Screen::Notice => ui::GAMES_CONTROLS,
+            Screen::Wifi(_) => connect::CONTROLS,
+            Screen::Settings(state) => state.controls(),
         };
         self.ui.draw_footer(&mut self.board.display, controls, message)
     }
@@ -323,12 +324,10 @@ impl Launcher {
     }
 
     fn title(&self) -> &'static str {
-        if self.connect.is_some() {
-            "WiFi"
-        } else if self.settings_screen.is_some() {
-            "Settings"
-        } else {
-            "Games"
+        match self.screen {
+            Screen::Games | Screen::Notice => "Games",
+            Screen::Wifi(_) => "WiFi",
+            Screen::Settings(_) => "Settings",
         }
     }
 

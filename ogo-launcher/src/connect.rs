@@ -11,11 +11,12 @@ use esp_idf_svc::hal::delay::FreeRtos;
 use ogo_board::{boot, sd, Note};
 
 use crate::{
+    input::Nav,
     network::{Mode, Network},
     settings::{self, WifiCredentials},
     ui::{ConnectView, DIM, SUCCESS, WARNING},
     web::{random_pin, NetworkInfo, WebEvent, WebServer, WebState},
-    Launcher, SOUND_ERROR,
+    Launcher, Screen, SOUND_ERROR,
 };
 
 /// Footer controls of the WiFi screen.
@@ -44,7 +45,7 @@ impl Launcher {
                 log::error!("Starting WiFi failed: {e:?}");
                 self.board.speaker.play(SOUND_ERROR);
                 self.close_connect()?;
-                self.notice = true;
+                self.screen = Screen::Notice;
                 self.ui.draw_notice(&mut self.board.display, "WiFi didn't start", &format!("{e:#}"), WARNING)?;
                 self.show_message("Press any button")
             }
@@ -100,7 +101,14 @@ impl Launcher {
             }
         }
         self.ui.draw_connect(&mut self.board.display, &view)?;
-        self.connect = Some(Session { _server: server, state, events, view, library_changed: false });
+        self.screen = Screen::Wifi(Session { _server: server, state, events, view, library_changed: false });
+        Ok(())
+    }
+
+    pub(crate) fn handle_connect(&mut self, nav: Nav) -> anyhow::Result<()> {
+        if nav == Nav::Back {
+            self.close_connect()?;
+        }
         Ok(())
     }
 
@@ -118,7 +126,13 @@ impl Launcher {
 
     /// Returns whether the library changed during the session.
     fn end_session(&mut self) -> bool {
-        let changed = self.connect.take().is_some_and(|session| session.library_changed);
+        let changed = match std::mem::replace(&mut self.screen, Screen::Games) {
+            Screen::Wifi(session) => session.library_changed,
+            other => {
+                self.screen = other;
+                false
+            }
+        };
         if let Some(network) = &mut self.network {
             if let Err(e) = network.stop() {
                 log::warn!("Stopping WiFi failed: {e:?}");
@@ -129,7 +143,7 @@ impl Launcher {
 
     /// Handles what happened on the web page since the last call.
     pub(crate) fn poll_connect(&mut self) -> anyhow::Result<()> {
-        let Some(session) = &mut self.connect else {
+        let Screen::Wifi(session) = &mut self.screen else {
             return Ok(());
         };
         *session.state.battery.lock().unwrap() = self.battery;
@@ -218,7 +232,7 @@ impl Launcher {
                 self.close_connect()?;
                 return Ok(());
             }
-            if let Some(session) = &mut self.connect {
+            if let Screen::Wifi(session) = &mut self.screen {
                 session.library_changed |= changed;
             }
         }
