@@ -6,7 +6,7 @@ it; the game then has the whole device until it restarts back into the launcher.
 switch back to the launcher, the frame loop, the screen, the pause menu and the volume.
 
 [games/snake](../games/snake/src/main.rs) is a complete example. This guide assumes the toolchain
-from the [README](../README.md#prerequisites) is installed.
+from [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites) is installed.
 
 ## 1. Create the crate
 

@@ -93,13 +93,14 @@ rescans, SELECT opens the WiFi screen, MENU the settings.
 3. Boot the game (see the boot contract in [CONTRACTS.md](CONTRACTS.md#boot-contract)).
 
 **WiFi screen** ([connect.rs](../ogo-launcher/src/connect.rs),
-[network.rs](../ogo-launcher/src/network.rs)). WiFi and the web server only run while it's open: the radio costs battery, games get the whole
-device, and the device is only reachable while someone is looking at it. Opening it scans for
-networks (~2 s), then joins the saved network (NVS, or `/ogo/settings.toml` for a first setup). If
-there is none or joining fails (~15 s timeout), it opens an access point `ogo-XXXX` without password,
-named after the last two bytes of the MAC address. The access point runs in mixed mode, so rescans
-still work. The screen shows numbered steps: join the WiFi (access point only), open the address,
-enter the PIN. Leaving it switches WiFi off and rescans the library if the page changed it.
+[network.rs](../ogo-launcher/src/network.rs)). WiFi and the web server only run while it's open: the
+radio costs battery, games get the whole device, and the device is only reachable while someone is
+looking at it. Opening it scans for networks (~2 s), then joins the saved network (NVS, or
+`/ogo/settings.toml` for a first setup). If there is none or joining fails (~15 s timeout), it opens
+an access point `ogo-XXXX` without password, named after the last two bytes of the MAC address. The
+access point runs in mixed mode, so rescans still work. The screen shows numbered steps: join the
+WiFi (access point only), open the address, enter the PIN. Leaving it switches WiFi off and rescans
+the library if the page changed it.
 
 **Web page** ([web.rs](../ogo-launcher/src/web.rs), [index.html](../ogo-launcher/src/web/index.html)).
 Plain HTML/JS embedded in the firmware, with two tabs (`#games`, `#settings`). Handlers run in the
@@ -170,7 +171,7 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
 
 ## Build and toolchain
 
-The steps are in the [README](../README.md#prerequisites); this is why they are as they are.
+The steps are in [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites); this is why they are as they are.
 
 1. **Toolchain.** The Rust Xtensa toolchain from esp-rs, a nightly-based fork that only `espup`
    installs. [rust-toolchain.toml](../rust-toolchain.toml) pins it by name (`esp-1.97`), so every
@@ -178,9 +179,10 @@ The steps are in the [README](../README.md#prerequisites); this is why they are 
    last. rustup can't install the pinned one by itself; a missing one shows up as
    `toolchain 'esp-1.97' is not installed`. **Upgrading:** install the new version with `espup`
    (new `--name`, `--toolchain-version` and export file), change `channel` and the command in the
-   comment in `rust-toolchain.toml` and in the README, then rebuild, run the tests and test on the
-   device (see [Testing](#testing)). The workspace started from the esp-rs `esp-idf-template` for
-   `std` / ESP-IDF v5.5.3, target `esp32`.
+   comment in `rust-toolchain.toml` and in CONTRIBUTING.md, then rebuild, run the tests and test on
+   the device (see [CONTRIBUTING.md](../CONTRIBUTING.md#testing)). CI reads the toolchain from
+   `rust-toolchain.toml`, so it needs no change. The workspace started from the esp-rs
+   `esp-idf-template` for `std` / ESP-IDF v5.5.3, target `esp32`.
 2. **[sdkconfig.defaults](../sdkconfig.defaults)** enables 16 MB flash and PSRAM (with
    `CONFIG_SPIRAM_CACHE_WORKAROUND` for this ESP32 revision), the MENU recovery option, app rollback,
    1 kHz ticks and long FAT names. `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
@@ -236,28 +238,10 @@ before upgrading.
 
 ## Testing
 
-**CI** ([ci.yml](../.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
-the `ogo-format` tests and Clippy on `ogo-format` and xtask with stable Rust, then, on Linux with the
-pinned Xtensa toolchain, Clippy on the firmware and `cargo xtask release`, whose full image, app
-images and packages are kept as an artifact of the run. Clippy warnings fail the build. For a tag `v<version>` that
-matches the workspace version, a last job publishes those files as a GitHub release.
-
-**On the PC:** `cargo xtask test` runs the unit tests of `ogo-format`: `game.toml`, the `.ogo` reader
-and writer, the image description, the slot labels (checked against `partitions.csv`), settings
-steps, text fitting. Everything that needs the ESP32 is tested on the device.
-
-**On the device**, after `cargo xtask flash --all` (recovery too, when the shared crates changed):
-1. The launcher starts; the settings screen shows the expected version, commit and slot.
-2. A game starts (installing it first if it changed), its pause menu and VOL work, and "Exit to
-   launcher" returns.
-3. The WiFi screen: the web page logs in with the PIN, uploads and deletes a game, and the game list
-   is rescanned when the screen closes.
-4. A launcher update from the web page restarts into the other slot and says "Launcher updated".
-5. Recovery (MENU at power-on) lists both launcher slots and can install `/ogo/updates/launcher.bin`.
-
-A rollback can be tested with `cargo xtask release --features rollback-test`: that launcher panics
-before confirming itself, so uploading it must bring back the previous one with "Update didn't
-start".
+CI ([ci.yml](../.github/workflows/ci.yml)) runs the `ogo-format` tests on the PC and Clippy on
+everything, and builds a complete release on Linux, so the build doesn't depend on Windows. What
+needs the ESP32 is tested on the device; the checklist is in
+[CONTRIBUTING.md](../CONTRIBUTING.md#testing).
 
 ## Limitations
 
