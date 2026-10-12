@@ -4,6 +4,7 @@
 //! The formats themselves are described in docs/CONTRACTS.md.
 
 pub mod battery;
+pub mod flash;
 pub mod game;
 pub mod image;
 pub mod package;

@@ -1,7 +1,8 @@
 //! Build tasks for ogo, run on the PC: `cargo xtask <command>` (alias in .cargo/config.toml).
 //!
 //! - `pack <game>`: builds a game and writes an `.ogo` package, or copies it to an SD card.
-//! - `release`: builds the launcher, the recovery app and all games into `dist/`.
+//! - `release`: builds the launcher, the recovery app and all games into `dist/`, plus a complete
+//!   flash image for installing over USB without building.
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
 //! - `test`: runs the tests on the PC (`ogo-format`).
 //! - `samples <sd-root>`: writes fake games to an SD card, to test the launcher's game list.
@@ -23,6 +24,7 @@ use std::{
 use anyhow::{bail, ensure, Context};
 use clap::{Parser, Subcommand};
 use ogo_format::{
+    flash,
     game::{Manifest, SDK_VERSION},
     image::{ImageDesc, ImageKind},
     slots,
@@ -288,7 +290,14 @@ impl Project {
         let dist = self.root.join(DIST_DIR);
         let launcher = self.build_image(LAUNCHER, ImageKind::Launcher, features, &dist.join("launcher.bin"))?;
         let recovery = self.build_image(RECOVERY, ImageKind::Recovery, None, &dist.join("recovery.bin"))?;
-        let mut summary = vec![("launcher.bin".to_owned(), launcher.len()), ("recovery.bin".to_owned(), recovery.len())];
+        let full_name = format!("ogo-{}-full.bin", self.version()?);
+        let full = self.full_image(&launcher, &recovery)?;
+        fs::write(dist.join(&full_name), &full)?;
+        let mut summary = vec![
+            (full_name, full.len()),
+            ("launcher.bin".to_owned(), launcher.len()),
+            ("recovery.bin".to_owned(), recovery.len()),
+        ];
         for game in self.games()? {
             let files = self.build_game(&game)?;
             let path = dist.join(format!("{}.ogo", game.id));
@@ -300,6 +309,49 @@ impl Project {
             println!("  {name:<20} {:>6} KB", size / 1024);
         }
         Ok(())
+    }
+
+    /// Everything `flash --all` writes, as one image from address 0: bootloader, partition table,
+    /// recovery and the launcher in slot A. Between them it's 0xFF, so otadata and NVS end up
+    /// erased, as after `flash --all` on a new device.
+    fn full_image(&self, launcher: &[u8], recovery: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let bootloader = fs::read(self.bootloader()?)?;
+        let table_bin = self.target_dir()?.join("ogo-images").join("partition-table.bin");
+        self.cargo(&["espflash", "partition-table", "--to-binary", "-o", &table_bin.to_string_lossy(), "partitions.csv"])?;
+        let table = fs::read(&table_bin)?;
+        let partitions = flash::parse_partitions(&fs::read_to_string(self.root.join("partitions.csv"))?)
+            .map_err(|e| anyhow::anyhow!("partitions.csv: {e}"))?;
+        let slot = |label: &str, image: &[u8]| -> anyhow::Result<u32> {
+            let partition = partitions.iter().find(|p| p.label == label).with_context(|| format!("no partition {label}"))?;
+            ensure!(image.len() as u64 <= u64::from(partition.size), "the image doesn't fit into {label}");
+            Ok(partition.offset)
+        };
+        let parts = [
+            (flash::BOOTLOADER_OFFSET, bootloader.as_slice()),
+            (flash::PARTITION_TABLE_OFFSET, table.as_slice()),
+            (slot(slots::RECOVERY, recovery)?, recovery),
+            (slot(slots::LAUNCHER_A.label, launcher)?, launcher),
+        ];
+        flash::merge(&parts).map_err(|e| anyhow::anyhow!("can't merge the flash image: {e}"))
+    }
+
+    /// The workspace version of launcher, recovery and SDK.
+    fn version(&self) -> anyhow::Result<String> {
+        #[derive(Deserialize)]
+        struct Metadata {
+            packages: Vec<Package>,
+        }
+        #[derive(Deserialize)]
+        struct Package {
+            name: String,
+            version: String,
+        }
+        self.metadata::<Metadata>()?
+            .packages
+            .into_iter()
+            .find(|package| package.name == LAUNCHER)
+            .map(|package| package.version)
+            .context("no ogo-launcher package")
     }
 
     fn flash(&self, port: Option<&str>, all: bool, monitor: bool, features: Option<&str>) -> anyhow::Result<()> {

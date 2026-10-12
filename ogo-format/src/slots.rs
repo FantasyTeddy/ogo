@@ -49,13 +49,11 @@ mod tests {
     /// The labels here must be the app slots of the real partition table.
     #[test]
     fn match_partitions_csv() {
-        let table = include_str!("../../partitions.csv");
-        let apps: Vec<(&str, &str)> = table
-            .lines()
-            .filter(|line| !line.trim_start().starts_with('#') && !line.trim().is_empty())
-            .map(|line| line.split(',').map(str::trim).collect::<Vec<_>>())
-            .filter(|fields| fields[1] == "app")
-            .map(|fields| (fields[0], fields[2]))
+        let partitions = crate::flash::parse_partitions(include_str!("../../partitions.csv")).unwrap();
+        let apps: Vec<(&str, &str)> = partitions
+            .iter()
+            .filter(|p| p.kind == "app")
+            .map(|p| (p.label.as_str(), p.subtype.as_str()))
             .collect();
         let expected = [(RECOVERY, "factory"), (LAUNCHER_A.label, "ota_0"), (LAUNCHER_B.label, "ota_1"), (GAME, "ota_2")];
         assert_eq!(apps, expected);

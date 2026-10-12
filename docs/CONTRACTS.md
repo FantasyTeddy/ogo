@@ -18,7 +18,8 @@ any of these can break a launcher, recovery or game built earlier, so check this
 ## Partition table
 
 16 MB flash. Changing it means flashing over USB and reinstalling every launcher slot. App slots
-must be 64 KB aligned.
+must be 64 KB aligned. Below the table: the bootloader at `0x1000` and the partition table itself at
+`0x8000` (see [flash.rs](../ogo-format/src/flash.rs)).
 
 | Name | Type / subtype | Offset | Size | Content |
 |---|---|---|---|---|

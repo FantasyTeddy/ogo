@@ -217,7 +217,10 @@ The steps are in the [README](../README.md#prerequisites); this is why they are 
    - `pack <game> [--ogo <file> | --sd <root>]` builds a game into `dist/<id>.ogo`, another file,
      or an SD card's `/ogo/games/<id>/`.
    - `release [--features …]` builds `launcher.bin`, `recovery.bin` and every game's `.ogo` into
-     `dist/`. `--features` applies to the launcher.
+     `dist/`, plus `ogo-<version>-full.bin`: everything `flash --all` writes, as one image from
+     address 0 (bootloader at `0x1000`, partition table at `0x8000`, recovery and launcher in their
+     slots, `0xFF` in between, so NVS and otadata end up erased). `espflash write-bin 0x0` installs it
+     without the toolchain. `--features` applies to the launcher.
    - `test` runs the unit tests of `ogo-format` on the PC.
    - `samples <sd-root> [--force]` writes fake games (placeholder images, two broken on purpose) to
      an SD card, to test the game list.
@@ -235,8 +238,8 @@ before upgrading.
 
 **CI** ([ci.yml](../.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
 the `ogo-format` tests and Clippy on `ogo-format` and xtask with stable Rust, then, on Linux with the
-pinned Xtensa toolchain, Clippy on the firmware and `cargo xtask release`, whose images and packages
-are kept as an artifact of the run. Clippy warnings fail the build. For a tag `v<version>` that
+pinned Xtensa toolchain, Clippy on the firmware and `cargo xtask release`, whose full image, app
+images and packages are kept as an artifact of the run. Clippy warnings fail the build. For a tag `v<version>` that
 matches the workspace version, a last job publishes those files as a GitHub release.
 
 **On the PC:** `cargo xtask test` runs the unit tests of `ogo-format`: `game.toml`, the `.ogo` reader
