@@ -5,10 +5,12 @@
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
 //! - `test`: runs the tests on the PC (`ogo-format`).
 //! - `samples <sd-root>`: writes fake games to an SD card, to test the launcher's game list.
+//! - `icon <game> <image.png>`: converts a PNG into the game's `icon.rgb565`.
 //!
 //! Every firmware image built here carries the git commit (`OGO_COMMIT`, see
 //! `ogo_board::image_desc!`).
 
+mod icon;
 mod samples;
 
 use std::{
@@ -79,6 +81,13 @@ enum Task {
     },
     /// Run the tests on the PC (ogo-format).
     Test,
+    /// Convert a PNG into the game's icon.rgb565 (64x64, transparent parts black).
+    Icon {
+        /// The game's package name, e.g. snake.
+        game: String,
+        /// A PNG, ideally square.
+        image: PathBuf,
+    },
     /// Write fake games (not runnable, two broken on purpose) to an SD card, to test the game list.
     Samples {
         /// The SD card root, e.g. E:\.
@@ -111,6 +120,7 @@ fn main() -> anyhow::Result<()> {
         Task::Release { features } => project.release(features.as_deref()),
         Task::Flash { port, all, monitor, features } => project.flash(port.as_deref(), all, monitor, features.as_deref()),
         Task::Test => project.cargo(&["test", "--manifest-path", "ogo-format/Cargo.toml", "--target", HOST_TARGET]),
+        Task::Icon { game, image } => icon::convert(&image, &project.game(&game)?.dir.join("icon.rgb565")),
         Task::Samples { .. } => unreachable!("handled before the project is set up"),
     }
 }

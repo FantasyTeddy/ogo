@@ -6,7 +6,7 @@
 use std::{fs, path::Path};
 
 use anyhow::{ensure, Context};
-use ogo_format::game::{Manifest, ICON_SIZE, SDK_VERSION};
+use ogo_format::game::{rgb565_le, Manifest, ICON_SIZE, SDK_VERSION};
 use sha2::{Digest, Sha256};
 
 use crate::hex;
@@ -130,17 +130,12 @@ fn icon(pattern: Pattern, base: [u8; 3]) -> Vec<u8> {
                 Pattern::Gradient => {
                     let t = y as f32 / (size - 1) as f32;
                     let color: [u8; 3] = std::array::from_fn(|i| (dark[i] as f32 + (base[i] as f32 - dark[i] as f32) * t) as u8);
-                    out.extend_from_slice(&rgb565(color));
+                    out.extend_from_slice(&rgb565_le(color));
                     continue;
                 }
             };
-            out.extend_from_slice(&rgb565(if on { base } else { dark }));
+            out.extend_from_slice(&rgb565_le(if on { base } else { dark }));
         }
     }
     out
-}
-
-fn rgb565([r, g, b]: [u8; 3]) -> [u8; 2] {
-    let value = (u16::from(r >> 3) << 11) | (u16::from(g >> 2) << 5) | u16::from(b >> 3);
-    value.to_le_bytes()
 }

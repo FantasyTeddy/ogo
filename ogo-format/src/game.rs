@@ -62,6 +62,12 @@ pub fn is_valid_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// One pixel as stored in `icon.rgb565`: RGB565, little-endian.
+pub fn rgb565_le([r, g, b]: [u8; 3]) -> [u8; 2] {
+    let value = (u16::from(r >> 3) << 11) | (u16::from(g >> 2) << 5) | u16::from(b >> 3);
+    value.to_le_bytes()
+}
+
 /// A top-down BMP with RGB565 bitfields around raw little-endian RGB565 pixels, so browsers can
 /// show an icon without converting it.
 pub fn icon_bmp(pixels: &[u8], size: u32) -> Vec<u8> {
@@ -148,6 +154,15 @@ mod tests {
         assert!(!is_valid_id("Snake"));
         assert!(!is_valid_id("snake_2"));
         assert!(!is_valid_id("../x"));
+    }
+
+    #[test]
+    fn rgb565_pixels() {
+        assert_eq!(rgb565_le([255, 255, 255]), [0xFF, 0xFF]);
+        assert_eq!(rgb565_le([255, 0, 0]), [0x00, 0xF8]);
+        assert_eq!(rgb565_le([0, 255, 0]), [0xE0, 0x07]);
+        assert_eq!(rgb565_le([0, 0, 255]), [0x1F, 0x00]);
+        assert_eq!(rgb565_le([7, 3, 7]), [0x00, 0x00]);
     }
 
     #[test]

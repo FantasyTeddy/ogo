@@ -11,7 +11,7 @@ linker = "ldproxy"
 rustflags = ["--cfg", "espidf_time64", "-A", "linker_messages"]
 
 [alias]
-# Build tasks (xtask/): cargo xtask pack | release | flash | test | samples. xtask runs on the PC.
+# Build tasks (xtask/): cargo xtask pack | release | flash | test | samples | icon. Run on the PC.
 xtask = "run --quiet --manifest-path xtask/Cargo.toml --target host-tuple --"
 
 [unstable]
