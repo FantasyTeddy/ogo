@@ -55,6 +55,9 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "version=${name#esp-}.0.0" >> "$GITHUB_OUTPUT"
       - uses: esp-rs/xtensa-toolchain@v1.7.0
+        env:
+          # espup reads it from the environment; it avoids GitHub's rate limit for anonymous calls.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           name: ${{ steps.toolchain.outputs.name }}
           version: ${{ steps.toolchain.outputs.version }}
@@ -62,7 +65,6 @@ jobs:
           ldproxy: true
           # rust-toolchain.toml decides which toolchain is used.
           override: false
-          github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-espflash@4.3.0
