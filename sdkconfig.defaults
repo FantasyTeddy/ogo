@@ -22,7 +22,7 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
 
-# Recovery (M5): holding MENU (GPIO13, low when pressed) for 1 s at power-on boots the factory slot.
+# Recovery: holding MENU (GPIO13, low when pressed) for 1 s at power-on boots the factory slot.
 # That needs otadata cleared; NVS (settings, installed game) is kept.
 CONFIG_BOOTLOADER_FACTORY_RESET=y
 CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET=13
@@ -31,6 +31,6 @@ CONFIG_BOOTLOADER_OTA_DATA_ERASE=y
 CONFIG_BOOTLOADER_DATA_FACTORY_RESET=""
 CONFIG_BOOTLOADER_HOLD_TIME_GPIO=1
 
-# Launcher updates (M7): a newly selected app slot must confirm itself
+# Launcher updates: a newly selected app slot must confirm itself
 # (esp_ota_mark_app_valid_cancel_rollback), or the next reset boots the previous one.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

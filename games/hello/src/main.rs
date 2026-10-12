@@ -1,5 +1,5 @@
-//! Minimal test game for M3: proves that the launcher can install and boot a game, and that the
-//! game gets back to the launcher. MENU returns; A plays a sound.
+//! Minimal test game without the SDK: shows that the launcher can install and boot a game, and
+//! that the game gets back to the launcher. MENU returns; A plays a sound.
 
 use embedded_graphics::{
     mono_font::{

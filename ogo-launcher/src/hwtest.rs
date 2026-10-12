@@ -1,4 +1,4 @@
-//! Hardware test screen (from M1). Hold SELECT at power-on to open it.
+//! Hardware test screen. Hold SELECT at power-on to open it.
 //!
 //! Shows every button, the raw D-pad readings, the battery level and the SD card contents.
 //! A and B beep, Volume cycles the speaker volume, Start re-reads the SD card.

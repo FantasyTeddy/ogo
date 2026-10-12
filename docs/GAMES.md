@@ -126,7 +126,7 @@ open, `draw` is), VOL cycles the volume.
 
 **Sound.** `ctx.sound().play(&[Note::new(frequency_hz, duration_ms), …])` queues notes (sine tones;
 a frequency of 0 is a pause) and returns at once. Up to 4 sounds can wait; more are dropped. The
-volume is the user's setting, so leave it alone. There is no sample (PCM) playback yet.
+volume is the user's setting, so leave it alone. There is no sample (PCM) playback.
 
 **Saves.** `ctx.saves()` stores one file per name in `/ogo/saves/<id>/` on the SD card (names: a-z,
 A-Z, 0-9, `-` and `_`). They survive reinstalling and deleting the game.
@@ -151,16 +151,11 @@ Writes go to the SD card immediately, so there's nothing to flush before exiting
 ## 4. Icon (optional)
 
 `games/<id>/icon.rgb565` is shown next to the list: 64×64 pixels, RGB565 little-endian, row by row,
-exactly 8192 bytes. Without one, the launcher draws the first letter of the name. To convert a PNG
-(needs [Pillow](https://pypi.org/project/pillow/)):
+exactly 8192 bytes. Without one, the launcher draws the first letter of the name. To make one from a
+PNG (ideally square; transparent parts become black, like the launcher's background):
 
-```python
-from PIL import Image
-
-image = Image.open("icon.png").convert("RGB").resize((64, 64))
-with open("icon.rgb565", "wb") as out:
-    for r, g, b in image.getdata():
-        out.write((((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)).to_bytes(2, "little"))
+```powershell
+cargo xtask icon pong pong.png    # writes games/pong/icon.rgb565
 ```
 
 ## 5. Build and run

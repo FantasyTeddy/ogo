@@ -17,8 +17,8 @@ any of these can break a launcher, recovery or game built earlier, so check this
 
 ## Partition table
 
-16 MB flash. Final since M5: changing it means flashing over USB and reinstalling every launcher
-slot. App slots must be 64 KB aligned.
+16 MB flash. Changing it means flashing over USB and reinstalling every launcher slot. App slots
+must be 64 KB aligned.
 
 | Name | Type / subtype | Offset | Size | Content |
 |---|---|---|---|---|
@@ -30,8 +30,8 @@ slot. App slots must be 64 KB aligned.
 | launcher_b | app / ota_1 | 0x490000 | 2.5 MB | Launcher, slot B |
 | game_0 | app / ota_2 | 0x710000 | ~8.9 MB | The installed game |
 
-Image sizes at M9: launcher 1.6 MB (WiFi and the HTTP server make up most of it), recovery 620 KB,
-Snake 670 KB. Recovery's slot leaves room for WiFi (~600 KB) should it ever need it.
+Image sizes: launcher 1.6 MB (WiFi and the HTTP server make up most of it), recovery 620 KB, Snake
+670 KB.
 
 ## SD card layout
 
@@ -121,8 +121,6 @@ Who relies on it:
   launcher slot would never return.
 - The settings screen, the web page and recovery show version and commit.
 
-Images with magic `OGO1` (before M9, no commit field) count as "not an ogo app".
-
 **Build ID.** Not part of the image: the first 8 hex digits of the SHA-256 of the image in a slot,
 computed on the device (~0.1 s for 1.6 MB). It tells apart builds of the same version and commit,
 e.g. with uncommitted changes. (ESP-IDF's `app_elf_sha256` would be cheaper, but espflash leaves it
@@ -187,7 +185,7 @@ for the PIN shown on the device. After 5 wrong PINs the device picks a new one. 
   `cargo xtask pack` writes it, since games are built against the SDK in the same tree. Bump it
   when a change breaks games built earlier: the boot contract, the partition table, or what the
   SDK expects from NVS.
-- New NVS keys with defaults don't need a bump: games built before M8 ignore `brightness` and
-  `volume`, and newer games run fine without them.
-- A new magic in the image description (as `OGO2` in M9) means recovery and launcher must be
-  flashed together: `cargo xtask flash --all`.
+- New NVS keys with defaults don't need a bump: games that don't know a key ignore it, and games
+  that read one fall back to its default when it's missing.
+- Changing the image description's layout needs a new magic, and recovery and launcher must then be
+  flashed together (`cargo xtask flash --all`): each only recognises images with its own magic.

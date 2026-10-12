@@ -1,5 +1,5 @@
-# Odroid-Go flash layout (16 MB), see docs/CONTRACTS.md. Final since M5: changing it means
-# re-flashing over USB and reinstalling every launcher slot.
+# Odroid-Go flash layout (16 MB), see docs/CONTRACTS.md. Changing it means re-flashing over USB
+# and reinstalling every launcher slot.
 # Name,      Type, SubType, Offset,   Size
 nvs,         data, nvs,     0x9000,   0x4000
 otadata,     data, ota,     0xd000,   0x2000

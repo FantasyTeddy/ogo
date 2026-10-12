@@ -6,17 +6,13 @@ A game launcher for the [ODROID-GO](https://wiki.odroid.com/odroid_go/odroid_go)
 Rust. It installs native Rust games from the SD card into a flash slot and boots them. Games and
 launcher updates are managed from a web page served by the device itself.
 
-> **Status:** early development. Milestones M0–M9 are done: the launcher lists the games on the SD
-> card, installs the selected one and boots it; games are built on `ogo-sdk` (`games/snake` is the
-> first one); a recovery app starts when MENU is held at power-on; games and launcher updates can be
-> uploaded from a web page over WiFi; a settings screen sets brightness and volume; `cargo xtask`
-> builds, packs and flashes. See the [roadmap](docs/ROADMAP.md).
-
 ## Features
 
 - Game library on the SD card, with icons
-- Installs a game into a dedicated flash slot and boots it; reinstalls are skipped when the game is unchanged
-- Games built on a small SDK (`ogo-sdk`): frame loop, input, sound, saves, pause menu, exit back to the launcher
+- Installs a game into a dedicated flash slot and boots it; reinstalls are skipped when the game is
+  unchanged
+- Games built on a small SDK (`ogo-sdk`): frame loop, input, sound, saves, pause menu, exit back to
+  the launcher
 - Recovery app, entered by holding MENU at power-on: start either launcher slot, or reinstall the
   launcher from the SD card
 - Web page over WiFi, protected by a PIN shown on the device: upload and delete games, pick the WiFi
@@ -25,16 +21,15 @@ launcher updates are managed from a web page served by the device itself.
   doesn't start properly, the device goes back to the previous one by itself
 - Settings screen (MENU): device info, brightness and volume (both also used by games), forget the
   WiFi network
-- Planned: save backups, emulators packaged as games
 
 More documentation in [docs/](docs/):
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md): how it's built and why
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md): how it's built and why, including the build setup and
+  testing
 - [CONTRACTS.md](docs/CONTRACTS.md): partition table, SD card and NVS layout, boot contract, file
   formats, web API
 - [GAMES.md](docs/GAMES.md): writing a game
 - [HARDWARE.md](docs/HARDWARE.md): pins and measured hardware details
-- [ROADMAP.md](docs/ROADMAP.md): milestones and open questions
 
 ## Hardware
 
@@ -52,55 +47,34 @@ Developed on Windows with PowerShell.
    cargo install espup espflash cargo-espflash ldproxy
    espup install --name esp-1.97 --toolchain-version 1.97.0.0 --targets esp32 --std --export-file "$HOME\export-esp-1.97.ps1"
    ```
-   The project is pinned to this toolchain in [rust-toolchain.toml](rust-toolchain.toml), so every
-   machine builds with the same compiler (the Xtensa fork is nightly-based, and `espup`'s default
-   name `esp` means whatever was installed last). The named install sits next to any other Xtensa
-   toolchain you have; rustup can't install it by itself, so a missing one shows up as
-   `toolchain 'esp-1.97' is not installed`. Note that `espup` also sets `LIBCLANG_PATH` in your
-   user environment.
-
-   **Upgrading the toolchain:** install the new version with the same command (new `--name`,
-   `--toolchain-version` and export file), change `channel` and the command in the comment in
-   `rust-toolchain.toml`, and the command above. Then rebuild everything (`cargo xtask release`,
-   `cargo xtask test`) and test on the device.
-3. **Python 3.14 or older** (on Windows). ESP-IDF's Python requirements don't install on 3.15
-   yet: its `esp-idf-kconfig` needs `windows-curses`, which has no build for 3.15. With the
-   [Python install manager](https://docs.python.org/3/using/windows.html) there's nothing to do: the
-   project's [.cargo/config.toml](.cargo/config.toml) sets `PYTHON_MANAGER_DEFAULT = "3.12"`, so
-   builds use 3.12 even if your default is newer, and the install manager installs 3.12 on first
-   use if it's missing. Without the install manager, make sure the first `python` on PATH is 3.14 or
-   older. Once `windows-curses` has builds for 3.15 on PyPI, that line can be deleted.
-4. **On Windows, a short build folder**, see [Build folder](#build-folder).
+   The project is pinned to this toolchain in [rust-toolchain.toml](rust-toolchain.toml); it sits
+   next to any other Xtensa toolchain you have. `espup` also sets `LIBCLANG_PATH` in your user
+   environment.
+3. **Python 3.14 or older**, because ESP-IDF's Python requirements don't install on 3.15 on Windows.
+   With the [Python install manager](https://docs.python.org/3/using/windows.html) there's nothing to
+   do: builds use 3.12, which the install manager installs on first use. Otherwise make sure the
+   first `python` on PATH is 3.14 or older.
+4. **On Windows, a short build folder**, see below.
 
 ESP-IDF itself (v5.5.3) is downloaded automatically on the first build. That build takes several
-minutes; later builds are fast.
+minutes; later builds are fast. The reasons behind these requirements are in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#build-and-toolchain).
 
 ### Build folder
 
-On Windows, esp-idf-sys refuses to build when its output folder is longer than 88 characters
-(`Too long output directory: …`). That folder lies 67 characters below Cargo's build folder, plus a
-4-character `\\?\` prefix Windows adds, so **the build folder may have at most 17 characters**, such
-as `D:\ogot` or `C:\ogo\target`.
+On Windows, Cargo's build folder may have **at most 17 characters**, because esp-idf-sys refuses
+longer paths (`Too long output directory: …`).
 
 - **Cloned to a short path**, e.g. `C:\ogo`: the default build folder `C:\ogo\target` fits; nothing
   to do.
-- **Cloned to a longer path**: pick a short folder and put it into a `.cargo\config.toml` in a
-  **parent folder** of the clone, e.g. `C:\Users\<you>\Downloads\.cargo\config.toml` for a clone in
-  `Downloads`:
+- **Cloned to a longer path**: put a short folder into a `.cargo\config.toml` in a **parent folder**
+  of the clone, e.g. `C:\Users\<you>\Downloads\.cargo\config.toml` for a clone in `Downloads`. It
+  applies only to projects below that folder:
 
   ```toml
   [build]
   target-dir = "D:/ogot"
   ```
-
-  Cargo also reads config files from parent folders, so this applies only to projects below that
-  folder. The project's own [.cargo/config.toml](.cargo/config.toml) deliberately has no
-  `target-dir`, since a good folder depends on the machine.
-
-The `CARGO_TARGET_DIR` environment variable works too, but set user-wide it moves the build output of
-every Rust project on the machine. `cargo metadata` (and with it `cargo xtask`) finds the build folder
-whichever way it is set. On Linux and macOS the length doesn't matter, but the path must not contain
-spaces.
 
 ## Build and flash
 
@@ -117,10 +91,10 @@ cargo xtask samples E:\                # fake games on an SD card, to test the g
 ```
 
 `flash` uses this project's own bootloader (it starts recovery when MENU is held) and the partition
-table from [partitions.csv](partitions.csv). A plain `cargo espflash flash` would use espflash's
-default bootloader instead, without the MENU option; for the same reason the project config has no
-runner, so `cargo run` doesn't flash anything. Every image built by `cargo xtask` carries the git
-commit, shown on the settings screen, the web page and in recovery.
+table from [partitions.csv](partitions.csv). Don't use `cargo espflash flash` directly: it would
+flash espflash's default bootloader, without the MENU option (for the same reason `cargo run`
+doesn't flash anything). Every image built by `cargo xtask` carries the git commit, shown on the
+settings screen, the web page and in recovery.
 
 A plain `cargo build --release` also works; its firmware ends up in
 `<build folder>\xtensa-esp32-espidf\release\`, without a commit.
@@ -130,7 +104,7 @@ A plain `cargo build --release` also works; its firmware ends up in
 Versions live in `Cargo.toml`. Launcher, recovery and SDK share the workspace version in the root
 [Cargo.toml](Cargo.toml): raise it when you release a launcher. Each game has its own version in its
 crate's Cargo.toml (see [docs/GAMES.md](docs/GAMES.md)). Builds of the same version still differ by
-their commit. Tags are optional, e.g. `git tag launcher-v0.10.0` or `git tag snake-v1.1.0` to mark a
+their commit. Tags are optional, e.g. `git tag launcher-v1.0.0` or `git tag snake-v1.1.0` to mark a
 release in the history; nothing reads them.
 
 ## Games
@@ -202,18 +176,19 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 
 | Path | Contents |
 |---|---|
-| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing, shared settings, the image description and the launcher/game boot contract |
+| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing, shared settings and look (`ui`), the image description and the launcher/game boot contract |
 | [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, WiFi and web page, settings screen, boot screen, hardware test screen |
 | [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/hello/](games/hello/) | Minimal test game using `ogo-board` directly |
+| [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples / icon`), run on the PC |
+| [docs/](docs/) | Architecture, contracts, game guide, hardware notes |
 | [partitions.csv](partitions.csv) | Flash layout |
-| [docs/](docs/) | Architecture, contracts, game guide, hardware notes, roadmap |
-| [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
-| [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
-| [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples`), run on the PC |
+| [rust-toolchain.toml](rust-toolchain.toml) | The pinned Xtensa toolchain |
+| [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version, Python version for the build, the xtask alias |
+| [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery, rollback), scheduler, FAT |
 | [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
 
 ## Restoring the original firmware

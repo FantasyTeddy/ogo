@@ -2,7 +2,7 @@
 
 How ogo is built and why. For the exact formats and rules between the parts see
 [CONTRACTS.md](CONTRACTS.md); for the board see [HARDWARE.md](HARDWARE.md); for writing games see
-[GAMES.md](GAMES.md); for what's next see [ROADMAP.md](ROADMAP.md).
+[GAMES.md](GAMES.md).
 
 ## Goals and decisions
 
@@ -18,10 +18,9 @@ slot and boots them. Games and the launcher itself are managed from a web page s
 | Transfer | A web page on the device (upload, delete, launcher update); no PC tool needed |
 | Launcher updates | A/B slots with rollback, uploaded through the same page |
 | Safety | A recovery app in the factory slot, entered with MENU at power-on |
-| Emulators | Later, packaged as games that load ROMs from the SD card |
 
-**Not in scope for now:** games in other languages, interpreted or WASM games, pulling updates from
-the internet.
+**Out of scope:** games in other languages, interpreted or WASM games, pulling updates from the
+internet.
 
 ## Overview
 
@@ -58,7 +57,7 @@ the internet.
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |
 | [games/snake](../games/snake/src/main.rs) | Example game on the SDK |
 | [games/hello](../games/hello/src/main.rs) | Minimal test game using `ogo-board` directly |
-| [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash`, `test` |
+| [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash`, `test`, `samples`, `icon` |
 
 Launcher and recovery use `ogo-board` directly; games use `ogo-sdk`, which wraps it. Everything
 about switching between slots goes through `ogo_board::boot`, so the rules are in one place. Formats
@@ -75,9 +74,9 @@ for the PC. The firmware crates still depend on `ogo-format` by path.
 navigation events with key repeat by [input.rs](../ogo-launcher/src/input.rs)), handle them for the
 open screen, read the battery every 5 s, poll the web server's events. The open screen is one value
 of `enum Screen` (game list, notice, WiFi, settings); the WiFi and settings screens keep their state
-in their variant and live in their own modules, so a new screen is a new variant and module. Drawing goes through
-[ui/mod.rs](../ogo-launcher/src/ui/mod.rs): each screen area is an off-screen `Canvas` sent to the
-LCD in one transfer, so redraws don't flicker.
+in their variant and live in their own modules, so a new screen is a new variant and module.
+Drawing goes through [ui/mod.rs](../ogo-launcher/src/ui/mod.rs): each screen area is an off-screen
+`Canvas` sent to the LCD in one transfer, so redraws don't flicker.
 
 **Start.** The boot screen (logo, version) appears as soon as the display works and stays at least
 1.5 s. Meanwhile the launcher scans the SD card and confirms its slot (rollback, see below). Holding
@@ -94,8 +93,8 @@ rescans, SELECT opens the WiFi screen, MENU the settings.
    while writing, then store it. The speaker is muted meanwhile, since flash writes stall its DMA.
 3. Boot the game (see the boot contract in [CONTRACTS.md](CONTRACTS.md#boot-contract)).
 
-**WiFi screen** ([connect.rs](../ogo-launcher/src/connect.rs), [network.rs](../ogo-launcher/src/network.rs)).
-WiFi and the web server only run while it's open: the radio costs battery, games get the whole
+**WiFi screen** ([connect.rs](../ogo-launcher/src/connect.rs),
+[network.rs](../ogo-launcher/src/network.rs)). WiFi and the web server only run while it's open: the radio costs battery, games get the whole
 device, and the device is only reachable while someone is looking at it. Opening it scans for
 networks (~2 s), then joins the saved network (NVS, or `/ogo/settings.toml` for a first setup). If
 there is none or joining fails (~15 s timeout), it opens an access point `ogo-XXXX` without password,
@@ -172,35 +171,50 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
 
 ## Build and toolchain
 
-1. **Toolchain.** The Rust Xtensa toolchain from esp-rs, pinned in
-   [rust-toolchain.toml](../rust-toolchain.toml); installation steps are in the
-   [README](../README.md#prerequisites). The workspace started from the esp-rs `esp-idf-template`
-   for `std` / ESP-IDF v5.5.3, target `esp32`.
+The steps are in the [README](../README.md#prerequisites); this is why they are as they are.
+
+1. **Toolchain.** The Rust Xtensa toolchain from esp-rs, a nightly-based fork that only `espup`
+   installs. [rust-toolchain.toml](../rust-toolchain.toml) pins it by name (`esp-1.97`), so every
+   machine builds with the same compiler: `espup`'s default name `esp` means whatever was installed
+   last. rustup can't install the pinned one by itself; a missing one shows up as
+   `toolchain 'esp-1.97' is not installed`. **Upgrading:** install the new version with `espup`
+   (new `--name`, `--toolchain-version` and export file), change `channel` and the command in the
+   comment in `rust-toolchain.toml` and in the README, then rebuild, run the tests and test on the
+   device (see [Testing](#testing)). The workspace started from the esp-rs `esp-idf-template` for
+   `std` / ESP-IDF v5.5.3, target `esp32`.
 2. **[sdkconfig.defaults](../sdkconfig.defaults)** enables 16 MB flash and PSRAM (with
    `CONFIG_SPIRAM_CACHE_WORKAROUND` for this ESP32 revision), the MENU recovery option, app rollback,
    1 kHz ticks and long FAT names. `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
-3. **Windows path length.** esp-idf-sys refuses to build if its output folder is longer than 88
-   characters, and enabling long paths doesn't help: Cargo's build folder may have at most 17
-   characters. Where it goes depends on the machine, so the project's
-   [.cargo/config.toml](../.cargo/config.toml) doesn't set `target-dir`. A clone at a short path
-   uses its own `target`; otherwise a `.cargo/config.toml` in a parent folder sets one (see
-   [Build folder](../README.md#build-folder)). `CARGO_WORKSPACE_DIR` in the project config is what
-   embuild needs when the build folder is outside the project.
+3. **Build folder (Windows).** esp-idf-sys refuses to build if its output folder is longer than 88
+   characters, and enabling long paths doesn't help. That folder lies 67 characters below Cargo's
+   build folder, and Windows adds a 4-character `\\?\` prefix, so the build folder may have at most
+   17 characters. A good one depends on the machine, so the project's
+   [.cargo/config.toml](../.cargo/config.toml) doesn't set `target-dir`: a clone at a short path uses
+   its own `target`, otherwise a `.cargo/config.toml` in a parent folder sets one. Cargo reads config
+   files from parent folders too, so that only affects projects below it; a user-wide
+   `CARGO_TARGET_DIR` would work as well, but moves the output of every Rust project. `cargo
+   metadata`, and with it xtask, finds the folder either way. `CARGO_WORKSPACE_DIR` in the project
+   config is what embuild needs when the build folder is outside the project. On Linux and macOS
+   the length doesn't matter, but the path must not contain spaces.
 4. **Python.** ESP-IDF's Python requirements don't install on Python 3.15 on Windows:
-   `esp-idf-kconfig` needs `windows-curses`, which has no 3.15 build yet. embuild always runs the
-   first `python` on PATH (there's no setting for another one), and the install manager's version
-   setting takes no ranges, so `.cargo/config.toml` sets `PYTHON_MANAGER_DEFAULT = "3.12"` for build
-   scripts: the install manager's `python` then starts 3.12, installing it on first use if
-   missing. The line can go once `windows-curses` supports 3.15. The toolchain's `LIBCLANG_PATH` and clang folder are in the user environment
-   (`espup` puts them there), so builds work in any shell, and in the editor's rust-analyzer too.
+   `esp-idf-kconfig` needs `windows-curses`, which has no 3.15 build (2.4.2 goes up to 3.14) and no
+   source package. embuild always runs the first `python` on PATH (there's no setting for another
+   one), and the install manager's version setting takes no ranges, so `.cargo/config.toml` sets
+   `PYTHON_MANAGER_DEFAULT = "3.12"` for build scripts: the install manager's `python` then starts
+   3.12, installing it on first use if missing. Other setups ignore the variable. The line can go
+   once `windows-curses` supports 3.15. The toolchain's `LIBCLANG_PATH` and clang folder are in the
+   user environment (`espup` puts them there), so builds work in any shell, and in the editor's
+   rust-analyzer too.
 5. **`cargo xtask`** ([xtask/](../xtask/src/main.rs)). A host crate with its own workspace, since the
    main workspace builds everything for the ESP32. The alias in `.cargo/config.toml` passes
-   `--target host-tuple` (the PC it runs on). Every image it builds carries the git commit.
+   `--target host-tuple` (the PC it runs on). Every image it builds carries the git commit, and it
+   checks the kind and commit of each one.
    - `flash [--all] [--port COM7] [--monitor] [--features …]` builds, finds the bootloader
      esp-idf-sys built, and runs `cargo espflash flash` with it, `--target-app-partition launcher_a`
      (cargo-espflash 4.3 ignores that key in `espflash.toml`) and `--erase-parts otadata`: a USB
      flash only writes `launcher_a`, and otherwise a web update that selected `launcher_b` would
-     keep running. `--all` also flashes recovery.
+     keep running. `--all` also flashes recovery. The project config has no `runner`, because
+     `cargo run` with espflash would flash its default bootloader, without the MENU option.
    - `pack <game> [--ogo <file> | --sd <root>]` builds a game into `dist/<id>.ogo`, another file,
      or an SD card's `/ogo/games/<id>/`.
    - `release [--features …]` builds `launcher.bin`, `recovery.bin` and every game's `.ogo` into
@@ -208,6 +222,7 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
    - `test` runs the unit tests of `ogo-format` on the PC.
    - `samples <sd-root> [--force]` writes fake games (placeholder images, two broken on purpose) to
      an SD card, to test the game list.
+   - `icon <game> <image.png>` converts a PNG into the game's `icon.rgb565`.
 
    Versions come from `Cargo.toml`: the workspace version for launcher, recovery and SDK, and each
    game's own. Games are released on their own cadence, so there is no shared release tag.
@@ -215,3 +230,31 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
 The esp-rs crates (`esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`) come from git, as in the template
 (see `[patch.crates-io]` in [Cargo.toml](../Cargo.toml)). The ecosystem moves quickly: check versions
 before upgrading.
+
+## Testing
+
+**On the PC:** `cargo xtask test` runs the unit tests of `ogo-format`: `game.toml`, the `.ogo` reader
+and writer, the image description, the slot labels (checked against `partitions.csv`), settings
+steps, text fitting. Everything that needs the ESP32 is tested on the device.
+
+**On the device**, after `cargo xtask flash --all` (recovery too, when the shared crates changed):
+1. The launcher starts; the settings screen shows the expected version, commit and slot.
+2. A game starts (installing it first if it changed), its pause menu and VOL work, and "Exit to
+   launcher" returns.
+3. The WiFi screen: the web page logs in with the PIN, uploads and deletes a game, and the game list
+   is rescanned when the screen closes.
+4. A launcher update from the web page restarts into the other slot and says "Launcher updated".
+5. Recovery (MENU at power-on) lists both launcher slots and can install `/ogo/updates/launcher.bin`.
+
+A rollback can be tested with `cargo xtask release --features rollback-test`: that launcher panics
+before confirming itself, so uploading it must bring back the previous one with "Update didn't
+start".
+
+## Limitations
+
+- Joining a WiFi network blocks the launcher's screen for up to ~15 s while it waits.
+- The web server keeps every login session until the WiFi screen closes.
+- Games get notes (sine tones) only; there is no sample (PCM) playback.
+- One game slot: switching to another game reinstalls it.
+- The battery percentage is a rough linear estimate, and there's no charging indicator (the board has
+  no charge-status signal, see [HARDWARE.md](HARDWARE.md#findings)).
