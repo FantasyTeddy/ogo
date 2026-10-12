@@ -2,7 +2,6 @@
 name = "ogo-board"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Board support for the ODROID-GO: display, buttons, speaker, battery, LED and SD card"
 
 [dependencies]

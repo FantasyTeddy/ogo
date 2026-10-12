@@ -20,8 +20,10 @@ build-std = ["std", "panic_abort"]
 [env]
 MCU = "esp32"
 ESP_IDF_VERSION = "v5.5.3"
-# ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild always runs the
-# `python` on PATH. With the Python install manager, this makes that `python` start 3.12.
+# ESP-IDF's Python requirements don't install on Python 3.15 on Windows: esp-idf-kconfig needs
+# windows-curses, which has no build for 3.15 yet (2.4.2 goes up to 3.14). embuild always runs the
+# `python` on PATH; with the Python install manager, this makes it start 3.12 (installed on first
+# use if missing). Other setups ignore it. Delete this line once windows-curses supports 3.15.
 PYTHON_MANAGER_DEFAULT = "3.12"
 # Reuse the tools already installed in ~/.espressif instead of a per-project copy,
 # which also keeps build paths shorter on Windows.

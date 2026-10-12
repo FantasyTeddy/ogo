@@ -3,7 +3,6 @@ name = "hello"
 version = "0.1.0"
 authors = ["ogo examples"]
 edition.workspace = true
-rust-version.workspace = true
 description = "Minimal test game: shows a screen and returns to the launcher on MENU"
 
 # Read by `cargo xtask pack` for game.toml

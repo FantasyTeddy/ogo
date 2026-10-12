@@ -186,10 +186,12 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
    uses its own `target`; otherwise a `.cargo/config.toml` in a parent folder sets one (see
    [Build folder](../README.md#build-folder)). `CARGO_WORKSPACE_DIR` in the project config is what
    embuild needs when the build folder is outside the project.
-4. **Python.** ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild always
-   runs the first `python` on PATH (there's no setting for another one). `.cargo/config.toml` sets
-   `PYTHON_MANAGER_DEFAULT = "3.12"` for build scripts, which makes the Python install manager's
-   `python` start 3.12. The toolchain's `LIBCLANG_PATH` and clang folder are in the user environment
+4. **Python.** ESP-IDF's Python requirements don't install on Python 3.15 on Windows:
+   `esp-idf-kconfig` needs `windows-curses`, which has no 3.15 build yet. embuild always runs the
+   first `python` on PATH (there's no setting for another one), and the install manager's version
+   setting takes no ranges, so `.cargo/config.toml` sets `PYTHON_MANAGER_DEFAULT = "3.12"` for build
+   scripts: the install manager's `python` then starts 3.12, installing it on first use if
+   missing. The line can go once `windows-curses` supports 3.15. The toolchain's `LIBCLANG_PATH` and clang folder are in the user environment
    (`espup` puts them there), so builds work in any shell, and in the editor's rust-analyzer too.
 5. **`cargo xtask`** ([xtask/](../xtask/src/main.rs)). A host crate with its own workspace, since the
    main workspace builds everything for the ESP32. The alias in `.cargo/config.toml` passes

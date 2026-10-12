@@ -21,7 +21,6 @@ name = "pong"
 version = "0.1.0"
 authors = ["Your Name"]           # the first author is shown in the launcher
 edition.workspace = true
-rust-version.workspace = true
 
 # Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]

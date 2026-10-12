@@ -52,14 +52,24 @@ Developed on Windows with PowerShell.
    cargo install espup espflash cargo-espflash ldproxy
    espup install --name esp-1.97 --toolchain-version 1.97.0.0 --targets esp32 --std --export-file "$HOME\export-esp-1.97.ps1"
    ```
-   The project is pinned to this toolchain in [rust-toolchain.toml](rust-toolchain.toml). The named
-   install sits next to any other Xtensa toolchain you have. Note that `espup` also sets
-   `LIBCLANG_PATH` in your user environment.
-3. **Python 3.12.** ESP-IDF 5.5 doesn't install on newer versions such as 3.15. With the
-   [Python install manager](https://docs.python.org/3/using/windows.html), install it with
-   `py install 3.12`; the project's [.cargo/config.toml](.cargo/config.toml) sets
-   `PYTHON_MANAGER_DEFAULT = "3.12"`, so builds use it even if your default is newer. Without the
-   install manager, make sure the first `python` on PATH is 3.12.
+   The project is pinned to this toolchain in [rust-toolchain.toml](rust-toolchain.toml), so every
+   machine builds with the same compiler (the Xtensa fork is nightly-based, and `espup`'s default
+   name `esp` means whatever was installed last). The named install sits next to any other Xtensa
+   toolchain you have; rustup can't install it by itself, so a missing one shows up as
+   `toolchain 'esp-1.97' is not installed`. Note that `espup` also sets `LIBCLANG_PATH` in your
+   user environment.
+
+   **Upgrading the toolchain:** install the new version with the same command (new `--name`,
+   `--toolchain-version` and export file), change `channel` and the command in the comment in
+   `rust-toolchain.toml`, and the command above. Then rebuild everything (`cargo xtask release`,
+   `cargo xtask test`) and test on the device.
+3. **Python 3.14 or older** (on Windows). ESP-IDF's Python requirements don't install on 3.15
+   yet: its `esp-idf-kconfig` needs `windows-curses`, which has no build for 3.15. With the
+   [Python install manager](https://docs.python.org/3/using/windows.html) there's nothing to do: the
+   project's [.cargo/config.toml](.cargo/config.toml) sets `PYTHON_MANAGER_DEFAULT = "3.12"`, so
+   builds use 3.12 even if your default is newer, and the install manager installs 3.12 on first
+   use if it's missing. Without the install manager, make sure the first `python` on PATH is 3.14 or
+   older. Once `windows-curses` has builds for 3.15 on PyPI, that line can be deleted.
 4. **On Windows, a short build folder**, see [Build folder](#build-folder).
 
 ESP-IDF itself (v5.5.3) is downloaded automatically on the first build. That build takes several

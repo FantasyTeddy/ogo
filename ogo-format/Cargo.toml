@@ -2,7 +2,6 @@
 name = "ogo-format"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.82"
 description = "ogo's file formats, contract values and pure helpers; builds and tests on the PC"
 
 # Own workspace, like xtask: the main workspace builds everything for the ESP32, while this crate's

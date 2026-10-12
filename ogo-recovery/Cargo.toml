@@ -2,7 +2,6 @@
 name = "ogo-recovery"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Recovery app in the factory slot: start a launcher slot or reinstall the launcher from the SD card"
 
 [[bin]]
