@@ -78,6 +78,12 @@ jobs:
             .
             xtask
 
+      # With the pinned toolchain's rustfmt, the same as `cargo fmt` locally.
+      - name: Check formatting
+        run: |
+          cargo fmt --all --check
+          cargo fmt --manifest-path ogo-format/Cargo.toml --all --check
+          cargo fmt --manifest-path xtask/Cargo.toml --all --check
       - name: Clippy
         run: cargo clippy --release --workspace -- -D warnings
       - name: Build release images (checks each image's kind and commit)

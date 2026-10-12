@@ -238,8 +238,8 @@ before upgrading.
 
 ## Testing
 
-CI ([ci.yml](../.github/workflows/ci.yml)) runs the `ogo-format` tests on the PC and Clippy on
-everything, and builds a complete release on Linux, so the build doesn't depend on Windows. What
+CI ([ci.yml](../.github/workflows/ci.yml)) runs the `ogo-format` tests on the PC, checks formatting
+and runs Clippy on everything, and builds a complete release on Linux, so the build doesn't depend on Windows. What
 needs the ESP32 is tested on the device; the checklist is in
 [CONTRIBUTING.md](../CONTRIBUTING.md#testing).
 
