@@ -171,7 +171,8 @@ from the launcher, e.g. with `cargo xtask flash --monitor` or `espflash monitor`
 launcher and game don't close it.
 
 To release a new version, raise `version` in Cargo.toml and pack again. Uploading a package with the
-same id replaces the old one; the saves stay.
+same id replaces the old one; the saves stay. Games in this repository are also part of every ogo
+release, as `.ogo` packages.
 
 ## Limits
 

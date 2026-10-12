@@ -99,13 +99,22 @@ settings screen, the web page and in recovery.
 A plain `cargo build --release` also works; its firmware ends up in
 `<build folder>\xtensa-esp32-espidf\release\`, without a commit.
 
-### Versions
+### Versions and releases
 
 Versions live in `Cargo.toml`. Launcher, recovery and SDK share the workspace version in the root
-[Cargo.toml](Cargo.toml): raise it when you release a launcher. Each game has its own version in its
-crate's Cargo.toml (see [docs/GAMES.md](docs/GAMES.md)). Builds of the same version still differ by
-their commit. Tags are optional, e.g. `git tag launcher-v1.0.0` or `git tag snake-v1.1.0` to mark a
-release in the history; nothing reads them.
+[Cargo.toml](Cargo.toml); each game has its own version in its crate's Cargo.toml (see
+[docs/GAMES.md](docs/GAMES.md)). Builds of the same version still differ by their commit.
+
+To publish a release, raise the workspace version, commit, and push a tag with that version:
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+CI then builds and checks everything and publishes a GitHub release "ogo 0.2.0" with
+`launcher.bin`, `recovery.bin` and the `.ogo` package of every game. A tag that doesn't match the
+workspace version fails before anything is published.
 
 ## Games
 

@@ -225,13 +225,20 @@ The steps are in the [README](../README.md#prerequisites); this is why they are 
    - `icon <game> <image.png>` converts a PNG into the game's `icon.rgb565`.
 
    Versions come from `Cargo.toml`: the workspace version for launcher, recovery and SDK, and each
-   game's own. Games are released on their own cadence, so there is no shared release tag.
+   game's own (written into its `game.toml`). Releases are tagged with the workspace version and
+   bundle every game as it is at that commit; games have no tags of their own.
 
 The esp-rs crates (`esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`) come from git, as in the template
 (see `[patch.crates-io]` in [Cargo.toml](../Cargo.toml)). The ecosystem moves quickly: check versions
 before upgrading.
 
 ## Testing
+
+**CI** ([ci.yml](../.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
+the `ogo-format` tests and Clippy on `ogo-format` and xtask with stable Rust, then, on Linux with the
+pinned Xtensa toolchain, Clippy on the firmware and `cargo xtask release`, whose images and packages
+are kept as an artifact of the run. Clippy warnings fail the build. For a tag `v<version>` that
+matches the workspace version, a last job publishes those files as a GitHub release.
 
 **On the PC:** `cargo xtask test` runs the unit tests of `ogo-format`: `game.toml`, the `.ogo` reader
 and writer, the image description, the slot labels (checked against `partitions.csv`), settings

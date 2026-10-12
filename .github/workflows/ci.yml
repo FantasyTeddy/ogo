@@ -1,0 +1,113 @@
+name: CI
+
+# Builds and checks every push to main and every pull request. A tag `v<version>` also publishes a
+# GitHub release with the images and game packages, once everything passed.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  host:
+    name: Tests and lints on the PC
+    runs-on: ubuntu-latest
+    env:
+      # ogo-format and xtask are plain Rust: stable is enough, the Xtensa toolchain from
+      # rust-toolchain.toml is only needed for the firmware.
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install stable --profile minimal --component clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ogo-format
+            xtask
+      - name: Test ogo-format
+        run: cargo test --manifest-path ogo-format/Cargo.toml --target host-tuple
+      - name: Clippy ogo-format
+        run: cargo clippy --manifest-path ogo-format/Cargo.toml --target host-tuple --all-targets -- -D warnings
+      - name: Clippy xtask
+        run: cargo clippy --manifest-path xtask/Cargo.toml --target host-tuple -- -D warnings
+
+  firmware:
+    name: Firmware build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the toolchain pinned in rust-toolchain.toml
+        id: toolchain
+        run: |
+          name=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)   # e.g. esp-1.97
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=${name#esp-}.0.0" >> "$GITHUB_OUTPUT"
+      - uses: esp-rs/xtensa-toolchain@v1.7.0
+        with:
+          name: ${{ steps.toolchain.outputs.name }}
+          version: ${{ steps.toolchain.outputs.version }}
+          buildtargets: esp32
+          ldproxy: true
+          # rust-toolchain.toml decides which toolchain is used.
+          override: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-espflash@4.3.0
+
+      - name: Cache ESP-IDF and its tools
+        uses: actions/cache@v6
+        with:
+          path: ~/.espressif
+          key: espressif-${{ runner.os }}-${{ hashFiles('.cargo/config.toml', 'sdkconfig.defaults') }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            xtask
+
+      - name: Clippy
+        run: cargo clippy --release --workspace -- -D warnings
+      - name: Build release images (checks each image's kind and commit)
+        run: cargo xtask release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ogo-${{ github.sha }}
+          path: dist/
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [host, firmware]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check that the tag matches the version in Cargo.toml
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match the workspace version $version in Cargo.toml"
+            exit 1
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          name: ogo-${{ github.sha }}
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "ogo ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
