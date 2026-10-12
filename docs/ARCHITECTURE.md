@@ -56,7 +56,6 @@ internet.
 | [ogo-launcher](../ogo-launcher/src/main.rs) | The launcher firmware |
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |
 | [games/snake](../games/snake/src/main.rs) | Example game on the SDK |
-| [games/hello](../games/hello/src/main.rs) | Minimal test game using `ogo-board` directly |
 | [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash`, `test`, `samples`, `icon` |
 
 Launcher and recovery use `ogo-board` directly; games use `ogo-sdk`, which wraps it. Everything

@@ -191,7 +191,6 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
-| [games/hello/](games/hello/) | Minimal test game using `ogo-board` directly |
 | [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples / icon`), run on the PC |
 | [docs/](docs/) | Architecture, contracts, game guide, hardware notes |
 | [partitions.csv](partitions.csv) | Flash layout |

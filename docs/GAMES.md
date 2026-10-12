@@ -190,7 +190,7 @@ release, as `.ogo` packages.
 
 ## Without the SDK
 
-[games/hello](../games/hello/src/main.rs) uses `ogo-board` directly. A game that does this must
-still follow the boot contract ([CONTRACTS.md](CONTRACTS.md#boot-contract)): declare
-`ogo_board::image_desc!(Game)`, and call `Boot::take()?.return_to_launcher_on_reset()` before
-anything else, or the device stays in the game after a reset.
+A game can also use `ogo-board` directly instead of the SDK. It must still follow the boot contract
+([CONTRACTS.md](CONTRACTS.md#boot-contract)): declare `ogo_board::image_desc!(Game)`, and call
+`Boot::take()?.return_to_launcher_on_reset()` before anything else, or the device stays in the game
+after a reset.
