@@ -14,7 +14,10 @@ const CHUNK_BYTES: usize = 4096;
 pub enum Progress {
     /// Making room in the slot; can take a few seconds for large images.
     Erasing,
-    Writing { written: u64, total: u64 },
+    Writing {
+        written: u64,
+        total: u64,
+    },
 }
 
 /// Writes the firmware image at `path` into the app slot `label`, streaming it in chunks.
@@ -29,7 +32,13 @@ pub fn write_image(
     let mut file = File::open(path).with_context(|| format!("can't open {}", path.display()))?;
     let total = file.metadata()?.len();
     log::info!("Writing {} into {label}", path.display());
-    write_stream(|buf| Ok(file.read(buf)?), total, label, expected_sha256, progress)
+    write_stream(
+        |buf| Ok(file.read(buf)?),
+        total,
+        label,
+        expected_sha256,
+        progress,
+    )
 }
 
 /// Like [`write_image`], but takes the image from `read` (which returns 0 at the end), e.g. an
@@ -43,7 +52,11 @@ pub fn write_stream(
 ) -> anyhow::Result<()> {
     let partition = find_app_partition(label)?;
     if total > u64::from(partition.size) {
-        bail!("the image is {} KB, the {label} slot holds {} KB", total / 1024, partition.size / 1024);
+        bail!(
+            "the image is {} KB, the {label} slot holds {} KB",
+            total / 1024,
+            partition.size / 1024
+        );
     }
     log::info!("Writing {total} bytes into {label}");
 
@@ -80,7 +93,8 @@ fn write_chunks(
             bail!("the image ended after {written} of {total} bytes");
         }
         hasher.update(&buffer[..count]);
-        esp!(unsafe { sys::esp_ota_write(handle, buffer.as_ptr().cast(), count) }).context("writing flash failed")?;
+        esp!(unsafe { sys::esp_ota_write(handle, buffer.as_ptr().cast(), count) })
+            .context("writing flash failed")?;
         written += count as u64;
         progress(Progress::Writing { written, total });
     }
@@ -133,12 +147,18 @@ pub fn app_info(label: &str) -> Option<AppInfo> {
     let mut desc = sys::esp_app_desc_t::default();
     esp!(unsafe { sys::esp_ota_get_partition_description(partition, &mut desc) }).ok()?;
     let text = |chars: &[core::ffi::c_char]| {
-        unsafe { CStr::from_ptr(chars.as_ptr()) }.to_string_lossy().trim().to_owned()
+        unsafe { CStr::from_ptr(chars.as_ptr()) }
+            .to_string_lossy()
+            .trim()
+            .to_owned()
     };
     Some(AppInfo {
         project: text(&desc.project_name),
         version: text(&desc.version),
         built: format!("{} {}", text(&desc.date), text(&desc.time)),
-        build_id: image_sha256(partition).map_or_else(|| "?".into(), |sha| sha[..4].iter().map(|b| format!("{b:02x}")).collect()),
+        build_id: image_sha256(partition).map_or_else(
+            || "?".into(),
+            |sha| sha[..4].iter().map(|b| format!("{b:02x}")).collect(),
+        ),
     })
 }

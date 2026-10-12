@@ -59,7 +59,10 @@ impl Manifest {
 
 /// Game ids: lowercase letters, digits and `-`. They are also folder names.
 pub fn is_valid_id(id: &str) -> bool {
-    !id.is_empty() && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// One pixel as stored in `icon.rgb565`: RGB565, little-endian.
@@ -138,11 +141,22 @@ mod tests {
             change(&mut manifest);
             manifest.check(None, 1)
         };
-        assert!(check(|m| m.id = "Snake".into()).unwrap_err().contains("invalid id"));
-        assert!(check(|m| m.sdk_version = 2).unwrap_err().contains("needs SDK version 2"));
-        assert!(check(|m| m.sha256 = "abc".into()).unwrap_err().contains("sha256"));
-        assert!(check(|m| m.sha256 = "g".repeat(64)).unwrap_err().contains("sha256"));
-        assert!(manifest().check(Some("other"), 1).unwrap_err().contains("folder name"));
+        assert!(check(|m| m.id = "Snake".into())
+            .unwrap_err()
+            .contains("invalid id"));
+        assert!(check(|m| m.sdk_version = 2)
+            .unwrap_err()
+            .contains("needs SDK version 2"));
+        assert!(check(|m| m.sha256 = "abc".into())
+            .unwrap_err()
+            .contains("sha256"));
+        assert!(check(|m| m.sha256 = "g".repeat(64))
+            .unwrap_err()
+            .contains("sha256"));
+        assert!(manifest()
+            .check(Some("other"), 1)
+            .unwrap_err()
+            .contains("folder name"));
     }
 
     #[test]
@@ -170,9 +184,15 @@ mod tests {
         let pixels = vec![0x12; ICON_BYTES];
         let bmp = icon_bmp(&pixels, ICON_SIZE);
         assert_eq!(&bmp[..2], b"BM");
-        assert_eq!(u32::from_le_bytes(bmp[2..6].try_into().unwrap()) as usize, bmp.len());
+        assert_eq!(
+            u32::from_le_bytes(bmp[2..6].try_into().unwrap()) as usize,
+            bmp.len()
+        );
         let offset = u32::from_le_bytes(bmp[10..14].try_into().unwrap()) as usize;
         assert_eq!(&bmp[offset..], &pixels[..]);
-        assert_eq!(i32::from_le_bytes(bmp[22..26].try_into().unwrap()), -(ICON_SIZE as i32));
+        assert_eq!(
+            i32::from_le_bytes(bmp[22..26].try_into().unwrap()),
+            -(ICON_SIZE as i32)
+        );
     }
 }

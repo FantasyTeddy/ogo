@@ -29,7 +29,9 @@ impl ImageKind {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        [ImageKind::Launcher, ImageKind::Recovery, ImageKind::Game].into_iter().find(|kind| kind.name() == name)
+        [ImageKind::Launcher, ImageKind::Recovery, ImageKind::Game]
+            .into_iter()
+            .find(|kind| kind.name() == name)
     }
 }
 
@@ -45,7 +47,12 @@ pub struct ImageDesc {
 impl ImageDesc {
     /// Used by `image_desc!`. Longer strings are cut.
     pub const fn new(kind: ImageKind, version: &str, commit: &str) -> Self {
-        Self { magic: MAGIC, kind: fixed(kind.name()), version: fixed(version), commit: fixed(commit) }
+        Self {
+            magic: MAGIC,
+            kind: fixed(kind.name()),
+            version: fixed(version),
+            commit: fixed(commit),
+        }
     }
 
     /// Reads a description from its bytes in an image; `None` if they don't hold one.
@@ -54,7 +61,12 @@ impl ImageDesc {
         if bytes[..4] != MAGIC {
             return None;
         }
-        Some(Self { magic: MAGIC, kind: array(&bytes[4..]), version: array(&bytes[32..]), commit: array(&bytes[64..]) })
+        Some(Self {
+            magic: MAGIC,
+            kind: array(&bytes[4..]),
+            version: array(&bytes[32..]),
+            commit: array(&bytes[64..]),
+        })
     }
 
     /// Reads the description of a whole firmware image.
@@ -148,7 +160,10 @@ mod tests {
         let mut old = bytes(&ImageDesc::new(ImageKind::Launcher, "0.1.0", ""));
         old[..4].copy_from_slice(b"OGO1");
         assert_eq!(ImageDesc::from_bytes(&old), None);
-        assert_eq!(ImageDesc::from_bytes(&bytes(&ImageDesc::new(ImageKind::Game, "b", "c"))[..79]), None);
+        assert_eq!(
+            ImageDesc::from_bytes(&bytes(&ImageDesc::new(ImageKind::Game, "b", "c"))[..79]),
+            None
+        );
         assert_eq!(ImageDesc::in_image(&[0; 300]), None);
     }
 

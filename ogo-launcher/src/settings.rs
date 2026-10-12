@@ -44,17 +44,29 @@ pub fn load_wifi(nvs: &EspDefaultNvs, sd: Option<&SdCard>) -> Option<WifiCredent
 }
 
 /// Like [`load_wifi`], and tells where the network comes from.
-pub fn saved_wifi(nvs: &EspDefaultNvs, sd: Option<&SdCard>) -> Option<(WifiCredentials, WifiSource)> {
+pub fn saved_wifi(
+    nvs: &EspDefaultNvs,
+    sd: Option<&SdCard>,
+) -> Option<(WifiCredentials, WifiSource)> {
     let mut ssid = [0u8; 33];
     let mut password = [0u8; 65];
     if let Ok(Some(ssid)) = nvs.get_str(KEY_SSID, &mut ssid) {
-        let password = nvs.get_str(KEY_PASSWORD, &mut password).ok().flatten().unwrap_or_default();
-        let credentials = WifiCredentials { ssid: ssid.to_owned(), password: password.to_owned() };
+        let password = nvs
+            .get_str(KEY_PASSWORD, &mut password)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let credentials = WifiCredentials {
+            ssid: ssid.to_owned(),
+            password: password.to_owned(),
+        };
         return Some((credentials, WifiSource::Nvs));
     }
     let text = fs::read_to_string(sd?.path(SETTINGS_FILE)).ok()?;
     match toml::from_str::<SettingsFile>(&text) {
-        Ok(settings) => settings.wifi.map(|credentials| (credentials, WifiSource::SdCard)),
+        Ok(settings) => settings
+            .wifi
+            .map(|credentials| (credentials, WifiSource::SdCard)),
         Err(e) => {
             log::warn!("Ignoring /{SETTINGS_FILE}: {}", e.message());
             None

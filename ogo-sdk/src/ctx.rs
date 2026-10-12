@@ -6,7 +6,9 @@ use std::{
 };
 
 use esp_idf_svc::{nvs::EspDefaultNvs, sys};
-use ogo_board::{boot, Battery, BatteryLevel, Button, ButtonState, Buttons, Led, SdCard, Settings, Speaker};
+use ogo_board::{
+    boot, Battery, BatteryLevel, Button, ButtonState, Buttons, Led, SdCard, Settings, Speaker,
+};
 
 use crate::saves::Saves;
 

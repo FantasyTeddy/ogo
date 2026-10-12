@@ -34,28 +34,49 @@ pub fn text<D: DrawTarget<Color = Rgb565>>(
     color: Rgb565,
     alignment: Alignment,
 ) {
-    let style = TextStyleBuilder::new().alignment(alignment).baseline(Baseline::Middle).build();
-    Text::with_text_style(text, position, MonoTextStyle::new(font, color), style).draw(target).ok();
+    let style = TextStyleBuilder::new()
+        .alignment(alignment)
+        .baseline(Baseline::Middle)
+        .build();
+    Text::with_text_style(text, position, MonoTextStyle::new(font, color), style)
+        .draw(target)
+        .ok();
 }
 
 /// The highlight behind a selected row.
 pub fn selection<D: DrawTarget<Color = Rgb565>>(target: &mut D, area: Rectangle) {
-    area.into_styled(PrimitiveStyle::with_fill(SELECTION)).draw(target).ok();
+    area.into_styled(PrimitiveStyle::with_fill(SELECTION))
+        .draw(target)
+        .ok();
 }
 
 /// A box with a thin border, e.g. for a menu over a game.
 pub fn panel<D: DrawTarget<Color = Rgb565>>(target: &mut D, area: Rectangle) {
-    let style = PrimitiveStyleBuilder::new().fill_color(BAR).stroke_color(TEXT).stroke_width(1).build();
+    let style = PrimitiveStyleBuilder::new()
+        .fill_color(BAR)
+        .stroke_color(TEXT)
+        .stroke_width(1)
+        .build();
     area.into_styled(style).draw(target).ok();
 }
 
 /// A progress bar: an outline in `frame`, filled to `fraction` (0.0 to 1.0) with a 2-pixel gap.
-pub fn progress_bar<D: DrawTarget<Color = Rgb565>>(target: &mut D, area: Rectangle, fraction: f32, frame: Rgb565) {
-    area.into_styled(PrimitiveStyle::with_stroke(frame, 1)).draw(target).ok();
-    let inner = area.size.saturating_sub(Size::new(4, 4));
-    let filled = (inner.width as f32 * fraction.clamp(0.0, 1.0)) as u32;
-    Rectangle::new(area.top_left + Point::new(2, 2), Size::new(filled, inner.height))
-        .into_styled(PrimitiveStyle::with_fill(SELECTION))
+pub fn progress_bar<D: DrawTarget<Color = Rgb565>>(
+    target: &mut D,
+    area: Rectangle,
+    fraction: f32,
+    frame: Rgb565,
+) {
+    area.into_styled(PrimitiveStyle::with_stroke(frame, 1))
         .draw(target)
         .ok();
+    let inner = area.size.saturating_sub(Size::new(4, 4));
+    let filled = (inner.width as f32 * fraction.clamp(0.0, 1.0)) as u32;
+    Rectangle::new(
+        area.top_left + Point::new(2, 2),
+        Size::new(filled, inner.height),
+    )
+    .into_styled(PrimitiveStyle::with_fill(SELECTION))
+    .draw(target)
+    .ok();
 }

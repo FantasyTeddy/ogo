@@ -26,11 +26,14 @@ macro_rules! image_desc {
         #[no_mangle]
         #[used]
         #[link_section = ".rodata_custom_desc"]
-        pub static OGO_IMAGE_DESC: $crate::image::ImageDesc =
-            $crate::image::ImageDesc::new($crate::image::ImageKind::$kind, env!("CARGO_PKG_VERSION"), match option_env!("OGO_COMMIT") {
+        pub static OGO_IMAGE_DESC: $crate::image::ImageDesc = $crate::image::ImageDesc::new(
+            $crate::image::ImageKind::$kind,
+            env!("CARGO_PKG_VERSION"),
+            match option_env!("OGO_COMMIT") {
                 Some(commit) => commit,
                 None => "",
-            });
+            },
+        );
     };
 }
 
@@ -49,6 +52,14 @@ pub fn running() -> ImageDesc {
 pub fn in_slot(label: &str) -> Option<ImageDesc> {
     let partition = find_app_partition(label).ok()?;
     let mut bytes = [0u8; SIZE];
-    esp!(unsafe { sys::esp_partition_read(partition, OFFSET_IN_IMAGE, bytes.as_mut_ptr().cast(), bytes.len()) }).ok()?;
+    esp!(unsafe {
+        sys::esp_partition_read(
+            partition,
+            OFFSET_IN_IMAGE,
+            bytes.as_mut_ptr().cast(),
+            bytes.len(),
+        )
+    })
+    .ok()?;
     ImageDesc::from_bytes(&bytes)
 }

@@ -68,7 +68,12 @@ impl Board {
         first_frame: impl FnOnce(&mut Display) -> anyhow::Result<()>,
     ) -> anyhow::Result<Self> {
         let own = image::running();
-        log::info!("{} {} (commit {})", own.kind_name(), own.version(), own.commit().unwrap_or("unknown"));
+        log::info!(
+            "{} {} (commit {})",
+            own.kind_name(),
+            own.version(),
+            own.commit().unwrap_or("unknown")
+        );
         let p = Peripherals::take()?;
         let pins = p.pins;
 
@@ -92,7 +97,11 @@ impl Board {
 
         let sd = match SdCard::mount(spi, pins.gpio22) {
             Ok(card) => {
-                log::info!("SD card mounted at {}, {} MB", sd::MOUNT_POINT, card.capacity_bytes() >> 20);
+                log::info!(
+                    "SD card mounted at {}, {} MB",
+                    sd::MOUNT_POINT,
+                    card.capacity_bytes() >> 20
+                );
                 Some(card)
             }
             Err(e) => {
@@ -119,7 +128,16 @@ impl Board {
         speaker.set_volume(settings.volume);
         let led = Led::new(pins.gpio2)?;
 
-        Ok(Self { display, backlight, buttons, speaker, battery, led, sd, modem: Some(p.modem) })
+        Ok(Self {
+            display,
+            backlight,
+            buttons,
+            speaker,
+            battery,
+            led,
+            sd,
+            modem: Some(p.modem),
+        })
     }
 }
 

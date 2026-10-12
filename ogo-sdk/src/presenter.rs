@@ -23,7 +23,10 @@ unsafe impl Send for SendDisplay {}
 
 impl Presenter {
     pub fn new(display: Display) -> anyhow::Result<Self> {
-        let screen = Rectangle::new(Point::zero(), Size::new(display::WIDTH.into(), display::HEIGHT.into()));
+        let screen = Rectangle::new(
+            Point::zero(),
+            Size::new(display::WIDTH.into(), display::HEIGHT.into()),
+        );
         let (to_display, frames) = mpsc::sync_channel::<Box<Canvas>>(1);
         let (to_game, free) = mpsc::sync_channel::<Box<Canvas>>(2);
         to_game.send(Box::new(Canvas::new(screen)))?;
@@ -45,13 +48,21 @@ impl Presenter {
             })
             .context("can't start the display thread")?;
 
-        Ok(Self { drawing: Some(Box::new(Canvas::new(screen))), to_display, free })
+        Ok(Self {
+            drawing: Some(Box::new(Canvas::new(screen))),
+            to_display,
+            free,
+        })
     }
 
     /// The buffer to draw the next frame into. Waits until the display thread has sent it.
     pub fn frame(&mut self) -> anyhow::Result<&mut Canvas> {
         if self.drawing.is_none() {
-            self.drawing = Some(self.free.recv().map_err(|_| anyhow!("the display thread has stopped"))?);
+            self.drawing = Some(
+                self.free
+                    .recv()
+                    .map_err(|_| anyhow!("the display thread has stopped"))?,
+            );
         }
         Ok(self.drawing.as_mut().expect("just filled"))
     }
@@ -59,7 +70,9 @@ impl Presenter {
     /// Hands the drawn frame to the display thread.
     pub fn present(&mut self) -> anyhow::Result<()> {
         if let Some(frame) = self.drawing.take() {
-            self.to_display.send(frame).map_err(|_| anyhow!("the display thread has stopped"))?;
+            self.to_display
+                .send(frame)
+                .map_err(|_| anyhow!("the display thread has stopped"))?;
         }
         Ok(())
     }

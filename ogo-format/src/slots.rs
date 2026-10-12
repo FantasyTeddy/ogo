@@ -14,8 +14,14 @@ pub struct LauncherSlot {
     pub name: &'static str,
 }
 
-pub const LAUNCHER_A: LauncherSlot = LauncherSlot { label: "launcher_a", name: "A" };
-pub const LAUNCHER_B: LauncherSlot = LauncherSlot { label: "launcher_b", name: "B" };
+pub const LAUNCHER_A: LauncherSlot = LauncherSlot {
+    label: "launcher_a",
+    name: "A",
+};
+pub const LAUNCHER_B: LauncherSlot = LauncherSlot {
+    label: "launcher_b",
+    name: "B",
+};
 pub const LAUNCHER_SLOTS: [LauncherSlot; 2] = [LAUNCHER_A, LAUNCHER_B];
 
 /// The launcher slot with this partition label, if it is one.
@@ -49,13 +55,19 @@ mod tests {
     /// The labels here must be the app slots of the real partition table.
     #[test]
     fn match_partitions_csv() {
-        let partitions = crate::flash::parse_partitions(include_str!("../../partitions.csv")).unwrap();
+        let partitions =
+            crate::flash::parse_partitions(include_str!("../../partitions.csv")).unwrap();
         let apps: Vec<(&str, &str)> = partitions
             .iter()
             .filter(|p| p.kind == "app")
             .map(|p| (p.label.as_str(), p.subtype.as_str()))
             .collect();
-        let expected = [(RECOVERY, "factory"), (LAUNCHER_A.label, "ota_0"), (LAUNCHER_B.label, "ota_1"), (GAME, "ota_2")];
+        let expected = [
+            (RECOVERY, "factory"),
+            (LAUNCHER_A.label, "ota_0"),
+            (LAUNCHER_B.label, "ota_1"),
+            (GAME, "ota_2"),
+        ];
         assert_eq!(apps, expected);
     }
 }

@@ -3,12 +3,7 @@
 //! Values are stored as text, so they're easy to inspect on a PC. For anything more complex than
 //! a number or a string, serialize it yourself and use [`Saves::read_bytes`] / [`Saves::write_bytes`].
 
-use std::{
-    fmt::Display,
-    fs,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{fmt::Display, fs, path::PathBuf, str::FromStr};
 
 use anyhow::{bail, Context};
 use ogo_board::SdCard;
@@ -20,7 +15,9 @@ pub struct Saves {
 
 impl Saves {
     pub(crate) fn new(sd: Option<&SdCard>, game_id: &str) -> Self {
-        Self { dir: sd.map(|sd| PathBuf::from(sd.path(&format!("ogo/saves/{game_id}")))) }
+        Self {
+            dir: sd.map(|sd| PathBuf::from(sd.path(&format!("ogo/saves/{game_id}")))),
+        }
     }
 
     /// Reads and parses a value, or `None` if it was never saved or doesn't parse.
@@ -58,7 +55,11 @@ impl Saves {
         let Some(dir) = &self.dir else {
             bail!("no SD card");
         };
-        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
             bail!("invalid save name \"{name}\" (use a-z, 0-9, - and _)");
         }
         Ok(dir.join(name))

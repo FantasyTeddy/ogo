@@ -27,7 +27,10 @@ pub enum PauseAction {
     Exit,
 }
 
-const ITEMS: [(&str, PauseAction); 2] = [("Resume", PauseAction::Resume), ("Exit to launcher", PauseAction::Exit)];
+const ITEMS: [(&str, PauseAction); 2] = [
+    ("Resume", PauseAction::Resume),
+    ("Exit to launcher", PauseAction::Exit),
+];
 
 #[derive(Debug, Default)]
 pub struct PauseMenu {
@@ -56,9 +59,17 @@ impl PauseMenu {
         panel(fb, area);
 
         let center_x = area.center().x;
-        text(fb, "Paused", Point::new(center_x, area.top_left.y + 20), &FONT_10X20);
+        text(
+            fb,
+            "Paused",
+            Point::new(center_x, area.top_left.y + 20),
+            &FONT_10X20,
+        );
         for (i, (label, _)) in ITEMS.iter().enumerate() {
-            let row = Rectangle::new(Point::new(area.top_left.x + 10, area.top_left.y + 44 + i as i32 * 28), Size::new(180, 24));
+            let row = Rectangle::new(
+                Point::new(area.top_left.x + 10, area.top_left.y + 44 + i as i32 * 28),
+                Size::new(180, 24),
+            );
             if i == self.selected {
                 selection(fb, row);
             }
@@ -85,13 +96,27 @@ impl VolumeIndicator {
         if self.until.is_none() {
             return;
         }
-        let area = Rectangle::new(Point::new(fb.size().width as i32 - 130, 8), Size::new(122, 34));
+        let area = Rectangle::new(
+            Point::new(fb.size().width as i32 - 130, 8),
+            Size::new(122, 34),
+        );
         panel(fb, area);
-        let label = if volume == 0 { "Muted".to_owned() } else { format!("Volume {volume}%") };
-        text(fb, &label, Point::new(area.center().x, area.top_left.y + 11), &FONT_8X13);
+        let label = if volume == 0 {
+            "Muted".to_owned()
+        } else {
+            format!("Volume {volume}%")
+        };
+        text(
+            fb,
+            &label,
+            Point::new(area.center().x, area.top_left.y + 11),
+            &FONT_8X13,
+        );
         // Bar showing the level.
         let bar = Rectangle::new(area.top_left + Point::new(8, 21), Size::new(106, 6));
-        bar.into_styled(PrimitiveStyle::with_stroke(TEXT, 1)).draw(fb).ok();
+        bar.into_styled(PrimitiveStyle::with_stroke(TEXT, 1))
+            .draw(fb)
+            .ok();
         Rectangle::new(bar.top_left, Size::new(106 * u32::from(volume) / 100, 6))
             .into_styled(PrimitiveStyle::with_fill(SELECTION))
             .draw(fb)

@@ -50,18 +50,30 @@ const SESSION_COOKIE: &str = "ogo_session";
 /// What happened in a request, for the device screen.
 #[derive(Debug, Clone)]
 pub enum WebEvent {
-    Uploading { received: usize, total: usize },
-    Installed { name: String },
-    Deleted { id: String },
+    Uploading {
+        received: usize,
+        total: usize,
+    },
+    Installed {
+        name: String,
+    },
+    Deleted {
+        id: String,
+    },
     Failed(String),
     WifiSaved(WifiCredentials),
     /// Too many wrong PINs; the device shows this new one.
     PinChanged(String),
     /// A launcher update is being written to flash.
     UpdateStarted,
-    Updating { received: usize, total: usize },
+    Updating {
+        received: usize,
+        total: usize,
+    },
     /// A launcher update is in `slot` and checked; the launcher selects it and restarts.
-    LauncherWritten { slot: &'static str },
+    LauncherWritten {
+        slot: &'static str,
+    },
     ScanRequested,
     Restart,
 }
@@ -117,7 +129,9 @@ impl WebState {
     }
 
     fn games_dir(&self) -> Option<PathBuf> {
-        self.sd_root.as_ref().map(|root| root.join(library::GAMES_DIR))
+        self.sd_root
+            .as_ref()
+            .map(|root| root.join(library::GAMES_DIR))
     }
 }
 
@@ -142,13 +156,22 @@ impl WebServer {
             Ok(())
         })?;
         server.fn_handler::<anyhow::Error, _>("/logo.png", Method::Get, |req| {
-            req.into_response(200, None, &[("Content-Type", "image/png"), ("Cache-Control", "max-age=86400")])?
-                .write_all(LOGO_PNG)?;
+            req.into_response(
+                200,
+                None,
+                &[
+                    ("Content-Type", "image/png"),
+                    ("Cache-Control", "max-age=86400"),
+                ],
+            )?
+            .write_all(LOGO_PNG)?;
             Ok(())
         })?;
 
         let s = state.clone();
-        server.fn_handler::<anyhow::Error, _>("/api/login", Method::Post, move |req| login(req, &s))?;
+        server.fn_handler::<anyhow::Error, _>("/api/login", Method::Post, move |req| {
+            login(req, &s)
+        })?;
 
         // Everything else needs a session.
         type Handler = fn(Req, &WebState) -> anyhow::Result<()>;
@@ -185,19 +208,24 @@ struct Message {
 
 impl Message {
     fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
+        Self {
+            message: message.into(),
+        }
     }
 }
 
 fn json(req: Req, status: u16, body: &impl Serialize) -> anyhow::Result<()> {
     let body = serde_json::to_vec(body)?;
-    req.into_response(status, None, &[("Content-Type", "application/json")])?.write_all(&body)?;
+    req.into_response(status, None, &[("Content-Type", "application/json")])?
+        .write_all(&body)?;
     Ok(())
 }
 
 /// The body length from `Content-Length`; 0 if missing.
 fn content_len(req: &Req) -> usize {
-    req.header("Content-Length").and_then(|len| len.trim().parse().ok()).unwrap_or(0)
+    req.header("Content-Length")
+        .and_then(|len| len.trim().parse().ok())
+        .unwrap_or(0)
 }
 
 /// Whether the request carries a session cookie from [`login`].
@@ -208,7 +236,12 @@ fn authorized(req: &Req, state: &WebState) -> bool {
     let sessions = state.sessions.lock().unwrap();
     cookies
         .split(';')
-        .filter_map(|cookie| cookie.trim().strip_prefix(SESSION_COOKIE)?.strip_prefix('='))
+        .filter_map(|cookie| {
+            cookie
+                .trim()
+                .strip_prefix(SESSION_COOKIE)?
+                .strip_prefix('=')
+        })
         .any(|token| sessions.iter().any(|session| session == token))
 }
 
@@ -223,8 +256,11 @@ fn login(mut req: Req, state: &WebState) -> anyhow::Result<()> {
         return json(req, 400, &Message::new("Bad request"));
     }
     let mut body = vec![0u8; len];
-    req.read_exact(&mut body).map_err(|e| anyhow::anyhow!("connection error: {e:?}"))?;
-    let pin = serde_json::from_slice::<Login>(&body).map(|login| login.pin).unwrap_or_default();
+    req.read_exact(&mut body)
+        .map_err(|e| anyhow::anyhow!("connection error: {e:?}"))?;
+    let pin = serde_json::from_slice::<Login>(&body)
+        .map(|login| login.pin)
+        .unwrap_or_default();
 
     if pin.trim() != *state.pin.lock().unwrap() {
         let mut failed = state.failed_logins.lock().unwrap();
@@ -234,7 +270,11 @@ fn login(mut req: Req, state: &WebState) -> anyhow::Result<()> {
             let new_pin = random_pin();
             *state.pin.lock().unwrap() = new_pin.clone();
             state.send(WebEvent::PinChanged(new_pin));
-            return json(req, 403, &Message::new("Too many wrong PINs. The device shows a new one."));
+            return json(
+                req,
+                403,
+                &Message::new("Too many wrong PINs. The device shows a new one."),
+            );
         }
         return json(req, 403, &Message::new("Wrong PIN"));
     }
@@ -243,8 +283,15 @@ fn login(mut req: Req, state: &WebState) -> anyhow::Result<()> {
     let token = random_token();
     state.sessions.lock().unwrap().push(token.clone());
     let cookie = format!("{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict");
-    req.into_response(200, None, &[("Content-Type", "application/json"), ("Set-Cookie", &cookie)])?
-        .write_all(b"{\"message\":\"Welcome\"}")?;
+    req.into_response(
+        200,
+        None,
+        &[
+            ("Content-Type", "application/json"),
+            ("Set-Cookie", &cookie),
+        ],
+    )?
+    .write_all(b"{\"message\":\"Welcome\"}")?;
     Ok(())
 }
 
@@ -254,7 +301,9 @@ pub fn random_pin() -> String {
 }
 
 fn random_token() -> String {
-    (0..4).map(|_| format!("{:08x}", unsafe { esp_idf_svc::sys::esp_random() })).collect()
+    (0..4)
+        .map(|_| format!("{:08x}", unsafe { esp_idf_svc::sys::esp_random() }))
+        .collect()
 }
 
 fn networks(req: Req, state: &WebState) -> anyhow::Result<()> {
@@ -279,7 +328,10 @@ fn update_launcher(mut req: Req, state: &WebState) -> anyhow::Result<()> {
 
     let mut reported = 0;
     let result = flash::write_stream(
-        |buf| req.read(buf).map_err(|e| anyhow::anyhow!("connection error: {e:?}")),
+        |buf| {
+            req.read(buf)
+                .map_err(|e| anyhow::anyhow!("connection error: {e:?}"))
+        },
         total as u64,
         slot,
         None,
@@ -288,7 +340,10 @@ fn update_launcher(mut req: Req, state: &WebState) -> anyhow::Result<()> {
                 let tenth = (written * 10 / total.max(1)) as usize;
                 if tenth > reported {
                     reported = tenth;
-                    state.send(WebEvent::Updating { received: written as usize, total: total as usize });
+                    state.send(WebEvent::Updating {
+                        received: written as usize,
+                        total: total as usize,
+                    });
                 }
             }
         },
@@ -366,15 +421,19 @@ fn status(req: Req, state: &WebState) -> anyhow::Result<()> {
             }
         })
         .collect();
-    json(req, 200, &Status {
-        version: env!("CARGO_PKG_VERSION"),
-        battery_percent: battery.map(|b| b.percent),
-        battery_mv: battery.map(|b| b.millivolts),
-        slots,
-        sd_total: sd_space.map(|(total, _)| total),
-        sd_free: sd_space.map(|(_, free)| free),
-        network: state.network.clone(),
-    })
+    json(
+        req,
+        200,
+        &Status {
+            version: env!("CARGO_PKG_VERSION"),
+            battery_percent: battery.map(|b| b.percent),
+            battery_mv: battery.map(|b| b.millivolts),
+            slots,
+            sd_total: sd_space.map(|(total, _)| total),
+            sd_free: sd_space.map(|(_, free)| free),
+            network: state.network.clone(),
+        },
+    )
 }
 
 fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
@@ -388,7 +447,10 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
         /// Why the entry can't be used, for broken ones.
         error: Option<String>,
     }
-    let entries = state.games_dir().and_then(|dir| library::scan_dir(&dir)).unwrap_or_default();
+    let entries = state
+        .games_dir()
+        .and_then(|dir| library::scan_dir(&dir))
+        .unwrap_or_default();
     let games: Vec<GameJson> = entries
         .into_iter()
         .map(|entry| match entry {
@@ -429,7 +491,11 @@ fn upload(mut req: Req, state: &WebState) -> anyhow::Result<()> {
         return json(req, 400, &Message::new("Empty upload"));
     }
     if total > MAX_UPLOAD_BYTES {
-        return json(req, 413, &Message::new(format!("Too big: at most {} MB", MAX_UPLOAD_BYTES >> 20)));
+        return json(
+            req,
+            413,
+            &Message::new(format!("Too big: at most {} MB", MAX_UPLOAD_BYTES >> 20)),
+        );
     }
 
     let path = package::upload_path(&root);
@@ -443,8 +509,14 @@ fn upload(mut req: Req, state: &WebState) -> anyhow::Result<()> {
     let _ = fs::remove_file(&path);
     match result {
         Ok(game) => {
-            state.send(WebEvent::Installed { name: game.name.clone() });
-            json(req, 200, &Message::new(format!("Installed {} {}", game.name, game.version)))
+            state.send(WebEvent::Installed {
+                name: game.name.clone(),
+            });
+            json(
+                req,
+                200,
+                &Message::new(format!("Installed {} {}", game.name, game.version)),
+            )
         }
         Err(e) => {
             state.send(WebEvent::Failed(format!("{e:#}")));
@@ -458,16 +530,20 @@ fn receive(req: &mut Req, path: &Path, total: usize, state: &WebState) -> anyhow
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let mut file = File::create(path).with_context(|| format!("can't create {}", path.display()))?;
+    let mut file =
+        File::create(path).with_context(|| format!("can't create {}", path.display()))?;
     let mut buffer = vec![0u8; CHUNK_BYTES];
     let mut received = 0;
     let mut reported = 0;
     while received < total {
-        let count = req.read(&mut buffer).map_err(|e| anyhow::anyhow!("connection error: {e:?}"))?;
+        let count = req
+            .read(&mut buffer)
+            .map_err(|e| anyhow::anyhow!("connection error: {e:?}"))?;
         if count == 0 {
             anyhow::bail!("the connection closed early");
         }
-        file.write_all(&buffer[..count]).context("writing to the SD card failed")?;
+        file.write_all(&buffer[..count])
+            .context("writing to the SD card failed")?;
         received += count;
         if received * 10 / total > reported {
             reported = received * 10 / total;
@@ -502,8 +578,12 @@ fn icon(req: Req, state: &WebState) -> anyhow::Result<()> {
         return json(req, 404, &Message::new("No icon"));
     }
     let bmp = ogo_format::game::icon_bmp(&pixels, ICON_SIZE);
-    req.into_response(200, None, &[("Content-Type", "image/bmp"), ("Cache-Control", "no-cache")])?
-        .write_all(&bmp)?;
+    req.into_response(
+        200,
+        None,
+        &[("Content-Type", "image/bmp"), ("Cache-Control", "no-cache")],
+    )?
+    .write_all(&bmp)?;
     Ok(())
 }
 
@@ -513,15 +593,31 @@ fn set_wifi(mut req: Req, state: &WebState) -> anyhow::Result<()> {
         return json(req, 400, &Message::new("Bad request"));
     }
     let mut body = vec![0u8; len];
-    req.read_exact(&mut body).map_err(|e| anyhow::anyhow!("connection error: {e:?}"))?;
+    req.read_exact(&mut body)
+        .map_err(|e| anyhow::anyhow!("connection error: {e:?}"))?;
     let credentials: WifiCredentials = match serde_json::from_slice(&body) {
         Ok(credentials) => credentials,
-        Err(_) => return json(req, 400, &Message::new("Expected {\"ssid\": ..., \"password\": ...}")),
+        Err(_) => {
+            return json(
+                req,
+                400,
+                &Message::new("Expected {\"ssid\": ..., \"password\": ...}"),
+            )
+        }
     };
-    if credentials.ssid.is_empty() || credentials.ssid.len() > 32 || credentials.password.len() > 64 {
-        return json(req, 400, &Message::new("The SSID needs 1-32 characters, the password at most 64"));
+    if credentials.ssid.is_empty() || credentials.ssid.len() > 32 || credentials.password.len() > 64
+    {
+        return json(
+            req,
+            400,
+            &Message::new("The SSID needs 1-32 characters, the password at most 64"),
+        );
     }
-    json(req, 200, &Message::new(format!("Saved. The device now joins {}.", credentials.ssid)))?;
+    json(
+        req,
+        200,
+        &Message::new(format!("Saved. The device now joins {}.", credentials.ssid)),
+    )?;
     state.send(WebEvent::WifiSaved(credentials));
     Ok(())
 }

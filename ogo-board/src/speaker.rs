@@ -53,7 +53,10 @@ pub struct Note {
 
 impl Note {
     pub const fn new(frequency_hz: u32, duration_ms: u32) -> Self {
-        Self { frequency_hz, duration_ms }
+        Self {
+            frequency_hz,
+            duration_ms,
+        }
     }
 }
 
@@ -69,7 +72,11 @@ impl Amp {
     fn set(&mut self, on: bool) {
         let on = on && !self.blocked;
         if on != self.on {
-            let result = if on { self.pin.set_high() } else { self.pin.set_low() };
+            let result = if on {
+                self.pin.set_high()
+            } else {
+                self.pin.set_low()
+            };
             if let Err(e) = result {
                 log::error!("Switching the amplifier failed: {e:?}");
                 return;
@@ -95,7 +102,11 @@ impl Speaker {
     ) -> anyhow::Result<Self> {
         let mut pin = PinDriver::output(enable)?;
         pin.set_low()?;
-        let amp = Arc::new(Mutex::new(Amp { pin, on: false, blocked: false }));
+        let amp = Arc::new(Mutex::new(Amp {
+            pin,
+            on: false,
+            blocked: false,
+        }));
 
         let dac = Dac::open()?;
         let (sounds, queue) = mpsc::sync_channel(QUEUE_LEN);
@@ -105,7 +116,12 @@ impl Speaker {
             .stack_size(4096)
             .spawn(move || feed(dac, queue, thread_amp))?;
 
-        Ok(Self { amp, sounds, volume: 50, muted: false })
+        Ok(Self {
+            amp,
+            sounds,
+            volume: 50,
+            muted: false,
+        })
     }
 
     pub fn volume(&self) -> u8 {
@@ -187,7 +203,9 @@ impl Dac {
     /// Blocks until the samples are in the DMA buffers.
     fn write(&mut self, samples: &mut [u8]) -> Result<(), EspError> {
         let mut loaded = 0;
-        esp!(unsafe { sys::dac_continuous_write(self.0, samples.as_mut_ptr(), samples.len(), &mut loaded, -1) })
+        esp!(unsafe {
+            sys::dac_continuous_write(self.0, samples.as_mut_ptr(), samples.len(), &mut loaded, -1)
+        })
     }
 
     /// Plays the idle level for about `ms`.
@@ -265,7 +283,11 @@ fn render(notes: &[Note], volume: u8) -> Vec<u8> {
         let step = TAU * note.frequency_hz as f32 / SAMPLE_RATE as f32;
         samples.extend((0..count).map(|i| {
             let edge = i.min(count - 1 - i);
-            let envelope = if edge < fade { 0.5 - 0.5 * (PI * edge as f32 / fade as f32).cos() } else { 1.0 };
+            let envelope = if edge < fade {
+                0.5 - 0.5 * (PI * edge as f32 / fade as f32).cos()
+            } else {
+                1.0
+            };
             let value = f32::from(IDLE_LEVEL) + amplitude * envelope * (step * i as f32).sin();
             value.round().clamp(0.0, 255.0) as u8
         }));

@@ -19,7 +19,10 @@ pub const MOUNT_POINT: &str = "/sd";
 pub fn space() -> Option<(u64, u64)> {
     let path = std::ffi::CString::new(MOUNT_POINT).ok()?;
     let (mut total, mut free) = (0u64, 0u64);
-    esp_idf_svc::sys::esp!(unsafe { esp_idf_svc::sys::esp_vfs_fat_info(path.as_ptr(), &mut total, &mut free) }).ok()?;
+    esp_idf_svc::sys::esp!(unsafe {
+        esp_idf_svc::sys::esp_vfs_fat_info(path.as_ptr(), &mut total, &mut free)
+    })
+    .ok()?;
     Some((total, free))
 }
 
@@ -49,8 +52,12 @@ impl SdCard {
         let card = SdCardDriver::new_spi(host, &SdCardConfiguration::new())?;
         let csd = &card.card().csd;
         let capacity_bytes = csd.capacity as u64 * csd.sector_size as u64;
-        let mounted = MountedFatfs::mount(Fatfs::new_sdcard(0, card)?, MOUNT_POINT, MAX_OPEN_FILES)?;
-        Ok(Self { _mounted: mounted, capacity_bytes })
+        let mounted =
+            MountedFatfs::mount(Fatfs::new_sdcard(0, card)?, MOUNT_POINT, MAX_OPEN_FILES)?;
+        Ok(Self {
+            _mounted: mounted,
+            capacity_bytes,
+        })
     }
 
     pub fn capacity_bytes(&self) -> u64 {

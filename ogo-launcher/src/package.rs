@@ -53,7 +53,11 @@ fn check(dir: &Path) -> anyhow::Result<Game> {
     let size = fs::metadata(&bin)?.len();
     let slot = find_app_partition(GAME_PARTITION)?.size;
     if size > u64::from(slot) {
-        bail!("game.bin is {} KB, the game slot holds {} KB", size / 1024, slot / 1024);
+        bail!(
+            "game.bin is {} KB, the game slot holds {} KB",
+            size / 1024,
+            slot / 1024
+        );
     }
     if file_sha256(&bin)? != game.sha256 {
         bail!("game.bin doesn't match the sha256 in game.toml");

@@ -10,7 +10,10 @@ pub const DEFAULT_VOLUME: u8 = 50;
 
 /// The step `delta` steps away from `current`, clamped to the ends.
 pub fn step(steps: &[u8], current: u8, delta: isize) -> u8 {
-    let index = steps.iter().position(|&s| s >= current).unwrap_or(steps.len() - 1);
+    let index = steps
+        .iter()
+        .position(|&s| s >= current)
+        .unwrap_or(steps.len() - 1);
     steps[(index as isize + delta).clamp(0, steps.len() as isize - 1) as usize]
 }
 
@@ -22,7 +25,10 @@ pub fn cycle(steps: &[u8], current: u8) -> u8 {
 
 /// The step closest to `value`, e.g. for a stored value that isn't a step.
 pub fn nearest_step(steps: &[u8], value: u8) -> u8 {
-    *steps.iter().min_by_key(|&&s| s.abs_diff(value)).expect("steps aren't empty")
+    *steps
+        .iter()
+        .min_by_key(|&&s| s.abs_diff(value))
+        .expect("steps aren't empty")
 }
 
 #[cfg(test)]
@@ -41,7 +47,12 @@ mod tests {
     #[test]
     fn cycle_wraps_around() {
         let mut volume = DEFAULT_VOLUME;
-        let seen: Vec<u8> = (0..5).map(|_| { volume = cycle(&VOLUME_STEPS, volume); volume }).collect();
+        let seen: Vec<u8> = (0..5)
+            .map(|_| {
+                volume = cycle(&VOLUME_STEPS, volume);
+                volume
+            })
+            .collect();
         assert_eq!(seen, [75, 100, 0, 25, 50]);
     }
 

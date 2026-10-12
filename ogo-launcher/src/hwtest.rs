@@ -47,15 +47,21 @@ pub fn run(board: &mut Board) -> anyhow::Result<()> {
     let display = &mut board.display;
 
     display.clear(Rgb565::BLACK).display_err()?;
-    Text::new("Hardware test", Point::new(8, 20), MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE))
-        .draw(display).display_err()?;
+    Text::new(
+        "Hardware test",
+        Point::new(8, 20),
+        MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+    )
+    .draw(display)
+    .display_err()?;
     Text::with_alignment(
         "A/B beep  VOL volume  START re-read SD",
         Point::new(160, 234),
         MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_GRAY),
         Alignment::Center,
     )
-    .draw(display).display_err()?;
+    .draw(display)
+    .display_err()?;
 
     let mut buttons = ButtonState::default();
     draw_buttons(display, buttons)?;
@@ -73,12 +79,20 @@ pub fn run(board: &mut Board) -> anyhow::Result<()> {
             if buttons.any() != led_on {
                 led_on = buttons.any();
                 board.led.set_on(led_on)?;
-                draw_info(&mut board.display, 2, &status_line(board.speaker.volume(), led_on))?;
+                draw_info(
+                    &mut board.display,
+                    2,
+                    &status_line(board.speaker.volume(), led_on),
+                )?;
             }
         }
         if poll % DPAD_REDRAW_POLLS == 0 {
             let raw = board.buttons.dpad_raw();
-            draw_info(&mut board.display, 0, &format!("D-pad raw  X {:4}  Y {:4}", raw.x, raw.y))?;
+            draw_info(
+                &mut board.display,
+                0,
+                &format!("D-pad raw  X {:4}  Y {:4}", raw.x, raw.y),
+            )?;
         }
         if poll % BATTERY_REDRAW_POLLS == 0 {
             let level = board.battery.read()?;
@@ -98,9 +112,18 @@ pub fn run(board: &mut Board) -> anyhow::Result<()> {
             board.speaker.beep(440, 80);
         }
         if buttons.just_pressed(previous, Button::Volume) {
-            let current = VOLUME_STEPS.iter().position(|&v| v == board.speaker.volume()).unwrap_or(0);
-            board.speaker.set_volume(VOLUME_STEPS[(current + 1) % VOLUME_STEPS.len()]);
-            draw_info(&mut board.display, 2, &status_line(board.speaker.volume(), led_on))?;
+            let current = VOLUME_STEPS
+                .iter()
+                .position(|&v| v == board.speaker.volume())
+                .unwrap_or(0);
+            board
+                .speaker
+                .set_volume(VOLUME_STEPS[(current + 1) % VOLUME_STEPS.len()]);
+            draw_info(
+                &mut board.display,
+                2,
+                &status_line(board.speaker.volume(), led_on),
+            )?;
             board.speaker.beep(880, 60);
         }
         if buttons.just_pressed(previous, Button::Start) {
@@ -114,7 +137,10 @@ pub fn run(board: &mut Board) -> anyhow::Result<()> {
 }
 
 fn status_line(volume: u8, led_on: bool) -> String {
-    format!("Volume     {volume:3} %   LED {}", if led_on { "on" } else { "off" })
+    format!(
+        "Volume     {volume:3} %   LED {}",
+        if led_on { "on" } else { "off" }
+    )
 }
 
 /// Two rows of five boxes; a box is filled while its button is held.
@@ -131,7 +157,10 @@ where
             .stroke_width(1)
             .fill_color(if held { Rgb565::GREEN } else { Rgb565::BLACK })
             .build();
-        Rectangle::new(top_left, BOX_SIZE).into_styled(style).draw(display).display_err()?;
+        Rectangle::new(top_left, BOX_SIZE)
+            .into_styled(style)
+            .draw(display)
+            .display_err()?;
         let text_color = if held { Rgb565::BLACK } else { Rgb565::WHITE };
         Text::with_text_style(
             label,
@@ -142,7 +171,8 @@ where
                 .baseline(Baseline::Middle)
                 .build(),
         )
-        .draw(display).display_err()?;
+        .draw(display)
+        .display_err()?;
     }
     Ok(())
 }
@@ -160,8 +190,14 @@ where
         .build();
     // 38 columns of 8 px fill the line, clearing longer previous text.
     let text = format!("{text:<38.38}");
-    Text::with_baseline(&text, Point::new(INFO_X, INFO_Y + line * LINE_HEIGHT), style, Baseline::Top)
-        .draw(display).display_err()?;
+    Text::with_baseline(
+        &text,
+        Point::new(INFO_X, INFO_Y + line * LINE_HEIGHT),
+        style,
+        Baseline::Top,
+    )
+    .draw(display)
+    .display_err()?;
     Ok(())
 }
 
@@ -194,14 +230,26 @@ where
     names.sort();
     log::info!("SD root: {names:?}");
 
-    let ogo = if fs::metadata(card.path("ogo")).is_ok() { "present" } else { "missing" };
+    let ogo = if fs::metadata(card.path("ogo")).is_ok() {
+        "present"
+    } else {
+        "missing"
+    };
     let elapsed_ms = started.elapsed().as_millis();
     draw_info(
         display,
         3,
-        &format!("SD card    {} MB, {} entries", card.capacity_bytes() >> 20, names.len()),
+        &format!(
+            "SD card    {} MB, {} entries",
+            card.capacity_bytes() >> 20,
+            names.len()
+        ),
     )?;
-    draw_info(display, 4, &format!("  /ogo {ogo}   read #{read_count} in {elapsed_ms} ms"))?;
+    draw_info(
+        display,
+        4,
+        &format!("  /ogo {ogo}   read #{read_count} in {elapsed_ms} ms"),
+    )?;
     draw_info(display, 5, &format!("  {}", names.join(" ")))?;
     Ok(())
 }

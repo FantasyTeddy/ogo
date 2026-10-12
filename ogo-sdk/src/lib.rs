@@ -41,10 +41,10 @@ use ogo_board::{
 pub use ctx::{Ctx, Input};
 #[doc(hidden)]
 pub use ogo_board as __board;
-pub use ogo_board::{BatteryLevel, Note, Speaker};
 /// The launcher's colours and drawing helpers (`text`, `selection`, `panel`, `progress_bar`), for
 /// games that want to match its look.
 pub use ogo_board::ui;
+pub use ogo_board::{BatteryLevel, Note, Speaker};
 pub use saves::Saves;
 
 use overlay::{PauseAction, PauseMenu, VolumeIndicator, MENU_SOUND};
@@ -98,18 +98,19 @@ pub fn run<G: Game>(game_id: &str) -> ! {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     // Before anything else can fail: make sure the next reset starts the launcher.
-    let nvs = match Boot::take().and_then(|mut boot| boot.return_to_launcher_on_reset().map(|()| boot)) {
-        Ok(boot) => {
-            log::info!("{game_id} running from {}", boot::running_partition_label());
-            Settings::open_nvs(boot.nvs_partition())
-                .inspect_err(|e| log::warn!("Can't open the settings: {e:?}"))
-                .ok()
-        }
-        Err(e) => {
-            log::error!("Can't make the launcher the boot slot again: {e:?}");
-            None
-        }
-    };
+    let nvs =
+        match Boot::take().and_then(|mut boot| boot.return_to_launcher_on_reset().map(|()| boot)) {
+            Ok(boot) => {
+                log::info!("{game_id} running from {}", boot::running_partition_label());
+                Settings::open_nvs(boot.nvs_partition())
+                    .inspect_err(|e| log::warn!("Can't open the settings: {e:?}"))
+                    .ok()
+            }
+            Err(e) => {
+                log::error!("Can't make the launcher the boot slot again: {e:?}");
+                None
+            }
+        };
 
     if let Err(e) = run_game::<G>(game_id, nvs) {
         log::error!("{game_id} stopped: {e:?}");
@@ -119,8 +120,16 @@ pub fn run<G: Game>(game_id: &str) -> ! {
 
 fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Result<()> {
     let settings = nvs.as_ref().map(Settings::load).unwrap_or_default();
-    let Board { display, backlight: _backlight, buttons, speaker, battery, led, sd, modem: _ } =
-        Board::take_with(&settings, |_| Ok(()))?;
+    let Board {
+        display,
+        backlight: _backlight,
+        buttons,
+        speaker,
+        battery,
+        led,
+        sd,
+        modem: _,
+    } = Board::take_with(&settings, |_| Ok(()))?;
     let mut presenter = Presenter::new(display)?;
     let mut ctx = Ctx::new(game_id, buttons, speaker, battery, led, sd, nvs);
     let mut game = G::new(&mut ctx);

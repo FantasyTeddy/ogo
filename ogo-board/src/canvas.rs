@@ -3,8 +3,8 @@
 
 use core::convert::Infallible;
 
-use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::Rectangle};
 use crate::{Display, DisplayResultExt};
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::Rectangle};
 
 pub struct Canvas {
     /// Where the canvas goes on the screen.
@@ -16,7 +16,10 @@ impl Canvas {
     /// Buffers larger than 16 KB end up in PSRAM.
     pub fn new(area: Rectangle) -> Self {
         let len = (area.size.width * area.size.height) as usize;
-        Self { area, pixels: vec![Rgb565::BLACK; len] }
+        Self {
+            area,
+            pixels: vec![Rgb565::BLACK; len],
+        }
     }
 
     /// Darkens every pixel to half brightness, e.g. behind a menu.
@@ -60,7 +63,8 @@ impl DrawTarget for Canvas {
     {
         let Size { width, height } = self.area.size;
         for Pixel(point, color) in pixels {
-            if point.x >= 0 && point.y >= 0 && (point.x as u32) < width && (point.y as u32) < height {
+            if point.x >= 0 && point.y >= 0 && (point.x as u32) < width && (point.y as u32) < height
+            {
                 self.pixels[point.y as usize * width as usize + point.x as usize] = color;
             }
         }

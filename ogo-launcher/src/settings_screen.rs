@@ -83,7 +83,11 @@ impl Launcher {
                 let delta = if nav == Nav::Left { -1 } else { 1 };
                 match item {
                     Item::Brightness => {
-                        let brightness = settings::step(&settings::BRIGHTNESS_STEPS, self.settings.brightness, delta);
+                        let brightness = settings::step(
+                            &settings::BRIGHTNESS_STEPS,
+                            self.settings.brightness,
+                            delta,
+                        );
                         if brightness == self.settings.brightness {
                             return Ok(());
                         }
@@ -91,7 +95,8 @@ impl Launcher {
                         self.board.backlight.set_brightness(brightness)?;
                     }
                     Item::Volume => {
-                        let volume = settings::step(&settings::VOLUME_STEPS, self.settings.volume, delta);
+                        let volume =
+                            settings::step(&settings::VOLUME_STEPS, self.settings.volume, delta);
                         if volume == self.settings.volume {
                             return Ok(());
                         }
@@ -152,7 +157,9 @@ impl Launcher {
             Some((credentials, WifiSource::SdCard)) => format!("{} (SD card)", credentials.ssid),
         };
         let sd_info = match self.board.sd.as_ref().and_then(|_| sd::space()) {
-            Some((total, free)) => format!("{} free of {}", format_bytes(free), format_bytes(total)),
+            Some((total, free)) => {
+                format!("{} free of {}", format_bytes(free), format_bytes(total))
+            }
             None => "No card".to_owned(),
         };
         let forget = match &saved {
@@ -167,7 +174,11 @@ impl Launcher {
                 enabled: matches!(saved, Some((_, WifiSource::Nvs))),
             },
         };
-        let volume_value = if self.settings.volume == 0 { "Off".to_owned() } else { format!("{}%", self.settings.volume) };
+        let volume_value = if self.settings.volume == 0 {
+            "Off".to_owned()
+        } else {
+            format!("{}%", self.settings.volume)
+        };
         let view = SettingsView {
             info: vec![
                 ("Launcher", state.launcher_info.0.clone()),
@@ -181,14 +192,17 @@ impl Launcher {
                     percent: self.settings.brightness,
                     value: format!("{}%", self.settings.brightness),
                 },
-                SettingsItem::Level { label: "Volume", percent: self.settings.volume, value: volume_value },
+                SettingsItem::Level {
+                    label: "Volume",
+                    percent: self.settings.volume,
+                    value: volume_value,
+                },
                 forget,
             ],
             selected: state.selected,
         };
         self.ui.draw_settings(&mut self.board.display, &view)
     }
-
 }
 
 impl State {
@@ -204,13 +218,17 @@ impl State {
 /// e.g. "v0.1.0, slot A" and "3fa9c2e1, commit 220357ce" (build ID and commit).
 fn launcher_info() -> (String, String) {
     let running = boot::running_partition_label();
-    let slot = ogo_format::slots::launcher_slot(&running).map_or(running.as_str(), |slot| slot.name);
+    let slot =
+        ogo_format::slots::launcher_slot(&running).map_or(running.as_str(), |slot| slot.name);
     let build_id = flash::app_info(&running).map_or_else(|| "?".to_owned(), |info| info.build_id);
     let build = match image::running().commit() {
         Some(commit) => format!("{build_id}, commit {commit}"),
         None => build_id,
     };
-    (format!("v{}, slot {slot}", env!("CARGO_PKG_VERSION")), build)
+    (
+        format!("v{}, slot {slot}", env!("CARGO_PKG_VERSION")),
+        build,
+    )
 }
 
 /// e.g. "512 MB" or "14.8 GB"

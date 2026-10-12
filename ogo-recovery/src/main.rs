@@ -49,8 +49,14 @@ extern "C" {
 
 #[derive(Debug, Clone)]
 enum Item {
-    Start { label: &'static str, name: &'static str, info: Option<AppInfo> },
-    Install { available: bool },
+    Start {
+        label: &'static str,
+        name: &'static str,
+        info: Option<AppInfo>,
+    },
+    Install {
+        available: bool,
+    },
     Restart,
 }
 
@@ -59,12 +65,20 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let menu_boot = unsafe { bootloader_common_get_rtc_retain_mem_factory_reset_state() };
-    log::info!("ogo-recovery, started {}", if menu_boot { "with MENU" } else { "without MENU" });
+    log::info!(
+        "ogo-recovery, started {}",
+        if menu_boot {
+            "with MENU"
+        } else {
+            "without MENU"
+        }
+    );
     if !menu_boot {
         // Nothing asked for recovery: carry on with a launcher if there is one.
         for LauncherSlot { label, .. } in slots::LAUNCHER_SLOTS {
             // Only the ogo description: fast, and it checks that it really is a launcher.
-            let launcher = ogo_board::image::in_slot(label).is_some_and(|desc| desc.kind() == Some(ImageKind::Launcher));
+            let launcher = ogo_board::image::in_slot(label)
+                .is_some_and(|desc| desc.kind() == Some(ImageKind::Launcher));
             if launcher && boot::set_boot_partition(label).is_ok() {
                 log::info!("Starting {label}");
                 boot::restart();
@@ -87,21 +101,36 @@ struct Recovery {
 impl Recovery {
     fn new(board: Board) -> Self {
         let screen = Rectangle::new(Point::zero(), Size::new(WIDTH.into(), HEIGHT.into()));
-        let mut recovery = Self { board, canvas: Canvas::new(screen), items: Vec::new(), selected: 0, status: None };
+        let mut recovery = Self {
+            board,
+            canvas: Canvas::new(screen),
+            items: Vec::new(),
+            selected: 0,
+            status: None,
+        };
         recovery.refresh_items();
         recovery
     }
 
     fn update_path(&self) -> Option<PathBuf> {
-        self.board.sd.as_ref().map(|sd| PathBuf::from(sd.path(UPDATE_PATH)))
+        self.board
+            .sd
+            .as_ref()
+            .map(|sd| PathBuf::from(sd.path(UPDATE_PATH)))
     }
 
     fn refresh_items(&mut self) {
         let mut items: Vec<Item> = slots::LAUNCHER_SLOTS
             .iter()
-            .map(|&LauncherSlot { label, name }| Item::Start { label, name, info: flash::app_info(label) })
+            .map(|&LauncherSlot { label, name }| Item::Start {
+                label,
+                name,
+                info: flash::app_info(label),
+            })
             .collect();
-        items.push(Item::Install { available: self.update_path().is_some_and(|path| path.is_file()) });
+        items.push(Item::Install {
+            available: self.update_path().is_some_and(|path| path.is_file()),
+        });
         items.push(Item::Restart);
         self.items = items;
     }
@@ -139,7 +168,8 @@ impl Recovery {
             }
             Item::Install { available } => {
                 if !available {
-                    return self.set_status(&format!("Copy launcher.bin to /{UPDATE_PATH}"), WARNING);
+                    return self
+                        .set_status(&format!("Copy launcher.bin to /{UPDATE_PATH}"), WARNING);
                 }
                 self.install()
             }
@@ -189,33 +219,81 @@ impl Recovery {
         canvas.clear(BACKGROUND).ok();
         let width = WIDTH as i32;
 
-        Rectangle::new(Point::zero(), Size::new(WIDTH.into(), TOP_BAR_HEIGHT as u32))
-            .into_styled(PrimitiveStyle::with_fill(BAR))
-            .draw(canvas)
-            .ok();
-        text(canvas, "Recovery", Point::new(8, TOP_BAR_HEIGHT / 2), &FONT_10X20, TEXT, Alignment::Left);
+        Rectangle::new(
+            Point::zero(),
+            Size::new(WIDTH.into(), TOP_BAR_HEIGHT as u32),
+        )
+        .into_styled(PrimitiveStyle::with_fill(BAR))
+        .draw(canvas)
+        .ok();
+        text(
+            canvas,
+            "Recovery",
+            Point::new(8, TOP_BAR_HEIGHT / 2),
+            &FONT_10X20,
+            TEXT,
+            Alignment::Left,
+        );
 
         for (i, item) in self.items.iter().enumerate() {
             let top = ROWS_TOP + i as i32 * ROW_HEIGHT;
             if i == self.selected {
-                selection(canvas, Rectangle::new(Point::new(4, top), Size::new(WIDTH as u32 - 8, ROW_HEIGHT as u32 - 4)));
+                selection(
+                    canvas,
+                    Rectangle::new(
+                        Point::new(4, top),
+                        Size::new(WIDTH as u32 - 8, ROW_HEIGHT as u32 - 4),
+                    ),
+                );
             }
             let (title, detail) = describe(item);
-            text(canvas, &title, Point::new(12, top + 11), &FONT_8X13, TEXT, Alignment::Left);
-            text(canvas, &detail, Point::new(12, top + 26), &FONT_6X10, DIM, Alignment::Left);
+            text(
+                canvas,
+                &title,
+                Point::new(12, top + 11),
+                &FONT_8X13,
+                TEXT,
+                Alignment::Left,
+            );
+            text(
+                canvas,
+                &detail,
+                Point::new(12, top + 26),
+                &FONT_6X10,
+                DIM,
+                Alignment::Left,
+            );
         }
 
         if let Some((status, color)) = &self.status {
-            text(canvas, status, Point::new(width / 2, HEIGHT as i32 - 34), &FONT_6X10, *color, Alignment::Center);
+            text(
+                canvas,
+                status,
+                Point::new(width / 2, HEIGHT as i32 - 34),
+                &FONT_6X10,
+                *color,
+                Alignment::Center,
+            );
         }
-        text(canvas, "Up/Down select   A confirm", Point::new(width / 2, HEIGHT as i32 - 12), &FONT_6X10, DIM, Alignment::Center);
+        text(
+            canvas,
+            "Up/Down select   A confirm",
+            Point::new(width / 2, HEIGHT as i32 - 12),
+            &FONT_6X10,
+            DIM,
+            Alignment::Center,
+        );
         canvas.present(&mut self.board.display)
     }
 }
 
 fn describe(item: &Item) -> (String, String) {
     match item {
-        Item::Start { label, name, info: Some(info) } => {
+        Item::Start {
+            label,
+            name,
+            info: Some(info),
+        } => {
             let desc = ogo_board::image::in_slot(label);
             let what = desc
                 .map(|desc| format!("{} {}", desc.kind_name(), desc.version()))
@@ -231,23 +309,44 @@ fn describe(item: &Item) -> (String, String) {
                 format!("{what}, {build}, {date}")
             })
         }
-        Item::Start { name, info: None, .. } => (format!("Start launcher {name}"), "empty".to_owned()),
-        Item::Install { available: true } => {
-            ("Install launcher from SD card".to_owned(), format!("/{UPDATE_PATH} into slot A"))
-        }
-        Item::Install { available: false } => {
-            ("Install launcher from SD card".to_owned(), format!("no /{UPDATE_PATH} found"))
-        }
-        Item::Restart => ("Restart".to_owned(), "starts the first working launcher".to_owned()),
+        Item::Start {
+            name, info: None, ..
+        } => (format!("Start launcher {name}"), "empty".to_owned()),
+        Item::Install { available: true } => (
+            "Install launcher from SD card".to_owned(),
+            format!("/{UPDATE_PATH} into slot A"),
+        ),
+        Item::Install { available: false } => (
+            "Install launcher from SD card".to_owned(),
+            format!("no /{UPDATE_PATH} found"),
+        ),
+        Item::Restart => (
+            "Restart".to_owned(),
+            "starts the first working launcher".to_owned(),
+        ),
     }
 }
 
 fn draw_progress(canvas: &mut Canvas, percent: Option<u32>) {
     canvas.clear(BACKGROUND).ok();
     let center_x = WIDTH as i32 / 2;
-    text(canvas, "Installing launcher", Point::new(center_x, 80), &FONT_10X20, TEXT, Alignment::Center);
+    text(
+        canvas,
+        "Installing launcher",
+        Point::new(center_x, 80),
+        &FONT_10X20,
+        TEXT,
+        Alignment::Center,
+    );
     let status = percent.map_or("Preparing...".to_owned(), |p| format!("{p} %"));
-    text(canvas, &status, Point::new(center_x, 112), &FONT_8X13, DIM, Alignment::Center);
+    text(
+        canvas,
+        &status,
+        Point::new(center_x, 112),
+        &FONT_8X13,
+        DIM,
+        Alignment::Center,
+    );
     let bar = Rectangle::new(Point::new(center_x - 120, 132), Size::new(240, 14));
     progress_bar(canvas, bar, percent.unwrap_or(0) as f32 / 100.0, DIM);
 }

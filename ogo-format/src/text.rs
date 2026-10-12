@@ -17,7 +17,11 @@ pub fn wrap(text: &str, max_chars: usize, max_lines: usize) -> Vec<String> {
     for word in text.split_whitespace() {
         let mut word = word.to_owned();
         loop {
-            let needed = if current.is_empty() { word.chars().count() } else { current.chars().count() + 1 + word.chars().count() };
+            let needed = if current.is_empty() {
+                word.chars().count()
+            } else {
+                current.chars().count() + 1 + word.chars().count()
+            };
             if needed <= max_chars {
                 if !current.is_empty() {
                     current.push(' ');
@@ -65,7 +69,10 @@ mod tests {
 
     #[test]
     fn wrap_breaks_at_words() {
-        assert_eq!(wrap("The quick brown fox", 10, 3), ["The quick", "brown fox"]);
+        assert_eq!(
+            wrap("The quick brown fox", 10, 3),
+            ["The quick", "brown fox"]
+        );
         assert_eq!(wrap("  spaced   out  ", 20, 2), ["spaced out"]);
         assert!(wrap("", 10, 2).is_empty());
     }
@@ -80,6 +87,9 @@ mod tests {
         let lines = wrap("one two three four five six", 9, 2);
         assert_eq!(lines.len(), 2);
         assert!(lines[1].ends_with("..."), "{lines:?}");
-        assert!(lines.iter().all(|line| line.chars().count() <= 9), "{lines:?}");
+        assert!(
+            lines.iter().all(|line| line.chars().count() <= 9),
+            "{lines:?}"
+        );
     }
 }

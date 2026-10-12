@@ -27,7 +27,10 @@ pub fn write(mut out: impl Write, files: &[(&str, &[u8])], mtime: u64) -> io::Re
 
 /// Reads a package, calling `file` with the name and contents of each file in [`FILES`]. Folders
 /// in names are ignored. Returns the names found; fails if one of [`REQUIRED`] is missing.
-pub fn read<R: Read>(mut input: R, mut file: impl FnMut(&str, &mut dyn Read) -> io::Result<()>) -> io::Result<Vec<String>> {
+pub fn read<R: Read>(
+    mut input: R,
+    mut file: impl FnMut(&str, &mut dyn Read) -> io::Result<()>,
+) -> io::Result<Vec<String>> {
     let mut header = [0u8; BLOCK];
     let mut found = Vec::new();
     loop {
@@ -57,7 +60,10 @@ pub fn read<R: Read>(mut input: R, mut file: impl FnMut(&str, &mut dyn Read) -> 
     }
     for required in REQUIRED {
         if !found.iter().any(|name| name == required) {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("the package has no {required}")));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("the package has no {required}"),
+            ));
         }
     }
     Ok(found)
@@ -65,7 +71,10 @@ pub fn read<R: Read>(mut input: R, mut file: impl FnMut(&str, &mut dyn Read) -> 
 
 fn header(name: &str, size: u64, mtime: u64) -> io::Result<[u8; BLOCK]> {
     if name.len() >= 100 {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("file name too long: {name}")));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("file name too long: {name}"),
+        ));
     }
     let mut header = [0u8; BLOCK];
     header[..name.len()].copy_from_slice(name.as_bytes());
@@ -122,7 +131,10 @@ fn octal(field: &[u8]) -> Option<u64> {
 }
 
 fn invalid(what: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, format!("not a valid .ogo package ({what})"))
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("not a valid .ogo package ({what})"),
+    )
 }
 
 #[cfg(test)]
@@ -150,7 +162,11 @@ mod tests {
     #[test]
     fn round_trip() {
         let bin: Vec<u8> = (0..2000u32).map(|i| i as u8).collect();
-        let files: [(&str, &[u8]); 3] = [("game.toml", b"id = \"x\"\n"), ("game.bin", &bin), ("icon.rgb565", &[7; 8192])];
+        let files: [(&str, &[u8]); 3] = [
+            ("game.toml", b"id = \"x\"\n"),
+            ("game.bin", &bin),
+            ("icon.rgb565", &[7; 8192]),
+        ];
         let package = package(&files);
         assert_eq!(package.len() % BLOCK, 0);
         let read = read_all(&package).unwrap();
@@ -174,7 +190,11 @@ mod tests {
 
     #[test]
     fn skips_other_files_and_strips_folders() {
-        let package = package(&[("readme.txt", b"hello"), ("./game.toml", b"t"), ("dir/game.bin", b"b")]);
+        let package = package(&[
+            ("readme.txt", b"hello"),
+            ("./game.toml", b"t"),
+            ("dir/game.bin", b"b"),
+        ]);
         let read = read_all(&package).unwrap();
         let names: Vec<&str> = read.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["game.toml", "game.bin"]);
@@ -198,7 +218,10 @@ mod tests {
         let package = package(&[("game.toml", b"t"), ("game.bin", &[1; 3000])]);
         for cut in [100, BLOCK + 10, 3 * BLOCK] {
             let error = read_all(&package[..cut]).unwrap_err();
-            assert!(error.to_string().contains("truncated"), "cut at {cut}: {error}");
+            assert!(
+                error.to_string().contains("truncated"),
+                "cut at {cut}: {error}"
+            );
         }
     }
 
@@ -210,6 +233,9 @@ mod tests {
 
     #[test]
     fn empty_input_has_no_files() {
-        assert_eq!(read_all(&[]).unwrap_err().to_string(), "the package has no game.toml");
+        assert_eq!(
+            read_all(&[]).unwrap_err().to_string(),
+            "the package has no game.toml"
+        );
     }
 }

@@ -9,10 +9,15 @@ use ogo_format::game::{rgb565_le, ICON_BYTES, ICON_SIZE};
 /// Scales `input` to 64x64 and writes it to `output` as RGB565. Transparent parts become black,
 /// like the launcher's background.
 pub fn convert(input: &Path, output: &Path) -> anyhow::Result<()> {
-    let image = image::open(input).with_context(|| format!("can't read {}", input.display()))?.to_rgba8();
+    let image = image::open(input)
+        .with_context(|| format!("can't read {}", input.display()))?
+        .to_rgba8();
     let (width, height) = image.dimensions();
     if width != height {
-        println!("{} is {width}x{height}, not square: it gets stretched", input.display());
+        println!(
+            "{} is {width}x{height}, not square: it gets stretched",
+            input.display()
+        );
     }
     let icon = imageops::resize(&image, ICON_SIZE, ICON_SIZE, FilterType::Lanczos3);
     let mut pixels = Vec::with_capacity(ICON_BYTES);

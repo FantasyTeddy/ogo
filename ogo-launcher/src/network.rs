@@ -10,7 +10,10 @@ use esp_idf_svc::{
     hal::modem::Modem,
     nvs::EspDefaultNvsPartition,
     sys,
-    wifi::{AccessPointConfiguration, AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi},
+    wifi::{
+        AccessPointConfiguration, AuthMethod, BlockingWifi, ClientConfiguration, Configuration,
+        EspWifi,
+    },
 };
 use serde::Serialize;
 
@@ -23,7 +26,11 @@ pub enum Mode {
     /// Joined `ssid`.
     Station { ssid: String, ip: Ipv4Addr },
     /// Our own access point; `failed` says why the configured network wasn't joined, if there was one.
-    AccessPoint { ssid: String, ip: Ipv4Addr, failed: Option<String> },
+    AccessPoint {
+        ssid: String,
+        ip: Ipv4Addr,
+        failed: Option<String>,
+    },
 }
 
 impl Mode {
@@ -51,12 +58,18 @@ impl Network {
     pub fn new(modem: Modem<'static>, nvs: EspDefaultNvsPartition) -> anyhow::Result<Self> {
         let event_loop = EspSystemEventLoop::take()?;
         let wifi = EspWifi::new(modem, event_loop.clone(), Some(nvs))?;
-        Ok(Self { wifi: BlockingWifi::wrap(wifi, event_loop)? })
+        Ok(Self {
+            wifi: BlockingWifi::wrap(wifi, event_loop)?,
+        })
     }
 
     /// Scans, then starts WiFi. Blocks while joining (up to ~15 s if the network doesn't answer).
-    pub fn start(&mut self, credentials: Option<&WifiCredentials>) -> anyhow::Result<(Mode, Vec<ScannedNetwork>)> {
-        self.wifi.set_configuration(&Configuration::Client(ClientConfiguration::default()))?;
+    pub fn start(
+        &mut self,
+        credentials: Option<&WifiCredentials>,
+    ) -> anyhow::Result<(Mode, Vec<ScannedNetwork>)> {
+        self.wifi
+            .set_configuration(&Configuration::Client(ClientConfiguration::default()))?;
         self.wifi.start()?;
         let networks = self.scan().unwrap_or_else(|e| {
             log::warn!("Scanning failed: {e:?}");
@@ -65,7 +78,15 @@ impl Network {
 
         let failed = match credentials {
             Some(credentials) => match self.join(credentials) {
-                Ok(ip) => return Ok((Mode::Station { ssid: credentials.ssid.clone(), ip }, networks)),
+                Ok(ip) => {
+                    return Ok((
+                        Mode::Station {
+                            ssid: credentials.ssid.clone(),
+                            ip,
+                        },
+                        networks,
+                    ))
+                }
                 Err(e) => {
                     log::warn!("Joining {} failed: {e:?}", credentials.ssid);
                     Some(format!("Couldn't join {}", credentials.ssid))
@@ -96,7 +117,9 @@ impl Network {
             networks.push(ScannedNetwork {
                 ssid: ssid.to_owned(),
                 rssi: found.signal_strength,
-                secured: found.auth_method.is_some_and(|auth| auth != AuthMethod::None),
+                secured: found
+                    .auth_method
+                    .is_some_and(|auth| auth != AuthMethod::None),
             });
         }
         networks.sort_by_key(|n| std::cmp::Reverse(n.rssi));
@@ -105,8 +128,16 @@ impl Network {
     }
 
     fn join(&mut self, credentials: &WifiCredentials) -> anyhow::Result<Ipv4Addr> {
-        let auth_method = if credentials.password.is_empty() { AuthMethod::None } else { AuthMethod::WPA2Personal };
-        self.wifi.set_configuration(&Configuration::Client(client_config(credentials, auth_method)?))?;
+        let auth_method = if credentials.password.is_empty() {
+            AuthMethod::None
+        } else {
+            AuthMethod::WPA2Personal
+        };
+        self.wifi
+            .set_configuration(&Configuration::Client(client_config(
+                credentials,
+                auth_method,
+            )?))?;
         log::info!("Joining {}", credentials.ssid);
         self.wifi.connect().context("can't connect")?;
         self.wifi.wait_netif_up().context("no IP address")?;
@@ -121,7 +152,10 @@ impl Network {
         self.wifi.set_configuration(&Configuration::Mixed(
             ClientConfiguration::default(),
             AccessPointConfiguration {
-                ssid: ssid.as_str().try_into().map_err(|_| anyhow::anyhow!("SSID too long"))?,
+                ssid: ssid
+                    .as_str()
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("SSID too long"))?,
                 auth_method: AuthMethod::None,
                 channel: AP_CHANNEL,
                 ..Default::default()
@@ -136,10 +170,21 @@ impl Network {
     }
 }
 
-fn client_config(credentials: &WifiCredentials, auth_method: AuthMethod) -> anyhow::Result<ClientConfiguration> {
+fn client_config(
+    credentials: &WifiCredentials,
+    auth_method: AuthMethod,
+) -> anyhow::Result<ClientConfiguration> {
     Ok(ClientConfiguration {
-        ssid: credentials.ssid.as_str().try_into().map_err(|_| anyhow::anyhow!("SSID too long"))?,
-        password: credentials.password.as_str().try_into().map_err(|_| anyhow::anyhow!("password too long"))?,
+        ssid: credentials
+            .ssid
+            .as_str()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("SSID too long"))?,
+        password: credentials
+            .password
+            .as_str()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("password too long"))?,
         auth_method,
         ..Default::default()
     })

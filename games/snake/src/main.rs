@@ -32,7 +32,11 @@ const DIM: Rgb565 = Rgb565::CSS_GRAY;
 
 const SOUND_START: &[Note] = &[Note::new(523, 60), Note::new(784, 90)];
 const SOUND_EAT: &[Note] = &[Note::new(880, 40), Note::new(1175, 60)];
-const SOUND_DIE: &[Note] = &[Note::new(392, 120), Note::new(330, 120), Note::new(262, 240)];
+const SOUND_DIE: &[Note] = &[
+    Note::new(392, 120),
+    Note::new(330, 120),
+    Note::new(262, 240),
+];
 const SOUND_BEST: &[Note] = &[Note::new(784, 80), Note::new(988, 80), Note::new(1319, 160)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +93,9 @@ impl Snake {
     }
 
     fn interval(&self) -> u32 {
-        START_INTERVAL.saturating_sub(self.eaten / FOOD_PER_SPEEDUP).max(MIN_INTERVAL)
+        START_INTERVAL
+            .saturating_sub(self.eaten / FOOD_PER_SPEEDUP)
+            .max(MIN_INTERVAL)
     }
 
     fn start(&mut self, ctx: &mut Ctx) {
@@ -136,7 +142,10 @@ impl Snake {
                 continue;
             }
             let last = self.turns.back().copied().unwrap_or(self.direction);
-            if direction != last && direction != last.opposite() && self.turns.len() < MAX_QUEUED_TURNS {
+            if direction != last
+                && direction != last.opposite()
+                && self.turns.len() < MAX_QUEUED_TURNS
+            {
                 self.turns.push_back(direction);
             }
         }
@@ -224,15 +233,50 @@ impl Game for Snake {
             .draw(fb)
             .ok();
         let middle = HUD_HEIGHT / 2;
-        text(fb, &format!("Score {}", self.score()), Point::new(6, middle), &FONT_8X13, TEXT, Alignment::Left);
-        text(fb, &format!("Best {}", self.best), Point::new(SCREEN_WIDTH as i32 - 6, middle), &FONT_8X13, TEXT, Alignment::Right);
+        text(
+            fb,
+            &format!("Score {}", self.score()),
+            Point::new(6, middle),
+            &FONT_8X13,
+            TEXT,
+            Alignment::Left,
+        );
+        text(
+            fb,
+            &format!("Best {}", self.best),
+            Point::new(SCREEN_WIDTH as i32 - 6, middle),
+            &FONT_8X13,
+            TEXT,
+            Alignment::Right,
+        );
 
         match self.state {
             State::Title => {
                 let center_x = SCREEN_WIDTH as i32 / 2;
-                text(fb, "S N A K E", Point::new(center_x, 90), &FONT_10X20, HEAD, Alignment::Center);
-                text(fb, "Press A to start", Point::new(center_x, 140), &FONT_8X13, TEXT, Alignment::Center);
-                text(fb, "MENU: pause   VOL: volume", Point::new(center_x, 200), &FONT_8X13, DIM, Alignment::Center);
+                text(
+                    fb,
+                    "S N A K E",
+                    Point::new(center_x, 90),
+                    &FONT_10X20,
+                    HEAD,
+                    Alignment::Center,
+                );
+                text(
+                    fb,
+                    "Press A to start",
+                    Point::new(center_x, 140),
+                    &FONT_8X13,
+                    TEXT,
+                    Alignment::Center,
+                );
+                text(
+                    fb,
+                    "MENU: pause   VOL: volume",
+                    Point::new(center_x, 200),
+                    &FONT_8X13,
+                    DIM,
+                    Alignment::Center,
+                );
             }
             State::Playing | State::GameOver { .. } => {
                 self.draw_field(fb);
@@ -255,23 +299,58 @@ impl Snake {
         for (i, &cell) in self.body.iter().enumerate() {
             let (x, y) = cell_origin(cell);
             let color = if i == 0 { HEAD } else { BODY };
-            Rectangle::new(Point::new(x + 1, y + 1), Size::new(CELL as u32 - 2, CELL as u32 - 2))
-                .into_styled(PrimitiveStyle::with_fill(color))
-                .draw(fb)
-                .ok();
+            Rectangle::new(
+                Point::new(x + 1, y + 1),
+                Size::new(CELL as u32 - 2, CELL as u32 - 2),
+            )
+            .into_styled(PrimitiveStyle::with_fill(color))
+            .draw(fb)
+            .ok();
         }
     }
 
     fn draw_game_over(&self, fb: &mut Framebuffer, new_best: bool) {
-        let panel = Rectangle::with_center(Point::new(SCREEN_WIDTH as i32 / 2, 128), Size::new(220, 100));
-        let style = PrimitiveStyleBuilder::new().fill_color(HUD).stroke_color(TEXT).stroke_width(1).build();
+        let panel = Rectangle::with_center(
+            Point::new(SCREEN_WIDTH as i32 / 2, 128),
+            Size::new(220, 100),
+        );
+        let style = PrimitiveStyleBuilder::new()
+            .fill_color(HUD)
+            .stroke_color(TEXT)
+            .stroke_width(1)
+            .build();
         panel.into_styled(style).draw(fb).ok();
         let center_x = panel.center().x;
         let top = panel.top_left.y;
-        text(fb, "Game over", Point::new(center_x, top + 20), &FONT_10X20, TEXT, Alignment::Center);
-        let score = if new_best { format!("New best: {}!", self.score()) } else { format!("Score {}", self.score()) };
-        text(fb, &score, Point::new(center_x, top + 50), &FONT_8X13, if new_best { HEAD } else { TEXT }, Alignment::Center);
-        text(fb, "A: play again", Point::new(center_x, top + 78), &FONT_8X13, DIM, Alignment::Center);
+        text(
+            fb,
+            "Game over",
+            Point::new(center_x, top + 20),
+            &FONT_10X20,
+            TEXT,
+            Alignment::Center,
+        );
+        let score = if new_best {
+            format!("New best: {}!", self.score())
+        } else {
+            format!("Score {}", self.score())
+        };
+        text(
+            fb,
+            &score,
+            Point::new(center_x, top + 50),
+            &FONT_8X13,
+            if new_best { HEAD } else { TEXT },
+            Alignment::Center,
+        );
+        text(
+            fb,
+            "A: play again",
+            Point::new(center_x, top + 78),
+            &FONT_8X13,
+            DIM,
+            Alignment::Center,
+        );
     }
 }
 

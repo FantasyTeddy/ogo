@@ -50,7 +50,10 @@ pub fn merge(parts: &[(u32, &[u8])]) -> Result<Vec<u8>, String> {
     for (offset, data) in sorted {
         let offset = *offset as usize;
         if offset < image.len() {
-            return Err(format!("the part at {offset:#x} overlaps the one before (which ends at {:#x})", image.len()));
+            return Err(format!(
+                "the part at {offset:#x} overlaps the one before (which ends at {:#x})",
+                image.len()
+            ));
         }
         image.resize(offset, 0xFF);
         image.extend_from_slice(data);
@@ -80,11 +83,18 @@ mod tests {
     fn parses_the_project_table() {
         let partitions = parse_partitions(include_str!("../../partitions.csv")).unwrap();
         let recovery = partitions.iter().find(|p| p.label == "recovery").unwrap();
-        assert_eq!((recovery.kind.as_str(), recovery.offset, recovery.size), ("app", 0x10000, 0x200000));
+        assert_eq!(
+            (recovery.kind.as_str(), recovery.offset, recovery.size),
+            ("app", 0x10000, 0x200000)
+        );
         // Nothing may overlap the partition table, and the rows must not overlap each other.
         let mut end = PARTITION_TABLE_OFFSET + 0x1000;
         for partition in &partitions {
-            assert!(partition.offset >= end, "{} overlaps the one before", partition.label);
+            assert!(
+                partition.offset >= end,
+                "{} overlaps the one before",
+                partition.label
+            );
             end = partition.offset + partition.size;
         }
         assert!(end <= 16 * 1024 * 1024, "the table doesn't fit into 16 MB");

@@ -28,8 +28,8 @@ use ogo_board::{
 };
 
 use input::{Nav, Navigator};
-use ogo_board::flash::Progress;
 use library::{Entry, Game, Library};
+use ogo_board::flash::Progress;
 use ui::{ListState, Ui, VISIBLE_ROWS};
 
 ogo_board::image_desc!(Launcher);
@@ -70,7 +70,10 @@ fn main() -> anyhow::Result<()> {
     panic!("rollback-test build: crashing on purpose before confirming the slot");
     ogo_board::boot::mark_running_valid();
 
-    log::info!("ogo-launcher, running from {}", ogo_board::boot::running_partition_label());
+    log::info!(
+        "ogo-launcher, running from {}",
+        ogo_board::boot::running_partition_label()
+    );
     let mut launcher = Launcher::new(board, boot, nvs, settings);
     launcher.wait_for_boot_screen(boot_screen_shown)?;
     launcher.run()
@@ -144,7 +147,12 @@ impl Launcher {
                 let detail = format!(
                     "The new launcher in {slot} stopped before it was ready, so the device went back to this one."
                 );
-                self.ui.draw_notice(&mut self.board.display, "Update didn't start", &detail, ui::WARNING)?;
+                self.ui.draw_notice(
+                    &mut self.board.display,
+                    "Update didn't start",
+                    &detail,
+                    ui::WARNING,
+                )?;
                 self.show_message("Press any button")
             }
         }
@@ -250,7 +258,12 @@ impl Launcher {
             self.board.speaker.play(SOUND_ERROR);
             self.screen = Screen::Notice;
             let detail = format!("{e:#}");
-            self.ui.draw_notice(&mut self.board.display, &format!("Can't start {}", game.name), &detail, ui::WARNING)?;
+            self.ui.draw_notice(
+                &mut self.board.display,
+                &format!("Can't start {}", game.name),
+                &detail,
+                ui::WARNING,
+            )?;
             self.show_message("Press any button")?;
         }
         Ok(())
@@ -281,7 +294,12 @@ impl Launcher {
             }
         })?;
         if !installed {
-            self.ui.draw_progress(&mut self.board.display, &format!("Starting {}", game.name), "", None)?;
+            self.ui.draw_progress(
+                &mut self.board.display,
+                &format!("Starting {}", game.name),
+                "",
+                None,
+            )?;
         }
         self.boot.launch_game()
     }
@@ -297,7 +315,10 @@ impl Launcher {
         self.list.move_by(0, len, false);
         self.draw_library()?;
         let games = match &self.library {
-            Library::Entries(entries) => entries.iter().filter(|e| matches!(e, Entry::Game(_))).count(),
+            Library::Entries(entries) => entries
+                .iter()
+                .filter(|e| matches!(e, Entry::Game(_)))
+                .count(),
             _ => 0,
         };
         self.show_message(&format!("Found {games} games"))
@@ -315,12 +336,14 @@ impl Launcher {
             Screen::Wifi(_) => connect::CONTROLS,
             Screen::Settings(state) => state.controls(),
         };
-        self.ui.draw_footer(&mut self.board.display, controls, message)
+        self.ui
+            .draw_footer(&mut self.board.display, controls, message)
     }
 
     fn draw_top_bar(&mut self) -> anyhow::Result<()> {
         let title = self.title();
-        self.ui.draw_top_bar(&mut self.board.display, title, self.battery)
+        self.ui
+            .draw_top_bar(&mut self.board.display, title, self.battery)
     }
 
     fn title(&self) -> &'static str {
@@ -334,13 +357,16 @@ impl Launcher {
     fn draw_library(&mut self) -> anyhow::Result<()> {
         let icon = match &self.library {
             Library::Entries(entries) => match entries.get(self.list.selected) {
-                Some(Entry::Game(game)) => {
-                    self.icons.entry(self.list.selected).or_insert_with(|| game.load_icon()).as_deref()
-                }
+                Some(Entry::Game(game)) => self
+                    .icons
+                    .entry(self.list.selected)
+                    .or_insert_with(|| game.load_icon())
+                    .as_deref(),
                 _ => None,
             },
             _ => None,
         };
-        self.ui.draw_library(&mut self.board.display, &self.library, self.list, icon)
+        self.ui
+            .draw_library(&mut self.board.display, &self.library, self.list, icon)
     }
 }

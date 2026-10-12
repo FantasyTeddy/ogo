@@ -73,7 +73,10 @@ impl Boot {
             return Ok(None);
         }
         let mut buf = [0u8; 65];
-        Ok(self.nvs.get_str(KEY_GAME_HASH, &mut buf)?.map(str::to_owned))
+        Ok(self
+            .nvs
+            .get_str(KEY_GAME_HASH, &mut buf)?
+            .map(str::to_owned))
     }
 
     /// Records the hash of the image in `game_0`; `None` while it's being replaced.
@@ -81,7 +84,10 @@ impl Boot {
         match hash {
             Some(hash) => {
                 self.nvs.set_str(KEY_GAME_HASH, hash)?;
-                self.nvs.set_u32(KEY_GAME_ADDRESS, find_app_partition(GAME_PARTITION)?.address)?;
+                self.nvs.set_u32(
+                    KEY_GAME_ADDRESS,
+                    find_app_partition(GAME_PARTITION)?.address,
+                )?;
             }
             None => {
                 self.nvs.remove(KEY_GAME_HASH)?;
@@ -105,7 +111,11 @@ impl Boot {
         mark_running_valid();
         let mut buf = [0u8; 17];
         // Slot A if NVS doesn't say which launcher slot started the game.
-        let launcher = self.nvs.get_str(KEY_LAUNCHER, &mut buf)?.unwrap_or(slots::LAUNCHER_A.label).to_owned();
+        let launcher = self
+            .nvs
+            .get_str(KEY_LAUNCHER, &mut buf)?
+            .unwrap_or(slots::LAUNCHER_A.label)
+            .to_owned();
         set_boot_partition(&launcher)
     }
 
@@ -120,7 +130,11 @@ impl Boot {
     /// Launcher side, once per start: whether a launcher update was pending, and how it went.
     pub fn take_update_result(&mut self) -> anyhow::Result<Option<UpdateResult>> {
         let mut buf = [0u8; 17];
-        let Some(target) = self.nvs.get_str(KEY_UPDATE_TARGET, &mut buf)?.map(str::to_owned) else {
+        let Some(target) = self
+            .nvs
+            .get_str(KEY_UPDATE_TARGET, &mut buf)?
+            .map(str::to_owned)
+        else {
             return Ok(None);
         };
         self.nvs.remove(KEY_UPDATE_TARGET)?;
@@ -165,7 +179,9 @@ pub fn running_partition_label() -> String {
     if partition.is_null() {
         return "?".into();
     }
-    unsafe { CStr::from_ptr((*partition).label.as_ptr()) }.to_string_lossy().into_owned()
+    unsafe { CStr::from_ptr((*partition).label.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Finds an app slot by label.

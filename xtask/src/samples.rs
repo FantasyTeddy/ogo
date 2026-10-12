@@ -32,17 +32,83 @@ struct Sample {
 }
 
 const SAMPLES: [Sample; 13] = [
-    Sample { id: "snake", name: "Snake", author: "ogo examples", version: "1.2.0", icon: Some((Pattern::Rings, [40, 200, 80])) },
-    Sample { id: "breakout", name: "Breakout", author: "ogo examples", version: "0.9.1", icon: Some((Pattern::Bricks, [230, 90, 40])) },
-    Sample { id: "blocks", name: "Falling Blocks", author: "ogo examples", version: "2.0.0", icon: Some((Pattern::Checker, [80, 120, 240])) },
-    Sample { id: "pong", name: "Pong", author: "ogo examples", version: "1.0.0", icon: Some((Pattern::Stripes, [240, 240, 240])) },
-    Sample { id: "rocks", name: "Space Rocks", author: "Someone with a rather long name", version: "0.3.0", icon: Some((Pattern::Dots, [160, 160, 180])) },
-    Sample { id: "mines", name: "Mines", author: "", version: "1.1.0", icon: Some((Pattern::Grid, [200, 200, 60])) },
-    Sample { id: "2048", name: "2048", author: "ogo examples", version: "1.0.0", icon: Some((Pattern::Diamond, [240, 180, 60])) },
-    Sample { id: "sokoban", name: "Sokoban", author: "ogo examples", version: "1.4.2", icon: Some((Pattern::Bricks, [160, 110, 60])) },
-    Sample { id: "flappy", name: "Flappy Bit", author: "ogo examples", version: "0.1.0", icon: Some((Pattern::Gradient, [90, 200, 240])) },
-    Sample { id: "lander", name: "Lunar Lander", author: "ogo examples", version: "1.0.0", icon: Some((Pattern::Rings, [200, 200, 200])) },
-    Sample { id: "solitaire", name: "Solitaire", author: "ogo examples", version: "3.1.0", icon: Some((Pattern::Diamond, [40, 140, 60])) },
+    Sample {
+        id: "snake",
+        name: "Snake",
+        author: "ogo examples",
+        version: "1.2.0",
+        icon: Some((Pattern::Rings, [40, 200, 80])),
+    },
+    Sample {
+        id: "breakout",
+        name: "Breakout",
+        author: "ogo examples",
+        version: "0.9.1",
+        icon: Some((Pattern::Bricks, [230, 90, 40])),
+    },
+    Sample {
+        id: "blocks",
+        name: "Falling Blocks",
+        author: "ogo examples",
+        version: "2.0.0",
+        icon: Some((Pattern::Checker, [80, 120, 240])),
+    },
+    Sample {
+        id: "pong",
+        name: "Pong",
+        author: "ogo examples",
+        version: "1.0.0",
+        icon: Some((Pattern::Stripes, [240, 240, 240])),
+    },
+    Sample {
+        id: "rocks",
+        name: "Space Rocks",
+        author: "Someone with a rather long name",
+        version: "0.3.0",
+        icon: Some((Pattern::Dots, [160, 160, 180])),
+    },
+    Sample {
+        id: "mines",
+        name: "Mines",
+        author: "",
+        version: "1.1.0",
+        icon: Some((Pattern::Grid, [200, 200, 60])),
+    },
+    Sample {
+        id: "2048",
+        name: "2048",
+        author: "ogo examples",
+        version: "1.0.0",
+        icon: Some((Pattern::Diamond, [240, 180, 60])),
+    },
+    Sample {
+        id: "sokoban",
+        name: "Sokoban",
+        author: "ogo examples",
+        version: "1.4.2",
+        icon: Some((Pattern::Bricks, [160, 110, 60])),
+    },
+    Sample {
+        id: "flappy",
+        name: "Flappy Bit",
+        author: "ogo examples",
+        version: "0.1.0",
+        icon: Some((Pattern::Gradient, [90, 200, 240])),
+    },
+    Sample {
+        id: "lander",
+        name: "Lunar Lander",
+        author: "ogo examples",
+        version: "1.0.0",
+        icon: Some((Pattern::Rings, [200, 200, 200])),
+    },
+    Sample {
+        id: "solitaire",
+        name: "Solitaire",
+        author: "ogo examples",
+        version: "3.1.0",
+        icon: Some((Pattern::Diamond, [40, 140, 60])),
+    },
     Sample {
         id: "long-name",
         name: "The Incredibly Long Named Adventure of Rusty the Crab",
@@ -50,7 +116,13 @@ const SAMPLES: [Sample; 13] = [
         version: "0.0.1",
         icon: Some((Pattern::Gradient, [230, 70, 30])),
     },
-    Sample { id: "no-icon", name: "No Icon Game", author: "ogo examples", version: "1.0.0", icon: None },
+    Sample {
+        id: "no-icon",
+        name: "No Icon Game",
+        author: "ogo examples",
+        version: "1.0.0",
+        icon: None,
+    },
 ];
 
 /// Writes the samples into `<sd_root>/ogo/games/`, skipping folders that exist unless `force`.
@@ -60,7 +132,9 @@ pub fn write(sd_root: &Path, force: bool) -> anyhow::Result<()> {
     let mut written = Vec::new();
 
     for sample in &SAMPLES {
-        written.push(write_folder(&games.join(sample.id), force, |dir| write_game(dir, sample, SDK_VERSION))?);
+        written.push(write_folder(&games.join(sample.id), force, |dir| {
+            write_game(dir, sample, SDK_VERSION)
+        })?);
     }
     // Broken on purpose: needs a newer SDK, and a game.toml that doesn't parse.
     let future = Sample {
@@ -70,9 +144,14 @@ pub fn write(sd_root: &Path, force: bool) -> anyhow::Result<()> {
         version: "9.0.0",
         icon: Some((Pattern::Rings, [180, 60, 220])),
     };
-    written.push(write_folder(&games.join(future.id), force, |dir| write_game(dir, &future, SDK_VERSION + 1))?);
+    written.push(write_folder(&games.join(future.id), force, |dir| {
+        write_game(dir, &future, SDK_VERSION + 1)
+    })?);
     written.push(write_folder(&games.join("bad-toml"), force, |dir| {
-        fs::write(dir.join("game.toml"), "id = \"bad-toml\"\nname = \"Missing quote\n")?;
+        fs::write(
+            dir.join("game.toml"),
+            "id = \"bad-toml\"\nname = \"Missing quote\n",
+        )?;
         Ok(())
     })?);
 
@@ -82,9 +161,16 @@ pub fn write(sd_root: &Path, force: bool) -> anyhow::Result<()> {
 }
 
 /// Creates `dir` and fills it with `write`; returns `false` if it existed and `force` is off.
-fn write_folder(dir: &Path, force: bool, write: impl FnOnce(&Path) -> anyhow::Result<()>) -> anyhow::Result<bool> {
+fn write_folder(
+    dir: &Path,
+    force: bool,
+    write: impl FnOnce(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<bool> {
     if dir.exists() && !force {
-        println!("skip   {} (exists, use --force to overwrite)", dir.display());
+        println!(
+            "skip   {} (exists, use --force to overwrite)",
+            dir.display()
+        );
         return Ok(false);
     }
     fs::create_dir_all(dir)?;
@@ -94,7 +180,9 @@ fn write_folder(dir: &Path, force: bool, write: impl FnOnce(&Path) -> anyhow::Re
 }
 
 fn write_game(dir: &Path, sample: &Sample, sdk_version: u32) -> anyhow::Result<()> {
-    let bin = format!("placeholder for {}, not a real firmware image\n", sample.id).repeat(64).into_bytes();
+    let bin = format!("placeholder for {}, not a real firmware image\n", sample.id)
+        .repeat(64)
+        .into_bytes();
     let manifest = Manifest {
         id: sample.id.to_owned(),
         name: sample.name.to_owned(),
@@ -129,7 +217,9 @@ fn icon(pattern: Pattern, base: [u8; 3]) -> Vec<u8> {
                 Pattern::Diamond => cx.abs() + cy.abs() < 28.0,
                 Pattern::Gradient => {
                     let t = y as f32 / (size - 1) as f32;
-                    let color: [u8; 3] = std::array::from_fn(|i| (dark[i] as f32 + (base[i] as f32 - dark[i] as f32) * t) as u8);
+                    let color: [u8; 3] = std::array::from_fn(|i| {
+                        (dark[i] as f32 + (base[i] as f32 - dark[i] as f32) * t) as u8
+                    });
                     out.extend_from_slice(&rgb565_le(color));
                     continue;
                 }

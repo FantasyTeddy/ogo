@@ -42,9 +42,17 @@ pub struct SettingsView {
 #[derive(Debug, Clone)]
 pub enum SettingsItem {
     /// A level shown as a bar, changed with Left/Right. `value` is the text next to the bar.
-    Level { label: &'static str, percent: u8, value: String },
+    Level {
+        label: &'static str,
+        percent: u8,
+        value: String,
+    },
     /// Done with A. A disabled action is drawn dimmed.
-    Action { label: String, color: Rgb565, enabled: bool },
+    Action {
+        label: String,
+        color: Rgb565,
+        enabled: bool,
+    },
 }
 
 /// What the WiFi screen shows.
@@ -121,13 +129,22 @@ impl Ui {
     pub fn new() -> Self {
         let body_top = TOP_BAR_HEIGHT as i32;
         Self {
-            top_bar: Canvas::new(Rectangle::new(Point::zero(), Size::new(WIDTH, TOP_BAR_HEIGHT))),
-            list: Canvas::new(Rectangle::new(Point::new(0, body_top), Size::new(LIST_WIDTH, BODY_HEIGHT))),
+            top_bar: Canvas::new(Rectangle::new(
+                Point::zero(),
+                Size::new(WIDTH, TOP_BAR_HEIGHT),
+            )),
+            list: Canvas::new(Rectangle::new(
+                Point::new(0, body_top),
+                Size::new(LIST_WIDTH, BODY_HEIGHT),
+            )),
             detail: Canvas::new(Rectangle::new(
                 Point::new(LIST_WIDTH as i32, body_top),
                 Size::new(DETAIL_WIDTH, BODY_HEIGHT),
             )),
-            body: Canvas::new(Rectangle::new(Point::new(0, body_top), Size::new(WIDTH, BODY_HEIGHT))),
+            body: Canvas::new(Rectangle::new(
+                Point::new(0, body_top),
+                Size::new(WIDTH, BODY_HEIGHT),
+            )),
             footer: Canvas::new(Rectangle::new(
                 Point::new(0, (HEIGHT - FOOTER_HEIGHT) as i32),
                 Size::new(WIDTH, FOOTER_HEIGHT),
@@ -135,15 +152,29 @@ impl Ui {
         }
     }
 
-    pub fn draw_top_bar(&mut self, display: &mut Display, title: &str, battery: Option<BatteryLevel>) -> anyhow::Result<()> {
+    pub fn draw_top_bar(
+        &mut self,
+        display: &mut Display,
+        title: &str,
+        battery: Option<BatteryLevel>,
+    ) -> anyhow::Result<()> {
         let canvas = &mut self.top_bar;
         canvas.clear(BAR).ok();
         let middle = TOP_BAR_HEIGHT as i32 / 2;
-        text(canvas, title, Point::new(8, middle), &FONT_9X15_BOLD, TEXT, Alignment::Left);
+        text(
+            canvas,
+            title,
+            Point::new(8, middle),
+            &FONT_9X15_BOLD,
+            TEXT,
+            Alignment::Left,
+        );
 
         // Battery: outline with a fill level, and the percentage to its left.
         let icon = Rectangle::new(Point::new(WIDTH as i32 - 32, middle - 5), Size::new(22, 11));
-        icon.into_styled(PrimitiveStyle::with_stroke(TEXT, 1)).draw(canvas).ok();
+        icon.into_styled(PrimitiveStyle::with_stroke(TEXT, 1))
+            .draw(canvas)
+            .ok();
         Rectangle::new(icon.top_left + Point::new(22, 3), Size::new(2, 5))
             .into_styled(PrimitiveStyle::with_fill(TEXT))
             .draw(canvas)
@@ -164,13 +195,25 @@ impl Ui {
             }
             None => "--".into(),
         };
-        text(canvas, &label, Point::new(WIDTH as i32 - 38, middle), &FONT_8X13, TEXT, Alignment::Right);
+        text(
+            canvas,
+            &label,
+            Point::new(WIDTH as i32 - 38, middle),
+            &FONT_8X13,
+            TEXT,
+            Alignment::Right,
+        );
 
         canvas.present(display)
     }
 
     /// The footer shows the screen's `controls`, or `message` in their place.
-    pub fn draw_footer(&mut self, display: &mut Display, controls: &str, message: Option<&str>) -> anyhow::Result<()> {
+    pub fn draw_footer(
+        &mut self,
+        display: &mut Display,
+        controls: &str,
+        message: Option<&str>,
+    ) -> anyhow::Result<()> {
         let canvas = &mut self.footer;
         canvas.clear(BAR).ok();
         let center = Point::new(WIDTH as i32 / 2, FOOTER_HEIGHT as i32 / 2);
@@ -191,13 +234,20 @@ impl Ui {
         icon: Option<&[u8]>,
     ) -> anyhow::Result<()> {
         let entries = match library {
-            Library::NoSdCard => return self.draw_message(display, "No SD card", &["Insert a card and restart."]),
+            Library::NoSdCard => {
+                return self.draw_message(display, "No SD card", &["Insert a card and restart."])
+            }
             Library::NoGamesDir => return self.draw_no_games(display),
             Library::Entries(entries) if entries.is_empty() => return self.draw_no_games(display),
             Library::Entries(entries) => entries,
         };
         self.draw_list(entries, state);
-        self.draw_detail(&entries[state.selected], state.selected, entries.len(), icon);
+        self.draw_detail(
+            &entries[state.selected],
+            state.selected,
+            entries.len(),
+            icon,
+        );
         self.list.present(display)?;
         self.detail.present(display)
     }
@@ -213,20 +263,50 @@ impl Ui {
         let canvas = &mut self.body;
         canvas.clear(BACKGROUND).ok();
         let center_x = WIDTH as i32 / 2;
-        text(canvas, &truncate(title, 30), Point::new(center_x, 70), &FONT_10X20, TEXT, Alignment::Center);
-        text(canvas, status, Point::new(center_x, 104), &FONT_8X13, DIM, Alignment::Center);
+        text(
+            canvas,
+            &truncate(title, 30),
+            Point::new(center_x, 70),
+            &FONT_10X20,
+            TEXT,
+            Alignment::Center,
+        );
+        text(
+            canvas,
+            status,
+            Point::new(center_x, 104),
+            &FONT_8X13,
+            DIM,
+            Alignment::Center,
+        );
         if let Some(fraction) = fraction {
-            progress_bar(canvas, Rectangle::new(Point::new(center_x - 120, 126), Size::new(240, 14)), fraction, DIM);
+            progress_bar(
+                canvas,
+                Rectangle::new(Point::new(center_x - 120, 126), Size::new(240, 14)),
+                fraction,
+                DIM,
+            );
         }
         canvas.present(display)
     }
 
     /// The WiFi screen: where to point the browser, the PIN, and what's going on.
-    pub fn draw_connect(&mut self, display: &mut Display, view: &ConnectView) -> anyhow::Result<()> {
+    pub fn draw_connect(
+        &mut self,
+        display: &mut Display,
+        view: &ConnectView,
+    ) -> anyhow::Result<()> {
         let canvas = &mut self.body;
         canvas.clear(BACKGROUND).ok();
         let center_x = WIDTH as i32 / 2;
-        text(canvas, &truncate(&view.heading, 30), Point::new(center_x, 16), &FONT_10X20, TEXT, Alignment::Center);
+        text(
+            canvas,
+            &truncate(&view.heading, 30),
+            Point::new(center_x, 16),
+            &FONT_10X20,
+            TEXT,
+            Alignment::Center,
+        );
 
         // Numbered steps: a small label, and the thing to type or pick in large letters.
         let mut steps: Vec<(String, String)> = Vec::new();
@@ -234,7 +314,11 @@ impl Ui {
             steps.push(("Join the WiFi (no password)".into(), ssid.clone()));
         }
         if let Some(url) = &view.url {
-            let label = if view.join_wifi.is_some() { "Open in a browser" } else { "In the same network, open" };
+            let label = if view.join_wifi.is_some() {
+                "Open in a browser"
+            } else {
+                "In the same network, open"
+            };
             steps.push((label.into(), url.clone()));
         }
         if let Some(pin) = &view.pin {
@@ -244,60 +328,151 @@ impl Ui {
         for (i, (label, value)) in steps.iter().enumerate() {
             let top = 36 + i as i32 * 42;
             let number = Point::new(STEP_X, top + 14);
-            Circle::with_center(number, 22).into_styled(PrimitiveStyle::with_fill(SELECTION)).draw(canvas).ok();
-            text(canvas, &(i + 1).to_string(), number, &FONT_8X13, TEXT, Alignment::Center);
-            text(canvas, label, Point::new(STEP_X + 22, top + 4), &FONT_6X10, DIM, Alignment::Left);
-            text(canvas, &truncate(value, 23), Point::new(STEP_X + 22, top + 21), &FONT_10X20, ACCENT, Alignment::Left);
+            Circle::with_center(number, 22)
+                .into_styled(PrimitiveStyle::with_fill(SELECTION))
+                .draw(canvas)
+                .ok();
+            text(
+                canvas,
+                &(i + 1).to_string(),
+                number,
+                &FONT_8X13,
+                TEXT,
+                Alignment::Center,
+            );
+            text(
+                canvas,
+                label,
+                Point::new(STEP_X + 22, top + 4),
+                &FONT_6X10,
+                DIM,
+                Alignment::Left,
+            );
+            text(
+                canvas,
+                &truncate(value, 23),
+                Point::new(STEP_X + 22, top + 21),
+                &FONT_10X20,
+                ACCENT,
+                Alignment::Left,
+            );
         }
 
         if let Some((activity, color)) = &view.activity {
             for (i, line) in wrap(activity, 38, 2).iter().enumerate() {
-                text(canvas, line, Point::new(center_x, 168 + i as i32 * 14), &FONT_8X13, *color, Alignment::Center);
+                text(
+                    canvas,
+                    line,
+                    Point::new(center_x, 168 + i as i32 * 14),
+                    &FONT_8X13,
+                    *color,
+                    Alignment::Center,
+                );
             }
         }
         canvas.present(display)
     }
 
     /// The settings screen: info lines at the top, then the items to change.
-    pub fn draw_settings(&mut self, display: &mut Display, view: &SettingsView) -> anyhow::Result<()> {
+    pub fn draw_settings(
+        &mut self,
+        display: &mut Display,
+        view: &SettingsView,
+    ) -> anyhow::Result<()> {
         let canvas = &mut self.body;
         canvas.clear(BACKGROUND).ok();
-        let max_chars = (WIDTH as i32 - SETTINGS_VALUE_X - LIST_TEXT_X) as usize / FONT_8X13.character_size.width as usize;
+        let max_chars = (WIDTH as i32 - SETTINGS_VALUE_X - LIST_TEXT_X) as usize
+            / FONT_8X13.character_size.width as usize;
         for (i, (label, value)) in view.info.iter().enumerate() {
             let y = 14 + i as i32 * 18;
-            text(canvas, label, Point::new(LIST_TEXT_X + 4, y), &FONT_8X13, DIM, Alignment::Left);
-            text(canvas, &truncate(value, max_chars), Point::new(SETTINGS_VALUE_X, y), &FONT_8X13, TEXT, Alignment::Left);
+            text(
+                canvas,
+                label,
+                Point::new(LIST_TEXT_X + 4, y),
+                &FONT_8X13,
+                DIM,
+                Alignment::Left,
+            );
+            text(
+                canvas,
+                &truncate(value, max_chars),
+                Point::new(SETTINGS_VALUE_X, y),
+                &FONT_8X13,
+                TEXT,
+                Alignment::Left,
+            );
         }
         let items_top = 14 + view.info.len() as i32 * 18;
-        Rectangle::new(Point::new(LIST_TEXT_X, items_top), Size::new(WIDTH - 2 * LIST_TEXT_X as u32, 1))
-            .into_styled(PrimitiveStyle::with_fill(BAR))
-            .draw(canvas)
-            .ok();
+        Rectangle::new(
+            Point::new(LIST_TEXT_X, items_top),
+            Size::new(WIDTH - 2 * LIST_TEXT_X as u32, 1),
+        )
+        .into_styled(PrimitiveStyle::with_fill(BAR))
+        .draw(canvas)
+        .ok();
 
         for (i, item) in view.items.iter().enumerate() {
             let top = items_top + 8 + i as i32 * ROW_HEIGHT as i32;
             let middle = top + ROW_HEIGHT as i32 / 2;
             if i == view.selected {
-                selection(canvas, Rectangle::new(Point::new(0, top), Size::new(WIDTH, ROW_HEIGHT)));
+                selection(
+                    canvas,
+                    Rectangle::new(Point::new(0, top), Size::new(WIDTH, ROW_HEIGHT)),
+                );
             }
             match item {
-                SettingsItem::Level { label, percent, value } => {
-                    text(canvas, label, Point::new(LIST_TEXT_X + 4, middle), &FONT_8X13, TEXT, Alignment::Left);
-                    let bar = Rectangle::new(Point::new(SETTINGS_VALUE_X, middle - 4), Size::new(SETTINGS_BAR_WIDTH, 9));
-                    bar.into_styled(PrimitiveStyle::with_stroke(TEXT, 1)).draw(canvas).ok();
+                SettingsItem::Level {
+                    label,
+                    percent,
+                    value,
+                } => {
+                    text(
+                        canvas,
+                        label,
+                        Point::new(LIST_TEXT_X + 4, middle),
+                        &FONT_8X13,
+                        TEXT,
+                        Alignment::Left,
+                    );
+                    let bar = Rectangle::new(
+                        Point::new(SETTINGS_VALUE_X, middle - 4),
+                        Size::new(SETTINGS_BAR_WIDTH, 9),
+                    );
+                    bar.into_styled(PrimitiveStyle::with_stroke(TEXT, 1))
+                        .draw(canvas)
+                        .ok();
                     let filled = (SETTINGS_BAR_WIDTH - 4) * u32::from(*percent) / 100;
                     Rectangle::new(bar.top_left + Point::new(2, 2), Size::new(filled, 5))
                         .into_styled(PrimitiveStyle::with_fill(ACCENT))
                         .draw(canvas)
                         .ok();
                     let value_position = Point::new(WIDTH as i32 - LIST_TEXT_X - 4, middle);
-                    text(canvas, value, value_position, &FONT_8X13, TEXT, Alignment::Right);
+                    text(
+                        canvas,
+                        value,
+                        value_position,
+                        &FONT_8X13,
+                        TEXT,
+                        Alignment::Right,
+                    );
                 }
-                SettingsItem::Action { label, color, enabled } => {
+                SettingsItem::Action {
+                    label,
+                    color,
+                    enabled,
+                } => {
                     let color = if *enabled { *color } else { DIM };
-                    let max_chars = (WIDTH as i32 - 2 * (LIST_TEXT_X + 4)) as usize / FONT_8X13.character_size.width as usize;
+                    let max_chars = (WIDTH as i32 - 2 * (LIST_TEXT_X + 4)) as usize
+                        / FONT_8X13.character_size.width as usize;
                     let position = Point::new(LIST_TEXT_X + 4, middle);
-                    text(canvas, &truncate(label, max_chars), position, &FONT_8X13, color, Alignment::Left);
+                    text(
+                        canvas,
+                        &truncate(label, max_chars),
+                        position,
+                        &FONT_8X13,
+                        color,
+                        Alignment::Left,
+                    );
                 }
             }
         }
@@ -305,29 +480,76 @@ impl Ui {
     }
 
     /// Full-body message, e.g. an error. `detail` is word-wrapped.
-    pub fn draw_notice(&mut self, display: &mut Display, title: &str, detail: &str, color: Rgb565) -> anyhow::Result<()> {
+    pub fn draw_notice(
+        &mut self,
+        display: &mut Display,
+        title: &str,
+        detail: &str,
+        color: Rgb565,
+    ) -> anyhow::Result<()> {
         let canvas = &mut self.body;
         canvas.clear(BACKGROUND).ok();
         let center_x = WIDTH as i32 / 2;
-        text(canvas, &truncate(title, 30), Point::new(center_x, 60), &FONT_10X20, color, Alignment::Center);
+        text(
+            canvas,
+            &truncate(title, 30),
+            Point::new(center_x, 60),
+            &FONT_10X20,
+            color,
+            Alignment::Center,
+        );
         for (i, line) in wrap(detail, 36, 6).iter().enumerate() {
-            text(canvas, line, Point::new(center_x, 94 + i as i32 * 16), &FONT_8X13, TEXT, Alignment::Center);
+            text(
+                canvas,
+                line,
+                Point::new(center_x, 94 + i as i32 * 16),
+                &FONT_8X13,
+                TEXT,
+                Alignment::Center,
+            );
         }
         canvas.present(display)
     }
 
     fn draw_no_games(&mut self, display: &mut Display) -> anyhow::Result<()> {
         let folder = format!("/{GAMES_DIR}/<game-id>/");
-        self.draw_message(display, "No games yet", &["Copy games to", &folder, "on the SD card, then press START."])
+        self.draw_message(
+            display,
+            "No games yet",
+            &[
+                "Copy games to",
+                &folder,
+                "on the SD card, then press START.",
+            ],
+        )
     }
 
-    fn draw_message(&mut self, display: &mut Display, title: &str, lines: &[&str]) -> anyhow::Result<()> {
+    fn draw_message(
+        &mut self,
+        display: &mut Display,
+        title: &str,
+        lines: &[&str],
+    ) -> anyhow::Result<()> {
         let canvas = &mut self.body;
         canvas.clear(BACKGROUND).ok();
         let center_x = WIDTH as i32 / 2;
-        text(canvas, title, Point::new(center_x, 70), &FONT_10X20, TEXT, Alignment::Center);
+        text(
+            canvas,
+            title,
+            Point::new(center_x, 70),
+            &FONT_10X20,
+            TEXT,
+            Alignment::Center,
+        );
         for (i, line) in lines.iter().enumerate() {
-            text(canvas, line, Point::new(center_x, 104 + i as i32 * 16), &FONT_8X13, DIM, Alignment::Center);
+            text(
+                canvas,
+                line,
+                Point::new(center_x, 104 + i as i32 * 16),
+                &FONT_8X13,
+                DIM,
+                Alignment::Center,
+            );
         }
         canvas.present(display)
     }
@@ -335,16 +557,31 @@ impl Ui {
     fn draw_list(&mut self, entries: &[Entry], state: ListState) {
         let canvas = &mut self.list;
         canvas.clear(BACKGROUND).ok();
-        let max_chars = ((LIST_WIDTH - SCROLLBAR_WIDTH) as i32 - 2 * LIST_TEXT_X) as usize / FONT_8X13.character_size.width as usize;
+        let max_chars = ((LIST_WIDTH - SCROLLBAR_WIDTH) as i32 - 2 * LIST_TEXT_X) as usize
+            / FONT_8X13.character_size.width as usize;
 
-        for (row, (index, entry)) in entries.iter().enumerate().skip(state.first).take(VISIBLE_ROWS).enumerate() {
+        for (row, (index, entry)) in entries
+            .iter()
+            .enumerate()
+            .skip(state.first)
+            .take(VISIBLE_ROWS)
+            .enumerate()
+        {
             let top = row as i32 * ROW_HEIGHT as i32;
             if index == state.selected {
-                selection(canvas, Rectangle::new(Point::new(0, top), Size::new(LIST_WIDTH - SCROLLBAR_WIDTH, ROW_HEIGHT)));
+                selection(
+                    canvas,
+                    Rectangle::new(
+                        Point::new(0, top),
+                        Size::new(LIST_WIDTH - SCROLLBAR_WIDTH, ROW_HEIGHT),
+                    ),
+                );
             }
             let (label, color) = match entry {
                 Entry::Game(game) => (truncate(&game.name, max_chars), TEXT),
-                Entry::Broken(broken) => (truncate(&format!("! {}", broken.folder), max_chars), DIM),
+                Entry::Broken(broken) => {
+                    (truncate(&format!("! {}", broken.folder), max_chars), DIM)
+                }
             };
             let position = Point::new(LIST_TEXT_X, top + ROW_HEIGHT as i32 / 2);
             text(canvas, &label, position, &FONT_8X13, color, Alignment::Left);
@@ -356,10 +593,13 @@ impl Ui {
             let thumb = (track * VISIBLE_ROWS as u32 / entries.len() as u32).max(8);
             let max_first = entries.len() - VISIBLE_ROWS;
             let offset = (track - thumb) * state.first as u32 / max_first as u32;
-            Rectangle::new(Point::new((LIST_WIDTH - SCROLLBAR_WIDTH) as i32, offset as i32), Size::new(SCROLLBAR_WIDTH, thumb))
-                .into_styled(PrimitiveStyle::with_fill(DIM))
-                .draw(canvas)
-                .ok();
+            Rectangle::new(
+                Point::new((LIST_WIDTH - SCROLLBAR_WIDTH) as i32, offset as i32),
+                Size::new(SCROLLBAR_WIDTH, thumb),
+            )
+            .into_styled(PrimitiveStyle::with_fill(DIM))
+            .draw(canvas)
+            .ok();
         }
     }
 
@@ -379,7 +619,13 @@ impl Ui {
                 Image::new(&raw, icon_top_left).draw(canvas).ok();
             }
             (Entry::Game(game), None) => {
-                let initial = game.name.chars().next().unwrap_or('?').to_ascii_uppercase().to_string();
+                let initial = game
+                    .name
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_ascii_uppercase()
+                    .to_string();
                 placeholder_icon(canvas, icon_top_left, &initial, DIM);
             }
             (Entry::Broken(_), _) => placeholder_icon(canvas, icon_top_left, "!", WARNING),
@@ -387,31 +633,73 @@ impl Ui {
 
         let mut y = 10 + ICON_SIZE as i32 + 14;
         for line in wrap(entry.title(), 15, 3) {
-            text(canvas, &line, Point::new(center_x, y), &FONT_8X13, TEXT, Alignment::Center);
+            text(
+                canvas,
+                &line,
+                Point::new(center_x, y),
+                &FONT_8X13,
+                TEXT,
+                Alignment::Center,
+            );
             y += 15;
         }
         y += 4;
         match entry {
             Entry::Game(game) => {
-                text(canvas, &format!("v{}", game.version), Point::new(center_x, y), &FONT_6X10, DIM, Alignment::Center);
+                text(
+                    canvas,
+                    &format!("v{}", game.version),
+                    Point::new(center_x, y),
+                    &FONT_6X10,
+                    DIM,
+                    Alignment::Center,
+                );
                 if !game.author.is_empty() {
                     for line in wrap(&format!("by {}", game.author), 20, 2) {
                         y += 12;
-                        text(canvas, &line, Point::new(center_x, y), &FONT_6X10, DIM, Alignment::Center);
+                        text(
+                            canvas,
+                            &line,
+                            Point::new(center_x, y),
+                            &FONT_6X10,
+                            DIM,
+                            Alignment::Center,
+                        );
                     }
                 }
             }
             Entry::Broken(broken) => {
-                text(canvas, "Can't be used:", Point::new(center_x, y), &FONT_6X10, WARNING, Alignment::Center);
+                text(
+                    canvas,
+                    "Can't be used:",
+                    Point::new(center_x, y),
+                    &FONT_6X10,
+                    WARNING,
+                    Alignment::Center,
+                );
                 for line in wrap(&broken.reason, 20, 5) {
                     y += 12;
-                    text(canvas, &line, Point::new(center_x, y), &FONT_6X10, WARNING, Alignment::Center);
+                    text(
+                        canvas,
+                        &line,
+                        Point::new(center_x, y),
+                        &FONT_6X10,
+                        WARNING,
+                        Alignment::Center,
+                    );
                 }
             }
         }
 
         let position = format!("{} / {count}", index + 1);
-        text(canvas, &position, Point::new(center_x, BODY_HEIGHT as i32 - 10), &FONT_6X10, DIM, Alignment::Center);
+        text(
+            canvas,
+            &position,
+            Point::new(center_x, BODY_HEIGHT as i32 - 10),
+            &FONT_6X10,
+            DIM,
+            Alignment::Center,
+        );
     }
 }
 
@@ -423,20 +711,38 @@ const LOGO_HEIGHT: u32 = 184;
 /// Logo and version on black, shown from power-on until the game list is ready.
 pub fn draw_boot_screen(display: &mut Display) -> anyhow::Result<()> {
     let raw = ImageRawLE::<Rgb565>::new(LOGO, LOGO_WIDTH);
-    let top_left = Point::new((WIDTH - LOGO_WIDTH) as i32 / 2, (HEIGHT - LOGO_HEIGHT) as i32 / 2 - 8);
+    let top_left = Point::new(
+        (WIDTH - LOGO_WIDTH) as i32 / 2,
+        (HEIGHT - LOGO_HEIGHT) as i32 / 2 - 8,
+    );
     Image::new(&raw, top_left).draw(display).display_err()?;
     let version = concat!("launcher v", env!("CARGO_PKG_VERSION"));
-    let style = TextStyleBuilder::new().alignment(Alignment::Center).baseline(Baseline::Middle).build();
-    Text::with_text_style(version, Point::new(WIDTH as i32 / 2, HEIGHT as i32 - 14), MonoTextStyle::new(&FONT_6X10, DIM), style)
-        .draw(display)
-        .display_err()?;
+    let style = TextStyleBuilder::new()
+        .alignment(Alignment::Center)
+        .baseline(Baseline::Middle)
+        .build();
+    Text::with_text_style(
+        version,
+        Point::new(WIDTH as i32 / 2, HEIGHT as i32 - 14),
+        MonoTextStyle::new(&FONT_6X10, DIM),
+        style,
+    )
+    .draw(display)
+    .display_err()?;
     Ok(())
 }
 
 /// A frame with a big character, for games without an icon and for broken entries.
 fn placeholder_icon(canvas: &mut Canvas, top_left: Point, label: &str, color: Rgb565) {
-    let style = PrimitiveStyleBuilder::new().stroke_color(color).stroke_width(1).fill_color(BAR).build();
-    Rectangle::new(top_left, Size::new(ICON_SIZE, ICON_SIZE)).into_styled(style).draw(canvas).ok();
+    let style = PrimitiveStyleBuilder::new()
+        .stroke_color(color)
+        .stroke_width(1)
+        .fill_color(BAR)
+        .build();
+    Rectangle::new(top_left, Size::new(ICON_SIZE, ICON_SIZE))
+        .into_styled(style)
+        .draw(canvas)
+        .ok();
     let center = top_left + Point::new(ICON_SIZE as i32 / 2, ICON_SIZE as i32 / 2);
     text(canvas, label, center, &FONT_10X20, color, Alignment::Center);
 }

@@ -5,8 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ogo_format::game::{Manifest, ICON_BYTES, SDK_VERSION};
 pub use ogo_format::game::ICON_SIZE;
+use ogo_format::game::{Manifest, ICON_BYTES, SDK_VERSION};
 
 /// Folder with the installed games, relative to the SD card root.
 pub const GAMES_DIR: &str = "ogo/games";
@@ -119,7 +119,11 @@ pub fn load_game(dir: &Path, folder: Option<&str>) -> Result<Game, String> {
     let has_icon = match fs::metadata(dir.join("icon.rgb565")) {
         Ok(meta) if meta.len() == ICON_BYTES as u64 => true,
         Ok(meta) => {
-            log::warn!("{}: icon.rgb565 has {} bytes, expected {ICON_BYTES}; ignoring it", manifest.id, meta.len());
+            log::warn!(
+                "{}: icon.rgb565 has {} bytes, expected {ICON_BYTES}; ignoring it",
+                manifest.id,
+                meta.len()
+            );
             false
         }
         Err(_) => false,

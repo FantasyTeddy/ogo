@@ -27,7 +27,10 @@ impl Battery {
         adc: Adc1,
         pin: impl ADCPin<AdcChannel = ADCCH0<ADCU1>> + 'static,
     ) -> anyhow::Result<Self> {
-        Ok(Self { channel: AdcChannelDriver::new(adc, pin, &CHANNEL_CONFIG)?, adc })
+        Ok(Self {
+            channel: AdcChannelDriver::new(adc, pin, &CHANNEL_CONFIG)?,
+            adc,
+        })
     }
 
     pub fn read(&mut self) -> anyhow::Result<BatteryLevel> {
@@ -36,6 +39,9 @@ impl Battery {
             sum += u32::from(self.adc.read(&mut self.channel)?);
         }
         let millivolts = sum / SAMPLES * 2;
-        Ok(BatteryLevel { millivolts, percent: ogo_format::battery::percent(millivolts) })
+        Ok(BatteryLevel {
+            millivolts,
+            percent: ogo_format::battery::percent(millivolts),
+        })
     }
 }

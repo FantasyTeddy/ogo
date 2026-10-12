@@ -37,8 +37,10 @@ pub struct Session {
 impl Launcher {
     pub(crate) fn open_connect(&mut self) -> anyhow::Result<()> {
         let pin = random_pin();
-        self.ui.draw_top_bar(&mut self.board.display, "WiFi", self.battery)?;
-        self.ui.draw_footer(&mut self.board.display, CONTROLS, None)?;
+        self.ui
+            .draw_top_bar(&mut self.board.display, "WiFi", self.battery)?;
+        self.ui
+            .draw_footer(&mut self.board.display, CONTROLS, None)?;
         match self.start_session(pin, None) {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -46,36 +48,66 @@ impl Launcher {
                 self.board.speaker.play(SOUND_ERROR);
                 self.close_connect()?;
                 self.screen = Screen::Notice;
-                self.ui.draw_notice(&mut self.board.display, "WiFi didn't start", &format!("{e:#}"), WARNING)?;
+                self.ui.draw_notice(
+                    &mut self.board.display,
+                    "WiFi didn't start",
+                    &format!("{e:#}"),
+                    WARNING,
+                )?;
                 self.show_message("Press any button")
             }
         }
     }
 
     /// Starts WiFi and the web server and shows where to connect. `credentials` overrides the saved ones.
-    fn start_session(&mut self, pin: String, credentials: Option<WifiCredentials>) -> anyhow::Result<()> {
-        let credentials = credentials.or_else(|| settings::load_wifi(&self.nvs, self.board.sd.as_ref()));
+    fn start_session(
+        &mut self,
+        pin: String,
+        credentials: Option<WifiCredentials>,
+    ) -> anyhow::Result<()> {
+        let credentials =
+            credentials.or_else(|| settings::load_wifi(&self.nvs, self.board.sd.as_ref()));
         let heading = match &credentials {
             Some(credentials) => format!("Joining {}...", credentials.ssid),
             None => "Starting WiFi...".to_owned(),
         };
-        self.ui.draw_connect(&mut self.board.display, &ConnectView { heading, ..Default::default() })?;
+        self.ui.draw_connect(
+            &mut self.board.display,
+            &ConnectView {
+                heading,
+                ..Default::default()
+            },
+        )?;
 
         if self.network.is_none() {
-            let modem = self.board.modem.take().context("the radio is already in use")?;
+            let modem = self
+                .board
+                .modem
+                .take()
+                .context("the radio is already in use")?;
             self.network = Some(Network::new(modem, self.boot.nvs_partition())?);
         }
-        let (mode, networks) = self.network.as_mut().expect("just created").start(credentials.as_ref())?;
+        let (mode, networks) = self
+            .network
+            .as_mut()
+            .expect("just created")
+            .start(credentials.as_ref())?;
 
         let (sender, events) = mpsc::channel();
         let state = Arc::new(WebState::new(
             pin.clone(),
             self.board.sd.as_ref().map(|_| sd::MOUNT_POINT.into()),
             match &mode {
-                Mode::Station { ssid, ip } => NetworkInfo { mode: "station", name: ssid.clone(), ip: ip.to_string() },
-                Mode::AccessPoint { ssid, ip, .. } => {
-                    NetworkInfo { mode: "access_point", name: ssid.clone(), ip: ip.to_string() }
-                }
+                Mode::Station { ssid, ip } => NetworkInfo {
+                    mode: "station",
+                    name: ssid.clone(),
+                    ip: ip.to_string(),
+                },
+                Mode::AccessPoint { ssid, ip, .. } => NetworkInfo {
+                    mode: "access_point",
+                    name: ssid.clone(),
+                    ip: ip.to_string(),
+                },
             },
             networks,
             self.battery,
@@ -101,7 +133,13 @@ impl Launcher {
             }
         }
         self.ui.draw_connect(&mut self.board.display, &view)?;
-        self.screen = Screen::Wifi(Session { _server: server, state, events, view, library_changed: false });
+        self.screen = Screen::Wifi(Session {
+            _server: server,
+            state,
+            events,
+            view,
+            library_changed: false,
+        });
         Ok(())
     }
 
@@ -155,9 +193,10 @@ impl Launcher {
         while let Ok(event) = session.events.try_recv() {
             redraw = true;
             session.view.activity = Some(match event {
-                WebEvent::Uploading { received, total } => {
-                    (format!("Receiving upload... {} %", received * 100 / total.max(1)), DIM)
-                }
+                WebEvent::Uploading { received, total } => (
+                    format!("Receiving upload... {} %", received * 100 / total.max(1)),
+                    DIM,
+                ),
                 WebEvent::Installed { name } => {
                     session.library_changed = true;
                     self.board.speaker.play(SOUND_INSTALLED);
@@ -177,9 +216,13 @@ impl Launcher {
                     self.board.speaker.set_muted(true);
                     ("Receiving a launcher update...".to_owned(), DIM)
                 }
-                WebEvent::Updating { received, total } => {
-                    (format!("Writing the launcher update... {} %", received * 100 / total.max(1)), DIM)
-                }
+                WebEvent::Updating { received, total } => (
+                    format!(
+                        "Writing the launcher update... {} %",
+                        received * 100 / total.max(1)
+                    ),
+                    DIM,
+                ),
                 WebEvent::LauncherWritten { slot } => {
                     restart_into = Some(slot);
                     ("Update installed, restarting...".to_owned(), SUCCESS)
@@ -203,7 +246,8 @@ impl Launcher {
             });
         }
         if redraw {
-            self.ui.draw_connect(&mut self.board.display, &session.view)?;
+            self.ui
+                .draw_connect(&mut self.board.display, &session.view)?;
         }
         if let Some(slot) = restart_into {
             self.boot.set_pending_update(slot)?;
@@ -218,9 +262,12 @@ impl Launcher {
                         *session.state.networks.lock().unwrap() = networks;
                         session.view.activity = Some((format!("Found {count} networks"), DIM));
                     }
-                    Err(e) => session.view.activity = Some((format!("Scan failed: {e:#}"), WARNING)),
+                    Err(e) => {
+                        session.view.activity = Some((format!("Scan failed: {e:#}"), WARNING))
+                    }
                 }
-                self.ui.draw_connect(&mut self.board.display, &session.view)?;
+                self.ui
+                    .draw_connect(&mut self.board.display, &session.view)?;
             }
         }
 
@@ -245,4 +292,3 @@ impl Session {
         self.state.pin.lock().unwrap().clone()
     }
 }
-

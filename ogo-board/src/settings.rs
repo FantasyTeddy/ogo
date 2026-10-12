@@ -23,7 +23,10 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { brightness: DEFAULT_BRIGHTNESS, volume: DEFAULT_VOLUME }
+        Self {
+            brightness: DEFAULT_BRIGHTNESS,
+            volume: DEFAULT_VOLUME,
+        }
     }
 }
 

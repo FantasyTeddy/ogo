@@ -4,7 +4,9 @@ use anyhow::anyhow;
 use esp_idf_svc::hal::{
     delay::Ets,
     gpio::{Output, OutputPin, PinDriver},
-    ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver, LowSpeed, Resolution, CHANNEL0, TIMER0},
+    ledc::{
+        config::TimerConfig, LedcDriver, LedcTimerDriver, LowSpeed, Resolution, CHANNEL0, TIMER0,
+    },
     spi::{config::Config as SpiConfig, SpiDeviceDriver, SpiDriver},
     units::FromValueType,
 };
@@ -22,7 +24,11 @@ pub const HEIGHT: u16 = 240;
 const BUFFER_SIZE: usize = 4096;
 
 pub type Display = mipidsi::Display<
-    SpiInterface<'static, SpiDeviceDriver<'static, &'static SpiDriver<'static>>, PinDriver<'static, Output>>,
+    SpiInterface<
+        'static,
+        SpiDeviceDriver<'static, &'static SpiDriver<'static>>,
+        PinDriver<'static, Output>,
+    >,
     ILI9341Rgb565,
     NoResetPin,
 >;
@@ -77,11 +83,16 @@ impl Backlight {
         channel: CHANNEL0<'static>,
         pin: impl OutputPin + 'static,
     ) -> anyhow::Result<Self> {
-        let config = TimerConfig::new().frequency(BACKLIGHT_PWM_HZ.Hz()).resolution(Resolution::Bits13);
+        let config = TimerConfig::new()
+            .frequency(BACKLIGHT_PWM_HZ.Hz())
+            .resolution(Resolution::Bits13);
         let timer = LedcTimerDriver::new(timer, &config)?;
         let mut channel = LedcDriver::new(channel, &timer, pin)?;
         channel.set_duty(0)?;
-        Ok(Self { channel, _timer: timer })
+        Ok(Self {
+            channel,
+            _timer: timer,
+        })
     }
 
     /// Brightness in percent; 0 switches the backlight off. The eye sees brightness roughly as
@@ -93,7 +104,8 @@ impl Backlight {
             p => MIN_DUTY + (1.0 - MIN_DUTY) * (f32::from(p) / 100.0).powi(2),
         };
         let max = self.channel.get_max_duty();
-        self.channel.set_duty((max as f32 * fraction).round() as u32)?;
+        self.channel
+            .set_duty((max as f32 * fraction).round() as u32)?;
         Ok(())
     }
 }
