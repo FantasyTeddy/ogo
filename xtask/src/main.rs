@@ -324,7 +324,7 @@ impl Project {
             author: game.author.clone(),
             // Built against this tree's SDK.
             sdk_version: SDK_VERSION,
-            sha256: hex(&Sha256::digest(&image)),
+            sha256: ogo_format::hex(&Sha256::digest(&image)),
         };
         let mut files = vec![
             ("game.toml", manifest.to_toml().into_bytes()),
@@ -590,8 +590,4 @@ fn install_to_sd(game: &GameFiles, sd_root: &Path) -> anyhow::Result<()> {
 /// The cargo that runs xtask, so builds use the same toolchain.
 fn cargo() -> String {
     env::var("CARGO").unwrap_or_else(|_| "cargo".into())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

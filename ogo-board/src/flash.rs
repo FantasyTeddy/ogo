@@ -100,7 +100,7 @@ fn write_chunks(
     }
 
     if let Some(expected) = expected_sha256 {
-        if format!("{:x}", hasher.finalize()) != expected {
+        if ogo_format::hex(&hasher.finalize()) != expected {
             bail!("the image doesn't match its sha256");
         }
     }
@@ -122,7 +122,7 @@ pub fn file_sha256(path: &Path) -> anyhow::Result<String> {
     loop {
         let count = file.read(&mut buffer)?;
         if count == 0 {
-            return Ok(format!("{:x}", hasher.finalize()));
+            return Ok(ogo_format::hex(&hasher.finalize()));
         }
         hasher.update(&buffer[..count]);
     }

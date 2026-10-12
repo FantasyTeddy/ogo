@@ -23,7 +23,7 @@ Developed on Windows with PowerShell; the build also runs on Linux (that's what 
    first `python` on PATH is 3.14 or older.
 4. **On Windows, a short build folder**, see below.
 
-ESP-IDF itself (v5.5.3) is downloaded automatically on the first build. That build takes several
+ESP-IDF itself (v5.5.5) is downloaded automatically on the first build. That build takes several
 minutes; later builds are fast. The reasons behind these requirements are in
 [ARCHITECTURE.md](docs/ARCHITECTURE.md#build-and-toolchain).
 

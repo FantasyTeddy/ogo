@@ -11,3 +11,17 @@ pub mod package;
 pub mod settings;
 pub mod slots;
 pub mod text;
+
+/// Lowercase hex, e.g. of a SHA-256.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn hex() {
+        assert_eq!(super::hex(&[0x00, 0x0f, 0xab, 0xff]), "000fabff");
+        assert_eq!(super::hex(&[]), "");
+    }
+}

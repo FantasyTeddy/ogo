@@ -9,8 +9,6 @@ use anyhow::{ensure, Context};
 use ogo_format::game::{rgb565_le, Manifest, ICON_SIZE, SDK_VERSION};
 use sha2::{Digest, Sha256};
 
-use crate::hex;
-
 #[derive(Clone, Copy)]
 enum Pattern {
     Rings,
@@ -189,7 +187,7 @@ fn write_game(dir: &Path, sample: &Sample, sdk_version: u32) -> anyhow::Result<(
         version: sample.version.to_owned(),
         author: sample.author.to_owned(),
         sdk_version,
-        sha256: hex(&Sha256::digest(&bin)),
+        sha256: ogo_format::hex(&Sha256::digest(&bin)),
     };
     fs::write(dir.join("game.bin"), &bin)?;
     fs::write(dir.join("game.toml"), manifest.to_toml())?;

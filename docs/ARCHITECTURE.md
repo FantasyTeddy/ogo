@@ -182,7 +182,8 @@ The steps are in [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites); this is wh
    comment in `rust-toolchain.toml` and in CONTRIBUTING.md, then rebuild, run the tests and test on
    the device (see [CONTRIBUTING.md](../CONTRIBUTING.md#testing)). CI reads the toolchain from
    `rust-toolchain.toml`, so it needs no change. The workspace started from the esp-rs
-   `esp-idf-template` for `std` / ESP-IDF v5.5.3, target `esp32`.
+   `esp-idf-template` for `std`, target `esp32`; the ESP-IDF version is `ESP_IDF_VERSION` in
+   `.cargo/config.toml`.
 2. **[sdkconfig.defaults](../sdkconfig.defaults)** enables 16 MB flash and PSRAM (with
    `CONFIG_SPIRAM_CACHE_WORKAROUND` for this ESP32 revision), the MENU recovery option, app rollback,
    1 kHz ticks and long FAT names. `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
