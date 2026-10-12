@@ -3,6 +3,7 @@ name = "snake"
 version = "1.0.0"
 authors = ["ogo examples"]
 edition.workspace = true
+license.workspace = true
 description = "Snake, the first game built on ogo-sdk"
 
 # Read by `cargo xtask pack` for game.toml

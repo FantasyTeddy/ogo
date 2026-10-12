@@ -2,6 +2,7 @@
 name = "ogo-sdk"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "Game SDK for the ODROID-GO launcher: frame loop, input, sound, saves, return to the launcher"
 
 [dependencies]

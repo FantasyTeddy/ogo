@@ -207,5 +207,9 @@ cargo espflash write-bin --port COM7 0 backup\original-flash-16MB.bin
 
 The `backup/` folder is excluded from git.
 
+## License
+
+[MIT](LICENSE).
+
 ODROID and ODROID-GO are trademarks of Hardkernel. ogo is an independent project, not affiliated with
 Hardkernel.

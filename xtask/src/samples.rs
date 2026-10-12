@@ -32,8 +32,8 @@ struct Sample {
 }
 
 const SAMPLES: [Sample; 13] = [
-    Sample { id: "snake", name: "Snake", author: "Matthias", version: "1.2.0", icon: Some((Pattern::Rings, [40, 200, 80])) },
-    Sample { id: "breakout", name: "Breakout", author: "Matthias", version: "0.9.1", icon: Some((Pattern::Bricks, [230, 90, 40])) },
+    Sample { id: "snake", name: "Snake", author: "ogo examples", version: "1.2.0", icon: Some((Pattern::Rings, [40, 200, 80])) },
+    Sample { id: "breakout", name: "Breakout", author: "ogo examples", version: "0.9.1", icon: Some((Pattern::Bricks, [230, 90, 40])) },
     Sample { id: "blocks", name: "Falling Blocks", author: "ogo examples", version: "2.0.0", icon: Some((Pattern::Checker, [80, 120, 240])) },
     Sample { id: "pong", name: "Pong", author: "ogo examples", version: "1.0.0", icon: Some((Pattern::Stripes, [240, 240, 240])) },
     Sample { id: "rocks", name: "Space Rocks", author: "Someone with a rather long name", version: "0.3.0", icon: Some((Pattern::Dots, [160, 160, 180])) },
