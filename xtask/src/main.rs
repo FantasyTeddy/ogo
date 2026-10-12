@@ -31,7 +31,7 @@ const DIST_DIR: &str = "dist";
 const LAUNCHER: &str = "ogo-launcher";
 const RECOVERY: &str = "ogo-recovery";
 /// The PC, for host builds; the workspace's default target is the ESP32.
-const HOST_TARGET: &str = "x86_64-pc-windows-msvc";
+const HOST_TARGET: &str = "host-tuple";
 
 #[derive(Parser)]
 #[command(about = "Build tasks for ogo")]
@@ -123,7 +123,9 @@ struct GameFiles {
 impl Project {
     fn new() -> anyhow::Result<Self> {
         if env::var_os("LIBCLANG_PATH").is_none() {
-            bail!("LIBCLANG_PATH isn't set: install the Xtensa toolchain with espup (see the README)");
+            bail!(
+                "LIBCLANG_PATH isn't set: install the Xtensa toolchain with espup (see the README).                  On Linux and macOS, source the export script espup wrote first"
+            );
         }
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().context("xtask has no parent folder")?.to_owned();
         let commit = Command::new("git")

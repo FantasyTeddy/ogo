@@ -1,8 +1,7 @@
 [build]
 target = "xtensa-esp32-espidf"
-# esp-idf-sys refuses to build when its output path is too long on Windows,
-# so build output goes to a short path outside the source tree.
-target-dir = "D:/ogot"
+# No target-dir here: on Windows, esp-idf-sys needs a short build folder, which depends on where the
+# project is. See "Build folder" in the README.
 
 [target.'cfg(target_os = "espidf")']
 linker = "ldproxy"
@@ -12,7 +11,7 @@ rustflags = ["--cfg", "espidf_time64", "-A", "linker_messages"]
 
 [alias]
 # Build tasks (xtask/): cargo xtask pack | release | flash. xtask runs on the PC, not the ESP32.
-xtask = "run --quiet --manifest-path xtask/Cargo.toml --target x86_64-pc-windows-msvc --"
+xtask = "run --quiet --manifest-path xtask/Cargo.toml --target host-tuple --"
 
 [unstable]
 build-std = ["std", "panic_abort"]

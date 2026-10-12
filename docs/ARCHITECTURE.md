@@ -179,9 +179,13 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
 2. **[sdkconfig.defaults](../sdkconfig.defaults)** enables 16 MB flash and PSRAM (with
    `CONFIG_SPIRAM_CACHE_WORKAROUND` for this ESP32 revision), the MENU recovery option, app rollback,
    1 kHz ticks and long FAT names. `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
-3. **Windows path length.** esp-idf-sys refuses to build if its output path is too long, and
-   enabling long paths doesn't help. So [.cargo/config.toml](../.cargo/config.toml) puts the build
-   output into `D:/ogot` (plus `CARGO_WORKSPACE_DIR`, which embuild then needs).
+3. **Windows path length.** esp-idf-sys refuses to build if its output folder is longer than 88
+   characters, and enabling long paths doesn't help: Cargo's build folder may have at most 17
+   characters. Where it goes depends on the machine, so the project's
+   [.cargo/config.toml](../.cargo/config.toml) doesn't set `target-dir`. A clone at a short path
+   uses its own `target`; otherwise a `.cargo/config.toml` in a parent folder sets one (see
+   [Build folder](../README.md#build-folder)). `CARGO_WORKSPACE_DIR` in the project config is what
+   embuild needs when the build folder is outside the project.
 4. **Python.** ESP-IDF 5.5 can't install its Python requirements on Python 3.15, and embuild always
    runs the first `python` on PATH (there's no setting for another one). `.cargo/config.toml` sets
    `PYTHON_MANAGER_DEFAULT = "3.12"` for build scripts, which makes the Python install manager's
@@ -189,7 +193,7 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
    (`espup` puts them there), so builds work in any shell, and in the editor's rust-analyzer too.
 5. **`cargo xtask`** ([xtask/](../xtask/src/main.rs)). A host crate with its own workspace, since the
    main workspace builds everything for the ESP32. The alias in `.cargo/config.toml` passes
-   `--target x86_64-pc-windows-msvc`. Every image it builds carries the git commit.
+   `--target host-tuple` (the PC it runs on). Every image it builds carries the git commit.
    - `flash [--all] [--port COM7] [--monitor] [--features …]` builds, finds the bootloader
      esp-idf-sys built, and runs `cargo espflash flash` with it, `--target-app-partition launcher_a`
      (cargo-espflash 4.3 ignores that key in `espflash.toml`) and `--erase-parts otadata`: a USB

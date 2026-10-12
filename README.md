@@ -60,12 +60,37 @@ Developed on Windows with PowerShell.
    `py install 3.12`; the project's [.cargo/config.toml](.cargo/config.toml) sets
    `PYTHON_MANAGER_DEFAULT = "3.12"`, so builds use it even if your default is newer. Without the
    install manager, make sure the first `python` on PATH is 3.12.
-4. **A drive `D:`** for build output. Build output goes to `D:\ogot` because ESP-IDF refuses to build
-   under long paths. To use a different short folder, change `target-dir` in
-   [.cargo/config.toml](.cargo/config.toml).
+4. **On Windows, a short build folder**, see [Build folder](#build-folder).
 
 ESP-IDF itself (v5.5.3) is downloaded automatically on the first build. That build takes several
 minutes; later builds are fast.
+
+### Build folder
+
+On Windows, esp-idf-sys refuses to build when its output folder is longer than 88 characters
+(`Too long output directory: …`). That folder lies 67 characters below Cargo's build folder, plus a
+4-character `\\?\` prefix Windows adds, so **the build folder may have at most 17 characters**, such
+as `D:\ogot` or `C:\ogo\target`.
+
+- **Cloned to a short path**, e.g. `C:\ogo`: the default build folder `C:\ogo\target` fits; nothing
+  to do.
+- **Cloned to a longer path**: pick a short folder and put it into a `.cargo\config.toml` in a
+  **parent folder** of the clone, e.g. `C:\Users\<you>\Downloads\.cargo\config.toml` for a clone in
+  `Downloads`:
+
+  ```toml
+  [build]
+  target-dir = "D:/ogot"
+  ```
+
+  Cargo also reads config files from parent folders, so this applies only to projects below that
+  folder. The project's own [.cargo/config.toml](.cargo/config.toml) deliberately has no
+  `target-dir`, since a good folder depends on the machine.
+
+The `CARGO_TARGET_DIR` environment variable works too, but set user-wide it moves the build output of
+every Rust project on the machine. `cargo metadata` (and with it `cargo xtask`) finds the build folder
+whichever way it is set. On Linux and macOS the length doesn't matter, but the path must not contain
+spaces.
 
 ## Build and flash
 
@@ -86,7 +111,7 @@ default bootloader instead. Every image built by `cargo xtask` carries the git c
 settings screen, the web page and in recovery.
 
 A plain `cargo build --release` also works; its firmware ends up in
-`D:\ogot\xtensa-esp32-espidf\release\`, without a commit.
+`<build folder>\xtensa-esp32-espidf\release\`, without a commit.
 
 ## Games
 
