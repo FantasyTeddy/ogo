@@ -67,7 +67,7 @@ jobs:
           override: false
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-espflash@4.3.0
+          tool: cargo-espflash@4.6.0
 
       - name: Cache ESP-IDF and its tools
         uses: actions/cache@v6
