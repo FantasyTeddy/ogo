@@ -5,12 +5,13 @@ target = "xtensa-esp32-espidf"
 
 [target.'cfg(target_os = "espidf")']
 linker = "ldproxy"
-runner = "espflash flash --monitor"
+# No runner on purpose: `cargo run` with espflash would flash espflash's default bootloader (no
+# MENU for recovery) and could write over the recovery slot. Flash with `cargo xtask flash`.
 # ldproxy always prints "Running ldproxy" to stderr, which newer rustc reports as a warning
 rustflags = ["--cfg", "espidf_time64", "-A", "linker_messages"]
 
 [alias]
-# Build tasks (xtask/): cargo xtask pack | release | flash. xtask runs on the PC, not the ESP32.
+# Build tasks (xtask/): cargo xtask pack | release | flash | test. xtask runs on the PC, not the ESP32.
 xtask = "run --quiet --manifest-path xtask/Cargo.toml --target host-tuple --"
 
 [unstable]

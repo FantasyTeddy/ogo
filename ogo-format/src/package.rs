@@ -165,7 +165,7 @@ mod tests {
     fn headers_are_valid_ustar() {
         let package = package(&[("game.toml", b"x"), ("game.bin", b"y")]);
         let header = &package[..BLOCK];
-        assert_eq!(&header[257..265], b"ustar\000");
+        assert_eq!(&header[257..265], b"ustar\x0000");
         let stored = octal(&header[148..156]).unwrap();
         let mut blank = header.to_vec();
         blank[148..156].fill(b' ');

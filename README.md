@@ -106,8 +106,9 @@ cargo xtask test                       # unit tests, on the PC
 ```
 
 `flash` uses this project's own bootloader (it starts recovery when MENU is held) and the partition
-table from [partitions.csv](partitions.csv); a plain `cargo espflash flash` would use espflash's
-default bootloader instead. Every image built by `cargo xtask` carries the git commit, shown on the
+table from [partitions.csv](partitions.csv). A plain `cargo espflash flash` would use espflash's
+default bootloader instead, without the MENU option; for the same reason the project config has no
+runner, so `cargo run` doesn't flash anything. Every image built by `cargo xtask` carries the git commit, shown on the
 settings screen, the web page and in recovery.
 
 A plain `cargo build --release` also works; its firmware ends up in
