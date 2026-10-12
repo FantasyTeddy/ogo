@@ -204,6 +204,11 @@ alone ([settings.rs](../ogo-launcher/src/settings.rs)).
    - `release [--features …]` builds `launcher.bin`, `recovery.bin` and every game's `.ogo` into
      `dist/`. `--features` applies to the launcher.
    - `test` runs the unit tests of `ogo-format` on the PC.
+   - `samples <sd-root> [--force]` writes fake games (placeholder images, two broken on purpose) to
+     an SD card, to test the game list.
+
+   Versions come from `Cargo.toml`: the workspace version for launcher, recovery and SDK, and each
+   game's own. Games are released on their own cadence, so there is no shared release tag.
 
 The esp-rs crates (`esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`) come from git, as in the template
 (see `[patch.crates-io]` in [Cargo.toml](../Cargo.toml)). The ecosystem moves quickly: check versions

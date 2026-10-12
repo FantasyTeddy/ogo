@@ -103,16 +103,25 @@ cargo xtask flash --port COM7          # afterwards: launcher only
 cargo xtask flash --monitor            # launcher, then show the serial log
 cargo xtask release                    # launcher.bin, recovery.bin and every game's .ogo in dist\
 cargo xtask test                       # unit tests, on the PC
+cargo xtask samples E:\                # fake games on an SD card, to test the game list
 ```
 
 `flash` uses this project's own bootloader (it starts recovery when MENU is held) and the partition
 table from [partitions.csv](partitions.csv). A plain `cargo espflash flash` would use espflash's
 default bootloader instead, without the MENU option; for the same reason the project config has no
-runner, so `cargo run` doesn't flash anything. Every image built by `cargo xtask` carries the git commit, shown on the
-settings screen, the web page and in recovery.
+runner, so `cargo run` doesn't flash anything. Every image built by `cargo xtask` carries the git
+commit, shown on the settings screen, the web page and in recovery.
 
 A plain `cargo build --release` also works; its firmware ends up in
 `<build folder>\xtensa-esp32-espidf\release\`, without a commit.
+
+### Versions
+
+Versions live in `Cargo.toml`. Launcher, recovery and SDK share the workspace version in the root
+[Cargo.toml](Cargo.toml): raise it when you release a launcher. Each game has its own version in its
+crate's Cargo.toml (see [docs/GAMES.md](docs/GAMES.md)). Builds of the same version still differ by
+their commit. Tags are optional, e.g. `git tag launcher-v0.10.0` or `git tag snake-v1.1.0` to mark a
+release in the history; nothing reads them.
 
 ## Games
 
@@ -194,9 +203,8 @@ Holding **SELECT** at power-on opens the launcher's hardware test screen.
 | [docs/](docs/) | Architecture, contracts, game guide, hardware notes, roadmap |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version and build directory |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery), scheduler, FAT |
-| [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test`), run on the PC |
+| [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples`), run on the PC |
 | [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
-| [tools/make_sample_games.py](tools/make_sample_games.py) | Writes sample (not runnable) games to an SD card, to test the game list |
 
 ## Restoring the original firmware
 

@@ -11,7 +11,7 @@ linker = "ldproxy"
 rustflags = ["--cfg", "espidf_time64", "-A", "linker_messages"]
 
 [alias]
-# Build tasks (xtask/): cargo xtask pack | release | flash | test. xtask runs on the PC, not the ESP32.
+# Build tasks (xtask/): cargo xtask pack | release | flash | test | samples. xtask runs on the PC.
 xtask = "run --quiet --manifest-path xtask/Cargo.toml --target host-tuple --"
 
 [unstable]

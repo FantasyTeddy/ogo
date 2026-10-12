@@ -4,9 +4,12 @@
 //! - `release`: builds the launcher, the recovery app and all games into `dist/`.
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
 //! - `test`: runs the tests on the PC (`ogo-format`).
+//! - `samples <sd-root>`: writes fake games to an SD card, to test the launcher's game list.
 //!
 //! Every firmware image built here carries the git commit (`OGO_COMMIT`, see
 //! `ogo_board::image_desc!`).
+
+mod samples;
 
 use std::{
     env, fs, io,
@@ -76,10 +79,22 @@ enum Task {
     },
     /// Run the tests on the PC (ogo-format).
     Test,
+    /// Write fake games (not runnable, two broken on purpose) to an SD card, to test the game list.
+    Samples {
+        /// The SD card root, e.g. E:\.
+        sd: PathBuf,
+        /// Overwrite sample folders that already exist.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    // Needs neither the toolchain nor git.
+    if let Task::Samples { sd, force } = &cli.command {
+        return samples::write(sd, *force);
+    }
     let project = Project::new()?;
     match cli.command {
         Task::Pack { game, ogo, sd } => {
@@ -96,6 +111,7 @@ fn main() -> anyhow::Result<()> {
         Task::Release { features } => project.release(features.as_deref()),
         Task::Flash { port, all, monitor, features } => project.flash(port.as_deref(), all, monitor, features.as_deref()),
         Task::Test => project.cargo(&["test", "--manifest-path", "ogo-format/Cargo.toml", "--target", HOST_TARGET]),
+        Task::Samples { .. } => unreachable!("handled before the project is set up"),
     }
 }
 
