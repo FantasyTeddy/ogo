@@ -24,7 +24,6 @@ use std::{
         mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
         Arc, Mutex, OnceLock,
     },
-    thread,
 };
 
 use esp_idf_svc::{
@@ -218,10 +217,9 @@ impl Speaker {
         let dac = Dac::open()?;
         let (commands, receiver) = mpsc::sync_channel(COMMAND_QUEUE_LEN);
         let thread_amp = amp.clone();
-        thread::Builder::new()
-            .name("audio".into())
-            .stack_size(AUDIO_STACK_SIZE)
-            .spawn(move || feed(dac, receiver, thread_amp, Mixer::new(volume)))?;
+        crate::thread::spawn_on_second_core("audio", AUDIO_STACK_SIZE, move || {
+            feed(dac, receiver, thread_amp, Mixer::new(volume))
+        })?;
 
         Ok(Self {
             amp,

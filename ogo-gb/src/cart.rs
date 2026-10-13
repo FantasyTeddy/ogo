@@ -15,6 +15,8 @@ pub enum CartError {
     TooSmall,
     /// A cartridge type (header byte 0x147) this core doesn't emulate.
     Unsupported(u8),
+    /// Runs on a Game Boy Color only (header byte 0x143).
+    ColorOnly,
 }
 
 impl fmt::Display for CartError {
@@ -22,6 +24,7 @@ impl fmt::Display for CartError {
         match self {
             CartError::TooSmall => write!(f, "ROM is smaller than 32 KiB"),
             CartError::Unsupported(kind) => write!(f, "unsupported cartridge type {kind:#04x}"),
+            CartError::ColorOnly => write!(f, "needs a Game Boy Color"),
         }
     }
 }
@@ -108,6 +111,9 @@ impl Cartridge {
     pub fn new(rom: Vec<u8>) -> Result<Self, CartError> {
         if rom.len() < 2 * ROM_BANK {
             return Err(CartError::TooSmall);
+        }
+        if rom[0x143] == 0xc0 {
+            return Err(CartError::ColorOnly);
         }
         let kind = rom[0x147];
         let (mbc, battery, rtc) = match kind {
@@ -321,6 +327,9 @@ mod tests {
             Cartridge::new(vec![0; 0x4000]).err(),
             Some(CartError::TooSmall)
         );
+        let mut color_only = rom(0x00, 2, 0);
+        color_only[0x143] = 0xc0;
+        assert_eq!(Cartridge::new(color_only).err(), Some(CartError::ColorOnly));
     }
 
     #[test]

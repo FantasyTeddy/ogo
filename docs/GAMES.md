@@ -104,6 +104,13 @@ older frame, so clear or overwrite all of it every time. The SDK sends finished 
 from another thread while the game draws the next one. A full frame takes about 31 ms to send, so
 30 fps is the realistic rate for full redraws.
 
+A game that only uses part of the screen can say so in `area()`, asked before each `draw`, e.g.
+`Some(Rectangle::new(Point::new(80, 48), Size::new(160, 144)))`. The SDK then keeps the rest of the
+screen black (also after the pause menu or the volume box) and sends only that part, which is
+correspondingly faster; `draw` only has to cover the area. Returning `None` again goes back to the
+whole screen. `Framebuffer::fill_contiguous` copies a block of pixels row by row, e.g. a picture
+drawn every frame.
+
 `ogo_sdk::ui` has the launcher's colours (`TEXT`, `DIM`, `BAR`, `SELECTION`, …) and a few helpers:
 `text` (one line, vertically centred on a point), `selection` (highlight a row), `panel` (a box with
 a border) and `progress_bar`. They are optional, for games that want to match the launcher's look:
@@ -161,13 +168,17 @@ ctx.saves().write("best", &best)?;                       // as text, via a temp 
 ctx.saves().write_bytes("level", &bytes)?;               // anything else: serialize it yourself
 ```
 
-Writes go to the SD card immediately, so there's nothing to flush before exiting.
+Writes go to the SD card immediately, so there's nothing to flush before exiting. For data that
+changes all the time, `fn paused(&mut self, ctx: &mut Ctx)` in the `impl Game` is called when the
+pause menu opens: a good moment to save, since exiting or switching off often follows.
 
 **Other things on `Ctx`:**
 - `random()`, `random_range(a..b)`: from the hardware random number generator
 - `frame()`: number of updates so far, e.g. for animations
 - `battery()`: `Option<BatteryLevel>` with `percent` and `millivolts`, updated every 5 s
 - `set_led(on)`: the blue LED
+- `set_cpu_mhz(mhz)`: 80, 160 (the default) or 240 MHz, for games that need more speed; faster uses
+  more battery
 - `exit_to_launcher()`: restarts into the launcher (the pause menu does this too)
 
 **Logging.** `log::info!` and friends go to the serial port.

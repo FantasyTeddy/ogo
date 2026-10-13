@@ -130,13 +130,12 @@ impl SoundIndicator {
         self.until = Some(Instant::now() + INDICATOR_SHOWN_FOR);
     }
 
-    pub fn draw(&mut self, fb: &mut Canvas, settings: &Settings) {
+    /// Draws the indicator while it's shown; returns where.
+    pub fn draw(&mut self, fb: &mut Canvas, settings: &Settings) -> Option<Rectangle> {
         if self.until.is_some_and(|until| Instant::now() >= until) {
             self.until = None;
         }
-        if self.until.is_none() {
-            return;
-        }
+        self.until?;
         let area = Rectangle::new(
             Point::new(fb.size().width as i32 - 130, 8),
             Size::new(122, 34),
@@ -170,6 +169,7 @@ impl SoundIndicator {
                 .draw(fb)
                 .ok();
         }
+        Some(area)
     }
 }
 

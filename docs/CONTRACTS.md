@@ -50,6 +50,9 @@ Image sizes: launcher 1.6 MB (WiFi and the HTTP server make up most of it), reco
   settings.toml      # optional, for the first WiFi setup
 ```
 
+The GB app reads Game Boy ROMs from `/roms/gb/` (outside `/ogo/`), the folder other emulators for the
+device use too.
+
 Deleting a game on the web page removes its folder under `games/`; its saves stay.
 
 **`settings.toml`** is only read when NVS has no WiFi network:

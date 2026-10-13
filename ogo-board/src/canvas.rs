@@ -31,17 +31,30 @@ impl Canvas {
 
     /// Sends the whole canvas to its place on the screen.
     pub fn present(&self, display: &mut Display) -> anyhow::Result<()> {
-        let Some(bottom_right) = self.area.bottom_right() else {
+        self.present_area(display, self.bounding_box())
+    }
+
+    /// Sends part of the canvas (in canvas coordinates) to its place on the screen.
+    pub fn present_area(&self, display: &mut Display, area: Rectangle) -> anyhow::Result<()> {
+        let area = area.intersection(&self.bounding_box());
+        let Some(bottom_right) = area.bottom_right() else {
             return Ok(());
         };
-        let top_left = self.area.top_left;
+        let width = self.area.size.width as usize;
+        let (x, row_len) = (area.top_left.x as usize, area.size.width as usize);
+        let pixels = area.rows().flat_map(|y| {
+            let start = y as usize * width + x;
+            self.pixels[start..start + row_len].iter().copied()
+        });
+        let top_left = self.area.top_left + area.top_left;
+        let bottom_right = self.area.top_left + bottom_right;
         display
             .set_pixels(
                 top_left.x as u16,
                 top_left.y as u16,
                 bottom_right.x as u16,
                 bottom_right.y as u16,
-                self.pixels.iter().copied(),
+                pixels,
             )
             .display_err()
     }
@@ -66,6 +79,34 @@ impl DrawTarget for Canvas {
             if point.x >= 0 && point.y >= 0 && (point.x as u32) < width && (point.y as u32) < height
             {
                 self.pixels[point.y as usize * width as usize + point.x as usize] = color;
+            }
+        }
+        Ok(())
+    }
+
+    /// Row by row instead of pixel by pixel when `area` lies within the canvas, e.g. for a picture
+    /// copied in every frame.
+    fn fill_contiguous<I>(&mut self, area: &Rectangle, colors: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Self::Color>,
+    {
+        if area.intersection(&self.bounding_box()) != *area {
+            return self.draw_iter(
+                area.points()
+                    .zip(colors)
+                    .map(|(point, color)| Pixel(point, color)),
+            );
+        }
+        let width = self.area.size.width as usize;
+        let row_len = area.size.width as usize;
+        let mut colors = colors.into_iter();
+        for y in area.rows() {
+            let start = y as usize * width + area.top_left.x as usize;
+            for (pixel, color) in self.pixels[start..start + row_len]
+                .iter_mut()
+                .zip(&mut colors)
+            {
+                *pixel = color;
             }
         }
         Ok(())

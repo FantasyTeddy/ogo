@@ -35,6 +35,7 @@ pub mod pitch;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::Rectangle};
 use esp_idf_svc::nvs::EspDefaultNvs;
 use ogo_board::{
     boot::{self, Boot},
@@ -71,7 +72,8 @@ pub mod prelude {
 }
 
 pub trait Game: Sized {
-    /// Updates (and frames) per second. The display manages about 30 full frames per second.
+    /// Updates (and frames) per second. The display manages about 30 full frames per second, or
+    /// more with a smaller [`Game::area`].
     const FPS: u32 = 30;
 
     fn new(ctx: &mut Ctx) -> Self;
@@ -79,8 +81,20 @@ pub trait Game: Sized {
     /// Advances the game by one step. Not called while the pause menu is open.
     fn update(&mut self, ctx: &mut Ctx);
 
-    /// Draws the whole frame; the buffer still holds an older frame, so clear or overwrite all of it.
+    /// Draws the whole frame, or all of [`Game::area`]; the buffer still holds an older frame, so
+    /// clear or overwrite all of it.
     fn draw(&self, fb: &mut Framebuffer);
+
+    /// The part of the screen the game draws, if not all of it; asked before each `draw`. The SDK
+    /// keeps the rest black and sends only this part to the display, which is faster: a quarter
+    /// of the screen takes about a quarter of the time.
+    fn area(&self) -> Option<Rectangle> {
+        None
+    }
+
+    /// Called when the pause menu opens: a good moment to save, since "Exit to launcher" and
+    /// switching off often follow.
+    fn paused(&mut self, _ctx: &mut Ctx) {}
 }
 
 /// Defines `main` for a game type, and the image description that marks it as a game.
@@ -141,6 +155,11 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
     let mut next_frame = Instant::now();
     let mut pause: Option<PauseMenu> = None;
     let mut indicator = SoundIndicator::default();
+    let screen = Rectangle::new(Point::zero(), Size::new(SCREEN_WIDTH, SCREEN_HEIGHT));
+    let mut area = screen;
+    // Where overlays or a previous area were drawn, for how many more frames that needs clearing:
+    // each frame draws into one of the two buffers, so both need it once.
+    let mut stale: Option<(Rectangle, u8)> = None;
 
     loop {
         ctx.poll()?;
@@ -176,6 +195,7 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
                 ctx.sound().set_music_paused(true);
                 ctx.sound().play(MENU_SOUND);
                 pause = Some(PauseMenu::default());
+                game.paused(&mut ctx);
             }
             None => {
                 game.update(&mut ctx);
@@ -183,13 +203,39 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             }
         }
 
-        let fb = presenter.frame().context("no frame buffer")?;
-        game.draw(fb);
-        if let Some(menu) = &pause {
-            menu.draw(fb, ctx.settings());
+        let new_area = game.area().unwrap_or(screen);
+        if new_area != area {
+            stale = Some((stale.map_or(area, |(s, _)| envelope(s, area)), 2));
+            area = new_area;
         }
-        indicator.draw(fb, ctx.settings());
-        presenter.present()?;
+        let fb = presenter.frame().context("no frame buffer")?;
+        let mut send = vec![area];
+        if let Some((rect, frames)) = &mut stale {
+            if area != screen {
+                fb.fill_solid(rect, Rgb565::BLACK).ok();
+            }
+            send.push(*rect);
+            *frames -= 1;
+            if *frames == 0 {
+                stale = None;
+            }
+        }
+        game.draw(fb);
+        let mut overlay = pause.as_ref().map(|menu| {
+            menu.draw(fb, ctx.settings());
+            screen
+        });
+        if let Some(rect) = indicator.draw(fb, ctx.settings()) {
+            overlay = Some(overlay.map_or(rect, |o| envelope(o, rect)));
+        }
+        if let Some(rect) = overlay {
+            send.push(rect);
+            stale = Some((stale.map_or(rect, |(s, _)| envelope(s, rect)), 2));
+        }
+        if send.contains(&screen) {
+            send = vec![screen];
+        }
+        presenter.present(send)?;
 
         // Fixed rate; if we fall far behind, don't try to catch up.
         next_frame += frame_time;
@@ -200,4 +246,11 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             next_frame = now;
         }
     }
+}
+
+/// The smallest rectangle containing both.
+fn envelope(a: Rectangle, b: Rectangle) -> Rectangle {
+    let top_left = a.top_left.component_min(b.top_left);
+    let bottom_right = (a.top_left + a.size).component_max(b.top_left + b.size);
+    Rectangle::with_corners(top_left, bottom_right - Point::new(1, 1))
 }

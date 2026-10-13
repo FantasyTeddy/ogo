@@ -762,6 +762,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "gb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "embedded-graphics",
+ "embuild",
+ "esp-idf-svc",
+ "log",
+ "ogo-gb",
+ "ogo-sdk",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1124,6 +1137,10 @@ dependencies = [
  "serde",
  "toml 1.1.8+spec-1.1.0",
 ]
+
+[[package]]
+name = "ogo-gb"
+version = "0.1.0"
 
 [[package]]
 name = "ogo-launcher"

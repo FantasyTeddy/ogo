@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::Context as _;
 use esp_idf_svc::{nvs::EspDefaultNvs, sys};
 use ogo_board::{
     boot, Battery, BatteryLevel, Button, ButtonState, Buttons, Led, SdCard, Settings, Speaker,
@@ -174,6 +175,17 @@ impl Ctx {
     /// Number of updates so far.
     pub fn frame(&self) -> u64 {
         self.frame
+    }
+
+    /// Sets the CPU clock: 80, 160 (what games start with) or 240 MHz. Faster uses more battery.
+    pub fn set_cpu_mhz(&mut self, mhz: u32) -> anyhow::Result<()> {
+        let config = sys::esp_pm_config_t {
+            max_freq_mhz: mhz as i32,
+            min_freq_mhz: mhz as i32,
+            light_sleep_enable: false,
+        };
+        sys::esp!(unsafe { sys::esp_pm_configure((&config as *const sys::esp_pm_config_t).cast()) })
+            .with_context(|| format!("can't set the CPU to {mhz} MHz"))
     }
 
     /// A random number from the hardware random number generator.

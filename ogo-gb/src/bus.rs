@@ -1,5 +1,6 @@
 //! The memory map: cartridge, video and work RAM, OAM, I/O registers, high RAM.
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::cart::Cartridge;
@@ -23,7 +24,7 @@ const IO_UNUSED_BITS: [u8; 0x80] = [
 
 pub(crate) struct Bus {
     pub cart: Cartridge,
-    pub wram: [u8; 0x2000],
+    pub wram: Box<[u8; 0x2000]>,
     pub hram: [u8; 0x7f],
     /// I/O registers without their own model (sound, serial data), as written.
     pub io: [u8; 0x80],
@@ -47,7 +48,7 @@ impl Bus {
     pub fn new(cart: Cartridge) -> Self {
         Bus {
             cart,
-            wram: [0; 0x2000],
+            wram: crate::zeroed(),
             hram: [0; 0x7f],
             io: [0; 0x80],
             ie: 0,

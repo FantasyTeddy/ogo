@@ -68,6 +68,12 @@ music on/off and "Exit to launcher"; **VOL** switches between all sound, effects
 muted. All of these are kept for the launcher and other games too. Any reset while a game runs also
 lands back in the launcher.
 
+**GB** plays Game Boy games (the original, not Color) from your own ROM files: put the `.gb` files
+into `/roms/gb/` on the SD card, where other emulators for the device look too. It shows them in a list; **A** starts one, at its original size
+in the middle of the screen. The buttons are the Game Boy's; **MENU** opens the pause menu as in
+every game. Games with a battery-backed save keep it in `/ogo/saves/gb/`, saved when the pause menu
+opens and a few seconds after the game changed it. There's no sound yet.
+
 ## Web page
 
 Press **SELECT** in the game list. The device shows what to do, step by step:

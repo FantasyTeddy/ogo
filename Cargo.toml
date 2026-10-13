@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "games/snake", "games/brickfall", "games/smash"]
+members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "games/snake", "games/brickfall", "games/smash", "games/gb"]
 # Own workspaces: they also build for the PC (xtask runs there, ogo-format and ogo-gb are tested there)
 exclude = ["xtask", "ogo-format", "ogo-gb"]
 
@@ -13,6 +13,7 @@ license = "MIT"
 ogo-board = { path = "ogo-board" }
 ogo-sdk = { path = "ogo-sdk" }
 ogo-format = { path = "ogo-format" }
+ogo-gb = { path = "ogo-gb" }
 anyhow = "1"
 log = "0.4"
 esp-idf-svc = "0.53"

@@ -4,6 +4,7 @@
 //! Each visible line is drawn in one go when it enters HBlank, with the registers as they are
 //! then: background, window and up to 10 sprites, through their palettes into `frame`.
 
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -19,7 +20,7 @@ const SPRITES_PER_LINE: usize = 10;
 const LINE_TILES: usize = SCREEN_WIDTH / 8 + 1;
 
 pub(crate) struct Ppu {
-    pub vram: [u8; 0x2000],
+    pub vram: Box<[u8; 0x2000]>,
     pub oam: [u8; 0xa0],
     pub lcdc: u8,
     /// Only the interrupt-select bits 3-6; mode and LYC=LY are computed when read.
@@ -45,12 +46,14 @@ pub(crate) struct Ppu {
     pub frame: Vec<u8>,
     /// Set when a frame is complete (VBlank begins).
     pub frame_done: bool,
+    /// Lines are drawn into `frame`; off for frames that are skipped.
+    pub drawing: bool,
 }
 
 impl Ppu {
     pub fn new() -> Self {
         Ppu {
-            vram: [0; 0x2000],
+            vram: crate::zeroed(),
             oam: [0; 0xa0],
             lcdc: 0x91,
             stat: 0,
@@ -69,6 +72,7 @@ impl Ppu {
             window_line: 0,
             frame: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT],
             frame_done: false,
+            drawing: true,
         }
     }
 
@@ -158,7 +162,9 @@ impl Ppu {
             self.dot += step;
             cycles -= step;
             if self.dot == MODE3_END && self.ly < VISIBLE_LINES {
-                self.draw_line();
+                if self.drawing {
+                    self.draw_line();
+                }
             } else if self.dot == LINE_CYCLES {
                 self.dot = 0;
                 self.ly = (self.ly + 1) % LINES;

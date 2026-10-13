@@ -18,6 +18,8 @@ mod cpu;
 mod ppu;
 mod timer;
 
+use alloc::boxed::Box;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use bus::Bus;
@@ -78,6 +80,12 @@ impl GameBoy {
         }
     }
 
+    /// Whether `run_frame` draws the picture. Skipping it saves about a third of the time a
+    /// frame takes; the emulation is the same either way.
+    pub fn set_drawing(&mut self, on: bool) {
+        self.bus.ppu.drawing = on;
+    }
+
     /// The picture: `SCREEN_WIDTH` x `SCREEN_HEIGHT` shades, row by row, from 0 (white) to
     /// 3 (black). Complete after `run_frame`.
     pub fn frame(&self) -> &[u8] {
@@ -111,6 +119,14 @@ impl GameBoy {
     pub fn peek(&self, addr: u16) -> u8 {
         self.bus.peek(addr)
     }
+}
+
+/// A zeroed array on the heap, without building it on the stack first.
+fn zeroed<const N: usize>() -> Box<[u8; N]> {
+    vec![0; N]
+        .into_boxed_slice()
+        .try_into()
+        .expect("the length is N")
 }
 
 #[cfg(test)]

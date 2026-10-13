@@ -145,6 +145,7 @@ the workspace version fails before anything is published.
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/brickfall/](games/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
 | [games/smash/](games/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
+| [games/gb/](games/gb/) | GB, plays Game Boy ROMs from the SD card with `ogo-gb` |
 | [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples / icon`), run on the PC |
 | [docs/](docs/) | Architecture, contracts, game guide, hardware notes |
 | [.github/workflows/ci.yml](.github/workflows/ci.yml) | CI and releases |
