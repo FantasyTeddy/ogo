@@ -105,11 +105,14 @@ from another thread while the game draws the next one. A full frame takes about 
 30 fps is the realistic rate for full redraws.
 
 A game that only uses part of the screen can say so in `area()`, asked before each `draw`, e.g.
-`Some(Rectangle::new(Point::new(80, 48), Size::new(160, 144)))`. The SDK then keeps the rest of the
-screen black (also after the pause menu or the volume box) and sends only that part, which is
-correspondingly faster; `draw` only has to cover the area. Returning `None` again goes back to the
-whole screen. `Framebuffer::fill_contiguous` copies a block of pixels row by row, e.g. a picture
-drawn every frame.
+`Some(Rectangle::new(Point::new(80, 48), Size::new(160, 144)))`. `draw` then gets a framebuffer of
+just that size, with (0, 0) at the area's top-left corner, kept in internal RAM: several times
+faster to draw into than a full frame, which has to live in the slower PSRAM. The SDK keeps the rest
+of the screen black (also after the pause menu or the volume box) and sends only the area, which is
+correspondingly faster too. Returning `None` again goes back to the whole screen. The area's two
+buffers are allocated when it first appears; a game that also needs large blocks of internal RAM
+(see `in_internal_ram` below) should allocate them afterwards. `Framebuffer::fill_contiguous` copies
+a block of pixels row by row, e.g. a picture drawn every frame.
 
 `ogo_sdk::ui` has the launcher's colours (`TEXT`, `DIM`, `BAR`, `SELECTION`, …) and a few helpers:
 `text` (one line, vertically centred on a point), `selection` (highlight a row), `panel` (a box with
@@ -179,6 +182,10 @@ pause menu opens: a good moment to save, since exiting or switching off often fo
 - `set_led(on)`: the blue LED
 - `set_cpu_mhz(mhz)`: 80, 160 (the default) or 240 MHz, for games that need more speed; faster uses
   more battery
+
+`ogo_sdk::in_internal_ram(|| …)` makes the allocations in it prefer internal RAM up to 256 KB,
+instead of PSRAM from 16 KB on: for data used so heavily that PSRAM's speed matters. Internal RAM
+has a few hundred KB, in blocks of at most about 110 KB.
 - `exit_to_launcher()`: restarts into the launcher (the pause menu does this too)
 
 **Logging.** `log::info!` and friends go to the serial port.

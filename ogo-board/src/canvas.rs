@@ -22,6 +22,18 @@ impl Canvas {
         }
     }
 
+    /// Where the canvas goes on the screen.
+    pub fn area(&self) -> Rectangle {
+        self.area
+    }
+
+    /// Copies another canvas into this one, at its place on the screen.
+    pub fn copy_from(&mut self, other: &Canvas) {
+        let target = Rectangle::new(other.area.top_left - self.area.top_left, other.area.size);
+        self.fill_contiguous(&target, other.pixels.iter().copied())
+            .ok();
+    }
+
     /// Darkens every pixel to half brightness, e.g. behind a menu.
     pub fn dim(&mut self) {
         for pixel in &mut self.pixels {

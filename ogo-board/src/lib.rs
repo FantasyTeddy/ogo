@@ -174,3 +174,13 @@ impl Led {
         Ok(())
     }
 }
+
+/// Runs `f` with allocations up to 256 KB going to internal RAM first, instead of PSRAM from 16 KB
+/// on (`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL`): for buffers used so much that PSRAM's speed
+/// matters. Falls back to PSRAM when internal RAM runs out.
+pub fn in_internal_ram<T>(f: impl FnOnce() -> T) -> T {
+    unsafe { sys::heap_caps_malloc_extmem_enable(256 * 1024) };
+    let result = f();
+    unsafe { sys::heap_caps_malloc_extmem_enable(16 * 1024) };
+    result
+}

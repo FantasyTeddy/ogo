@@ -1,20 +1,33 @@
-//! Double buffering: the game draws into one full-screen buffer while a display thread sends the
-//! other one, or the parts of it that changed, to the LCD.
+//! Double buffering: the game draws into one buffer while a display thread sends another to the
+//! LCD.
+//!
+//! Full-screen buffers are in PSRAM. A game that uses only part of the screen ([`Game::area`])
+//! draws into buffers of just that size in internal RAM instead, which are much faster to write
+//! and to send.
+//!
+//! [`Game::area`]: crate::Game::area
 
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use anyhow::{anyhow, Context};
 use embedded_graphics::{prelude::*, primitives::Rectangle};
-use ogo_board::{display, Canvas, Display};
+use ogo_board::{display, in_internal_ram, Canvas, Display};
 
-/// A frame and the areas of it to send to the display.
-type Frame = (Box<Canvas>, Vec<Rectangle>);
+/// A buffer and the parts of it (in its own coordinates) to send to the display.
+type Frame = (Canvas, Vec<Rectangle>);
+
+/// Buffers of each kind: one being drawn, one being sent.
+const BUFFERS: usize = 2;
 
 pub struct Presenter {
-    /// The buffer the game draws into, between [`Presenter::frame`] and [`Presenter::present`].
-    drawing: Option<Box<Canvas>>,
+    screen: Rectangle,
     to_display: SyncSender<Frame>,
-    free: Receiver<Box<Canvas>>,
+    sent: Receiver<Canvas>,
+    /// Free full-screen buffers.
+    full: Vec<Canvas>,
+    /// The game's area and its free buffers.
+    area: Option<Rectangle>,
+    area_buffers: Vec<Canvas>,
 }
 
 /// The display handle only ever lives in the display thread once it's been moved there.
@@ -28,8 +41,7 @@ impl Presenter {
             Size::new(display::WIDTH.into(), display::HEIGHT.into()),
         );
         let (to_display, frames) = mpsc::sync_channel::<Frame>(1);
-        let (to_game, free) = mpsc::sync_channel::<Box<Canvas>>(2);
-        to_game.send(Box::new(Canvas::new(screen)))?;
+        let (to_game, sent) = mpsc::sync_channel::<Canvas>(2 * BUFFERS);
 
         let display = SendDisplay(display);
         ogo_board::thread::spawn_on_second_core("display", 8192, move || {
@@ -48,31 +60,67 @@ impl Presenter {
         .context("can't start the display thread")?;
 
         Ok(Self {
-            drawing: Some(Box::new(Canvas::new(screen))),
+            screen,
             to_display,
-            free,
+            sent,
+            full: (0..BUFFERS).map(|_| Canvas::new(screen)).collect(),
+            area: None,
+            area_buffers: Vec::new(),
         })
     }
 
-    /// The buffer to draw the next frame into. Waits until the display thread has sent it.
-    pub fn frame(&mut self) -> anyhow::Result<&mut Canvas> {
-        if self.drawing.is_none() {
-            self.drawing = Some(
-                self.free
-                    .recv()
-                    .map_err(|_| anyhow!("the display thread has stopped"))?,
-            );
+    /// A full-screen buffer to draw into. Waits until the display thread has sent one.
+    pub fn take_full(&mut self) -> anyhow::Result<Canvas> {
+        loop {
+            if let Some(canvas) = self.full.pop() {
+                return Ok(canvas);
+            }
+            self.receive()?;
         }
-        Ok(self.drawing.as_mut().expect("just filled"))
     }
 
-    /// Hands the drawn frame to the display thread, which sends `areas` of it to the display.
-    pub fn present(&mut self, areas: Vec<Rectangle>) -> anyhow::Result<()> {
-        if let Some(frame) = self.drawing.take() {
-            self.to_display
-                .send((frame, areas))
-                .map_err(|_| anyhow!("the display thread has stopped"))?;
+    /// A buffer covering `area` of the screen, in internal RAM. Waits until the display thread has
+    /// sent one. For a new area, both buffers are made at once, while internal RAM still has
+    /// blocks large enough.
+    pub fn take_area(&mut self, area: Rectangle) -> anyhow::Result<Canvas> {
+        if self.area != Some(area) {
+            self.area = Some(area);
+            self.area_buffers = (0..BUFFERS)
+                .map(|_| in_internal_ram(|| Canvas::new(area)))
+                .collect();
         }
+        loop {
+            if let Some(canvas) = self.area_buffers.pop() {
+                return Ok(canvas);
+            }
+            self.receive()?;
+        }
+    }
+
+    /// Takes back a buffer that wasn't sent.
+    pub fn recycle(&mut self, canvas: Canvas) {
+        if canvas.area() == self.screen {
+            self.full.push(canvas);
+        } else if Some(canvas.area()) == self.area {
+            self.area_buffers.push(canvas);
+        }
+        // Otherwise it's for an area the game no longer uses: dropped
+    }
+
+    /// Hands a drawn buffer to the display thread, which sends `areas` of it (in the buffer's own
+    /// coordinates) to the display.
+    pub fn present(&mut self, canvas: Canvas, areas: Vec<Rectangle>) -> anyhow::Result<()> {
+        self.to_display
+            .send((canvas, areas))
+            .map_err(|_| anyhow!("the display thread has stopped"))
+    }
+
+    fn receive(&mut self) -> anyhow::Result<()> {
+        let canvas = self
+            .sent
+            .recv()
+            .map_err(|_| anyhow!("the display thread has stopped"))?;
+        self.recycle(canvas);
         Ok(())
     }
 }

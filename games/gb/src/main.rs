@@ -14,31 +14,33 @@ use embedded_graphics::{
     primitives::Rectangle,
     text::Alignment,
 };
-use esp_idf_svc::sys;
 use ogo_gb::{Buttons, Cartridge, GameBoy, CLOCK_HZ, CYCLES_PER_FRAME};
-use ogo_sdk::{prelude::*, ui};
+use ogo_sdk::{in_internal_ram, prelude::*, ui};
 
 /// Where the stock firmware and other ODROID-GO emulators keep Game Boy ROMs too.
 const ROM_DIR: &str = "/sd/roms/gb";
 /// The Game Boy's 160x144 pixels, in the middle of the screen.
 const PICTURE: Rectangle = Rectangle::new(Point::new(80, 48), Size::new(160, 144));
-/// The four shades, white to black.
-const SHADES: [Rgb565; 4] = [
-    Rgb565::new(31, 63, 31),
-    Rgb565::new(21, 42, 21),
-    Rgb565::new(10, 21, 10),
-    Rgb565::new(0, 0, 0),
-];
+/// The four shades, white to black, as red (5 bits) and green (6 bits); blue is like red.
+const SHADE_RED: [u8; 4] = [31, 21, 10, 0];
+const SHADE_GREEN: [u8; 4] = [63, 42, 21, 0];
+/// The colour of a pixel from its shades in two frames in a row (`previous << 2 | current`): their
+/// average. Games that show sprites or effects only every other frame then look as they did on
+/// the Game Boy's slow LCD, although only every second frame is shown.
+const BLENDED: [Rgb565; 16] = blended();
 /// A Game Boy frame in real time: about 59.7 per second.
 const FRAME_NANOS: u128 = 1_000_000_000 * CYCLES_PER_FRAME as u128 / CLOCK_HZ as u128;
-/// Frames run without drawing per update at most, to catch up when emulating falls behind.
-const MAX_SKIPPED: u64 = 2;
+/// Game Boy frames per update: the SDK runs 30 updates per second.
+const FRAMES_PER_UPDATE: u64 = 2;
+/// Frames per update at most, to catch up when emulating falls behind; the ones beyond two aren't
+/// drawn.
+const MAX_FRAMES_PER_UPDATE: u64 = 4;
 /// Further behind than this (e.g. after the pause menu), the clock starts over instead.
 const MAX_BEHIND: u64 = 30;
-/// How often the cartridge RAM is checked for changes to save.
-const SAVE_EVERY: u64 = 120;
-/// How often the speed is logged.
-const LOG_EVERY: u64 = 600;
+/// How often the cartridge RAM is checked for changes to save: every 2 s.
+const SAVE_EVERY: u64 = 60;
+/// How often the speed is logged: every 10 s.
+const LOG_EVERY: u64 = 300;
 const BUTTONS: [(Button, u8); 8] = [
     (Button::Right, Buttons::RIGHT),
     (Button::Left, Buttons::LEFT),
@@ -58,9 +60,13 @@ const NAME_CHARS: usize = 36;
 
 enum Gb {
     List(List),
+    /// The selected ROM starts with the next update: the SDK sets up the buffers for the picture
+    /// first, which need the larger blocks of internal RAM, before the emulator takes its share.
+    Starting(List),
     Playing(Box<Playing>),
 }
 
+#[derive(Default)]
 struct List {
     /// File names in `ROM_DIR`, sorted.
     roms: Vec<String>,
@@ -71,6 +77,8 @@ struct List {
 
 struct Playing {
     gb: GameBoy,
+    /// The picture of the frame before the last, blended with the last one when drawing.
+    previous: Vec<u8>,
     /// The save name for the cartridge RAM; `None` without a battery.
     save: Option<String>,
     saved_ram: Vec<u8>,
@@ -85,7 +93,7 @@ struct Playing {
 }
 
 impl Game for Gb {
-    const FPS: u32 = 60;
+    const FPS: u32 = 30;
 
     fn new(ctx: &mut Ctx) -> Self {
         let list = List::scan(ctx);
@@ -95,9 +103,24 @@ impl Game for Gb {
     fn update(&mut self, ctx: &mut Ctx) {
         match self {
             Gb::List(list) => {
-                if let Some(playing) = list.update(ctx) {
-                    *self = Gb::Playing(playing);
+                if list.update(ctx) {
+                    *self = Gb::Starting(std::mem::take(list));
                 }
+            }
+            Gb::Starting(list) => {
+                let name = list.roms[list.selected].clone();
+                *self = match Playing::start(ctx, &name) {
+                    Ok(playing) => {
+                        ctx.saves().write("last", &name).ok();
+                        Gb::Playing(Box::new(playing))
+                    }
+                    Err(e) => {
+                        log::warn!("{name}: {e:?}");
+                        let mut list = std::mem::take(list);
+                        list.message = Some(format!("{e}"));
+                        Gb::List(list)
+                    }
+                };
             }
             Gb::Playing(playing) => playing.update(ctx),
         }
@@ -106,12 +129,15 @@ impl Game for Gb {
     fn draw(&self, fb: &mut Framebuffer) {
         match self {
             Gb::List(list) => list.draw(fb),
+            Gb::Starting(_) => {
+                fb.clear(Rgb565::BLACK).ok();
+            }
             Gb::Playing(playing) => playing.draw(fb),
         }
     }
 
     fn area(&self) -> Option<Rectangle> {
-        matches!(self, Gb::Playing(_)).then_some(PICTURE)
+        matches!(self, Gb::Starting(_) | Gb::Playing(_)).then_some(PICTURE)
     }
 
     fn paused(&mut self, ctx: &mut Ctx) {
@@ -146,9 +172,10 @@ impl List {
         }
     }
 
-    fn update(&mut self, ctx: &mut Ctx) -> Option<Box<Playing>> {
+    /// Returns whether to start the selected ROM.
+    fn update(&mut self, ctx: &mut Ctx) -> bool {
         if self.roms.is_empty() {
-            return None;
+            return false;
         }
         let input = ctx.input();
         if input.pressed(Button::Up) {
@@ -156,19 +183,9 @@ impl List {
         } else if input.pressed(Button::Down) {
             self.selected = (self.selected + 1) % self.roms.len();
         } else if input.pressed(Button::A) {
-            let name = self.roms[self.selected].clone();
-            match Playing::start(ctx, &name) {
-                Ok(playing) => {
-                    ctx.saves().write("last", &name).ok();
-                    return Some(Box::new(playing));
-                }
-                Err(e) => {
-                    log::warn!("{name}: {e:?}");
-                    self.message = Some(format!("{e}"));
-                }
-            }
+            return true;
         }
-        None
+        false
     }
 
     fn draw(&self, fb: &mut Framebuffer) {
@@ -239,9 +256,11 @@ impl Playing {
 
         // The emulator's memory is used for every instruction and pixel: keep all of it in
         // internal RAM, which is faster than PSRAM. The ROM stays in PSRAM.
-        unsafe { sys::heap_caps_malloc_extmem_enable(64 * 1024) };
-        let mut gb = GameBoy::new(cart);
-        unsafe { sys::heap_caps_malloc_extmem_enable(16 * 1024) };
+        let (mut gb, previous) = in_internal_ram(|| {
+            let gb = GameBoy::new(cart);
+            let previous = vec![0; gb.frame().len()];
+            (gb, previous)
+        });
 
         let save = gb
             .cartridge()
@@ -270,6 +289,7 @@ impl Playing {
         let now = Instant::now();
         Ok(Playing {
             gb,
+            previous,
             save,
             saved_ram,
             frames: 0,
@@ -289,23 +309,30 @@ impl Playing {
             .fold(0, |bits, (_, bit)| bits | bit);
         self.gb.set_buttons(Buttons(buttons));
 
-        // Frames that should be done once this one is
-        let due = (self.clock_start.elapsed().as_nanos() / FRAME_NANOS) as u64 + 1;
-        let mut behind = due.saturating_sub(self.frames + 1);
-        if behind > MAX_BEHIND {
+        // The frames that bring the emulation to where it should be once this update is shown:
+        // usually two, sometimes one, as the updates are slightly faster than two Game Boy frames
+        let due = (self.clock_start.elapsed().as_nanos() / FRAME_NANOS) as u64 + FRAMES_PER_UPDATE;
+        let mut count = due.saturating_sub(self.frames);
+        if count > MAX_BEHIND {
             self.clock_start = Instant::now();
             self.frames = 0;
-            behind = 0;
+            count = FRAMES_PER_UPDATE;
         }
+        let count = count.clamp(1, MAX_FRAMES_PER_UPDATE);
+
         let started = Instant::now();
-        let skip = behind.min(MAX_SKIPPED);
+        let skip = count.saturating_sub(2);
         self.gb.set_drawing(false);
         for _ in 0..skip {
             self.gb.run_frame();
         }
         self.gb.set_drawing(true);
+        if count >= 2 {
+            self.gb.run_frame();
+        }
+        self.previous.copy_from_slice(self.gb.frame());
         self.gb.run_frame();
-        self.frames += skip + 1;
+        self.frames += count;
         self.skipped += skip;
         self.emulating += started.elapsed();
 
@@ -316,10 +343,9 @@ impl Playing {
             let seconds = self.log_start.elapsed().as_secs_f32();
             let per_update = |time: Duration| time.as_secs_f32() * 1000.0 / LOG_EVERY as f32;
             log::info!(
-                "{:.1} updates/s, {} of {} frames skipped; per update {:.1} ms emulating, {:.1} ms copying",
+                "{:.1} pictures/s, {} frames not drawn; per picture {:.1} ms emulating, {:.1} ms copying",
                 LOG_EVERY as f32 / seconds,
                 self.skipped,
-                self.skipped + LOG_EVERY,
                 per_update(self.emulating),
                 per_update(self.copying.get()),
             );
@@ -348,11 +374,12 @@ impl Playing {
     fn draw(&self, fb: &mut Framebuffer) {
         let started = Instant::now();
         let pixels = self
-            .gb
-            .frame()
+            .previous
             .iter()
-            .map(|&shade| SHADES[shade as usize & 3]);
-        fb.fill_contiguous(&PICTURE, pixels).ok();
+            .zip(self.gb.frame())
+            .map(|(&previous, &current)| BLENDED[(previous << 2 | current) as usize & 15]);
+        // The framebuffer is just the picture's area
+        fb.fill_contiguous(&fb.bounding_box(), pixels).ok();
         self.copying.set(self.copying.get() + started.elapsed());
     }
 }
@@ -372,6 +399,19 @@ fn save_name(file_name: &str) -> String {
             }
         })
         .collect()
+}
+
+const fn blended() -> [Rgb565; 16] {
+    let mut colors = [Rgb565::BLACK; 16];
+    let mut i = 0;
+    while i < 16 {
+        let (a, b) = (i >> 2, i & 3);
+        let red = (SHADE_RED[a] + SHADE_RED[b]).div_ceil(2);
+        let green = (SHADE_GREEN[a] + SHADE_GREEN[b]).div_ceil(2);
+        colors[i] = Rgb565::new(red, green, red);
+        i += 1;
+    }
+    colors
 }
 
 ogo_sdk::main!(Gb);

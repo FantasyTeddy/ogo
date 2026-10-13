@@ -34,7 +34,6 @@ pub mod pitch;
 
 use std::time::{Duration, Instant};
 
-use anyhow::Context as _;
 use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::Rectangle};
 use esp_idf_svc::nvs::EspDefaultNvs;
 use ogo_board::{
@@ -48,7 +47,7 @@ pub use ogo_board as __board;
 /// The launcher's colours and drawing helpers (`text`, `selection`, `panel`, `progress_bar`), for
 /// games that want to match its look.
 pub use ogo_board::ui;
-pub use ogo_board::{BatteryLevel, Note, Part, Speaker, Track, Wave};
+pub use ogo_board::{in_internal_ram, BatteryLevel, Note, Part, Speaker, Track, Wave};
 pub use saves::Saves;
 
 use overlay::{PauseAction, PauseMenu, SoundIndicator, MENU_SOUND};
@@ -85,9 +84,11 @@ pub trait Game: Sized {
     /// clear or overwrite all of it.
     fn draw(&self, fb: &mut Framebuffer);
 
-    /// The part of the screen the game draws, if not all of it; asked before each `draw`. The SDK
-    /// keeps the rest black and sends only this part to the display, which is faster: a quarter
-    /// of the screen takes about a quarter of the time.
+    /// The part of the screen the game draws, if not all of it; asked before each `draw`. `draw`
+    /// then gets a framebuffer of just that size in internal RAM, with (0, 0) at the area's
+    /// top-left corner. The SDK keeps the rest of the screen black and sends only this part to the
+    /// display. Both are much faster: a quarter of the screen takes about a quarter of the time to
+    /// send, and internal RAM is several times faster to draw into than the PSRAM of a full frame.
     fn area(&self) -> Option<Rectangle> {
         None
     }
@@ -156,10 +157,10 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
     let mut pause: Option<PauseMenu> = None;
     let mut indicator = SoundIndicator::default();
     let screen = Rectangle::new(Point::zero(), Size::new(SCREEN_WIDTH, SCREEN_HEIGHT));
-    let mut area = screen;
-    // Where overlays or a previous area were drawn, for how many more frames that needs clearing:
-    // each frame draws into one of the two buffers, so both need it once.
-    let mut stale: Option<(Rectangle, u8)> = None;
+    let mut area = None;
+    // Where the screen still shows something outside the game's area (an overlay, an earlier
+    // area): cleared with the next frame.
+    let mut stale: Option<Rectangle> = None;
 
     loop {
         ctx.poll()?;
@@ -203,39 +204,55 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             }
         }
 
-        let new_area = game.area().unwrap_or(screen);
+        let new_area = game.area().filter(|a| *a != screen);
         if new_area != area {
-            stale = Some((stale.map_or(area, |(s, _)| envelope(s, area)), 2));
             area = new_area;
+            stale = Some(screen);
         }
-        let fb = presenter.frame().context("no frame buffer")?;
-        let mut send = vec![area];
-        if let Some((rect, frames)) = &mut stale {
-            if area != screen {
-                fb.fill_solid(rect, Rgb565::BLACK).ok();
+        let overlays = |fb: &mut Framebuffer, indicator: &mut SoundIndicator| {
+            let mut drawn = pause.as_ref().map(|menu| {
+                menu.draw(fb, ctx.settings());
+                screen
+            });
+            if let Some(rect) = indicator.draw(fb, ctx.settings()) {
+                drawn = Some(drawn.map_or(rect, |d| envelope(d, rect)));
             }
-            send.push(*rect);
-            *frames -= 1;
-            if *frames == 0 {
+            drawn
+        };
+        match area {
+            None => {
+                let mut fb = presenter.take_full()?;
+                game.draw(&mut fb);
+                overlays(&mut fb, &mut indicator);
                 stale = None;
+                presenter.present(fb, vec![screen])?;
+            }
+            Some(area) => {
+                let mut canvas = presenter.take_area(area)?;
+                game.draw(&mut canvas);
+                if pause.is_none() && !indicator.visible() && stale.is_none() {
+                    let whole = canvas.bounding_box();
+                    presenter.present(canvas, vec![whole])?;
+                } else {
+                    // Overlays need the whole screen: the area goes into a full-screen buffer,
+                    // black around it
+                    let mut fb = presenter.take_full()?;
+                    fb.clear(Rgb565::BLACK).ok();
+                    fb.copy_from(&canvas);
+                    presenter.recycle(canvas);
+                    let mut send: Vec<Rectangle> =
+                        [Some(area), stale.take()].into_iter().flatten().collect();
+                    if let Some(rect) = overlays(&mut fb, &mut indicator) {
+                        send.push(rect);
+                        stale = Some(rect);
+                    }
+                    if send.contains(&screen) {
+                        send = vec![screen];
+                    }
+                    presenter.present(fb, send)?;
+                }
             }
         }
-        game.draw(fb);
-        let mut overlay = pause.as_ref().map(|menu| {
-            menu.draw(fb, ctx.settings());
-            screen
-        });
-        if let Some(rect) = indicator.draw(fb, ctx.settings()) {
-            overlay = Some(overlay.map_or(rect, |o| envelope(o, rect)));
-        }
-        if let Some(rect) = overlay {
-            send.push(rect);
-            stale = Some((stale.map_or(rect, |(s, _)| envelope(s, rect)), 2));
-        }
-        if send.contains(&screen) {
-            send = vec![screen];
-        }
-        presenter.present(send)?;
 
         // Fixed rate; if we fall far behind, don't try to catch up.
         next_frame += frame_time;
