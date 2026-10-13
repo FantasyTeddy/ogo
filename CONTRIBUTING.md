@@ -137,6 +137,7 @@ the workspace version fails before anything is published.
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/brickfall/](games/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
+| [games/smash/](games/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
 | [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples / icon`), run on the PC |
 | [docs/](docs/) | Architecture, contracts, game guide, hardware notes |
 | [.github/workflows/ci.yml](.github/workflows/ci.yml) | CI and releases |

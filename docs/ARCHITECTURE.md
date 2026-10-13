@@ -57,6 +57,7 @@ internet.
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |
 | [games/snake](../games/snake/src/main.rs) | Example game on the SDK |
 | [games/brickfall](../games/brickfall/src/main.rs) | Falling-bricks puzzle on the SDK |
+| [games/smash](../games/smash/src/main.rs) | Brick-breaker on the SDK |
 | [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash`, `test`, `samples`, `icon` |
 
 Launcher and recovery use `ogo-board` directly; games use `ogo-sdk`, which wraps it. Everything
