@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "ogo-board"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "embedded-graphics",
@@ -1127,7 +1127,7 @@ dependencies = [
 
 [[package]]
 name = "ogo-launcher"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "embedded-graphics",
@@ -1143,7 +1143,7 @@ dependencies = [
 
 [[package]]
 name = "ogo-recovery"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "embedded-graphics",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "ogo-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "embedded-graphics",
