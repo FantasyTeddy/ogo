@@ -80,20 +80,25 @@ Writing a game is described in [docs/GAMES.md](docs/GAMES.md).
 ## Testing
 
 **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
-the `ogo-format` tests and Clippy on `ogo-format` and xtask with stable Rust, then, on Linux with the
+the `ogo-format` and `ogo-gb` tests and Clippy on them and xtask with stable Rust, then, on Linux with the
 pinned Xtensa toolchain, the format check, Clippy on the firmware and `cargo xtask release`, whose
 files are kept as an artifact of the run. Formatting differences and Clippy warnings fail the build.
 
 **Formatting:** the code uses rustfmt's default style. Before committing, run `cargo fmt` in the
-project folder, and with `--manifest-path ogo-format/Cargo.toml` and `--manifest-path
-xtask/Cargo.toml` for the two crates with their own workspace. Run
+project folder, and with `--manifest-path` `ogo-format/Cargo.toml`, `ogo-gb/Cargo.toml` and
+`xtask/Cargo.toml` for the three crates with their own workspace. Run
 `git config blame.ignoreRevsFile .git-blame-ignore-revs` once, so `git blame` skips the commit that
 introduced the formatting.
 
 **On the PC:** `cargo xtask test` runs the unit tests of `ogo-format`: `game.toml`, the `.ogo` reader
 and writer, the image description, the partition table and slot labels (checked against
-`partitions.csv`), merging the flash image, settings steps, text fitting. Everything that needs the
-ESP32 is tested on the device.
+`partitions.csv`), merging the flash image, settings steps, text fitting. Then those of `ogo-gb`, the
+Game Boy core, which also run public test ROMs (Blargg's CPU and timing tests, Mooneye's CPU, timer
+and MBC tests). Unpack the
+[test ROM collection v7.0](https://github.com/c-sp/game-boy-test-roms/releases/tag/v7.0) into
+`ogo-gb\test-roms\` (ignored by git), or point `OGO_GB_TEST_ROMS` at it; without them those tests are
+skipped. `cargo run --release --manifest-path ogo-gb/Cargo.toml --target host-tuple --example bench
+-- <rom>` measures the core's speed on the PC. Everything that needs the ESP32 is tested on the device.
 
 **On the device**, after `cargo xtask flash --all` (recovery too, when the shared crates changed):
 1. The launcher starts; the settings screen shows the expected version, commit and slot; VOL mutes
@@ -135,6 +140,7 @@ the workspace version fails before anything is published.
 | [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
+| [ogo-gb/](ogo-gb/) | Game Boy emulator core (`no_std`): CPU, memory map, cartridges, timer, LCD timing; tested on the PC |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/brickfall/](games/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
 | [games/smash/](games/smash/) | Smash, a brick-breaker built on `ogo-sdk` |

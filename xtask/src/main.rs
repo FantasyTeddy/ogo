@@ -81,7 +81,7 @@ enum Task {
         #[arg(long)]
         features: Option<String>,
     },
-    /// Run the tests on the PC (ogo-format).
+    /// Run the tests on the PC (ogo-format, ogo-gb).
     Test,
     /// Convert a PNG into the game's icon.rgb565 (64x64, transparent parts black).
     Icon {
@@ -128,13 +128,24 @@ fn main() -> anyhow::Result<()> {
             monitor,
             features,
         } => project.flash(port.as_deref(), all, monitor, features.as_deref()),
-        Task::Test => project.cargo(&[
-            "test",
-            "--manifest-path",
-            "ogo-format/Cargo.toml",
-            "--target",
-            HOST_TARGET,
-        ]),
+        Task::Test => {
+            project.cargo(&[
+                "test",
+                "--manifest-path",
+                "ogo-format/Cargo.toml",
+                "--target",
+                HOST_TARGET,
+            ])?;
+            // Optimized: the test ROMs take over a minute in a debug build
+            project.cargo(&[
+                "test",
+                "--release",
+                "--manifest-path",
+                "ogo-gb/Cargo.toml",
+                "--target",
+                HOST_TARGET,
+            ])
+        }
         Task::Icon { game, image } => {
             icon::convert(&image, &project.game(&game)?.dir.join("icon.rgb565"))
         }

@@ -1,0 +1,12 @@
+[package]
+name = "ogo-gb"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A Game Boy (DMG) emulator core: no_std with alloc, builds and tests on the PC"
+
+# Own workspace, like ogo-format: the firmware uses it as a library, while its tests run on the PC
+# (cargo xtask test) against the public test ROMs.
+[workspace]
+
+[dependencies]

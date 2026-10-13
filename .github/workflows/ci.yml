@@ -24,7 +24,7 @@ jobs:
     name: Tests and lints on the PC
     runs-on: ubuntu-latest
     env:
-      # ogo-format and xtask are plain Rust: stable is enough, the Xtensa toolchain from
+      # ogo-format, ogo-gb and xtask are plain Rust: stable is enough, the Xtensa toolchain from
       # rust-toolchain.toml is only needed for the firmware.
       RUSTUP_TOOLCHAIN: stable
     steps:
@@ -34,11 +34,20 @@ jobs:
         with:
           workspaces: |
             ogo-format
+            ogo-gb
             xtask
       - name: Test ogo-format
         run: cargo test --manifest-path ogo-format/Cargo.toml --target host-tuple
       - name: Clippy ogo-format
         run: cargo clippy --manifest-path ogo-format/Cargo.toml --target host-tuple --all-targets -- -D warnings
+      - name: Download the Game Boy test ROMs
+        run: |
+          curl -sSfL -o test-roms.zip https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip
+          unzip -q test-roms.zip -d ogo-gb/test-roms
+      - name: Test ogo-gb
+        run: cargo test --release --manifest-path ogo-gb/Cargo.toml --target host-tuple
+      - name: Clippy ogo-gb
+        run: cargo clippy --manifest-path ogo-gb/Cargo.toml --target host-tuple --all-targets -- -D warnings
       - name: Clippy xtask
         run: cargo clippy --manifest-path xtask/Cargo.toml --target host-tuple -- -D warnings
 
@@ -85,6 +94,7 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo fmt --manifest-path ogo-format/Cargo.toml --all --check
+          cargo fmt --manifest-path ogo-gb/Cargo.toml --all --check
           cargo fmt --manifest-path xtask/Cargo.toml --all --check
       - name: Clippy
         run: cargo clippy --release --workspace -- -D warnings
