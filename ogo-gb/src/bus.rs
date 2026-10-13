@@ -7,11 +7,23 @@ use crate::ppu::Ppu;
 use crate::timer::Timer;
 use crate::{Buttons, INT_JOYPAD, INT_SERIAL, INT_TIMER};
 
+/// Bits of the I/O registers 0xFF00-0xFF7F that read as 1 on the DMG: unused bits, write-only
+/// registers and addresses without a register. The registers with their own model (timer, IF,
+/// LCD) apply theirs themselves.
+const IO_UNUSED_BITS: [u8; 0x80] = [
+    0xc0, 0x00, 0x7e, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe0,
+    0x80, 0x3f, 0x00, 0xff, 0xbf, 0xff, 0x3f, 0x00, 0xff, 0xbf, 0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff,
+    0xff, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x70, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+];
+
 pub(crate) struct Bus {
     pub cart: Cartridge,
-    pub vram: [u8; 0x2000],
     pub wram: [u8; 0x2000],
-    pub oam: [u8; 0xa0],
     pub hram: [u8; 0x7f],
     /// I/O registers without their own model (sound, serial data), as written.
     pub io: [u8; 0x80],
@@ -35,9 +47,7 @@ impl Bus {
     pub fn new(cart: Cartridge) -> Self {
         Bus {
             cart,
-            vram: [0; 0x2000],
             wram: [0; 0x2000],
-            oam: [0; 0xa0],
             hram: [0; 0x7f],
             io: [0; 0x80],
             ie: 0,
@@ -57,13 +67,14 @@ impl Bus {
     pub fn read(&mut self, addr: u16) -> u8 {
         match addr >> 12 {
             0x0..=0x7 => self.cart.read_rom(addr),
-            0x8 | 0x9 => self.vram[addr as usize & 0x1fff],
+            0x8 | 0x9 => self.ppu.vram[addr as usize & 0x1fff],
             0xc..=0xe => self.wram[addr as usize & 0x1fff],
             _ => self.read_slow(addr),
         }
     }
 
     /// Cartridge RAM and 0xF000-0xFFFF: the areas that may need a sync first.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn read_slow(&mut self, addr: u16) -> u8 {
         if self.needs_sync(addr) {
             self.sync();
@@ -76,7 +87,7 @@ impl Bus {
     pub fn peek(&self, addr: u16) -> u8 {
         match addr >> 12 {
             0x0..=0x7 => self.cart.read_rom(addr),
-            0x8 | 0x9 => self.vram[addr as usize & 0x1fff],
+            0x8 | 0x9 => self.ppu.vram[addr as usize & 0x1fff],
             0xa | 0xb => self.cart.read_ram(addr),
             0xc..=0xe => self.wram[addr as usize & 0x1fff],
             _ => self.read_high(addr),
@@ -86,7 +97,7 @@ impl Bus {
     #[inline(always)]
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr >> 12 {
-            0x8 | 0x9 => self.vram[addr as usize & 0x1fff] = value,
+            0x8 | 0x9 => self.ppu.vram[addr as usize & 0x1fff] = value,
             0xc..=0xe => self.wram[addr as usize & 0x1fff] = value,
             _ => self.write_slow(addr, value),
         }
@@ -94,6 +105,7 @@ impl Bus {
 
     /// The cartridge (MBC registers and RAM) and 0xF000-0xFFFF: the areas that may need a sync
     /// first.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn write_slow(&mut self, addr: u16, value: u8) {
         let synced = self.needs_sync(addr);
         if synced {
@@ -101,7 +113,7 @@ impl Bus {
         }
         match addr >> 12 {
             0x0..=0x7 => self.cart.write_rom(addr, value),
-            0x8 | 0x9 => self.vram[addr as usize & 0x1fff] = value,
+            0x8 | 0x9 => self.ppu.vram[addr as usize & 0x1fff] = value,
             0xa | 0xb => self.cart.write_ram(addr, value),
             0xc..=0xe => self.wram[addr as usize & 0x1fff] = value,
             _ => self.write_high(addr, value),
@@ -124,10 +136,11 @@ impl Bus {
     }
 
     /// 0xF000-0xFFFF: echo RAM, OAM, I/O, high RAM and IE.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn read_high(&self, addr: u16) -> u8 {
         match addr {
             ..=0xfdff => self.wram[addr as usize & 0x1fff],
-            0xfe00..=0xfe9f => self.oam[addr as usize - 0xfe00],
+            0xfe00..=0xfe9f => self.ppu.oam[addr as usize - 0xfe00],
             0xfea0..=0xfeff => 0xff,
             0xff00 => self.read_joypad(),
             0xff04 => self.timer.div(),
@@ -146,16 +159,19 @@ impl Bus {
             0xff49 => self.ppu.obp1,
             0xff4a => self.ppu.wy,
             0xff4b => self.ppu.wx,
-            0xff01..=0xff7f => self.io[addr as usize - 0xff00],
+            0xff01..=0xff7f => {
+                self.io[addr as usize - 0xff00] | IO_UNUSED_BITS[addr as usize - 0xff00]
+            }
             0xff80..=0xfffe => self.hram[addr as usize - 0xff80],
             0xffff => self.ie,
         }
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn write_high(&mut self, addr: u16, value: u8) {
         match addr {
             ..=0xfdff => self.wram[addr as usize & 0x1fff] = value,
-            0xfe00..=0xfe9f => self.oam[addr as usize - 0xfe00] = value,
+            0xfe00..=0xfe9f => self.ppu.oam[addr as usize - 0xfe00] = value,
             0xfea0..=0xfeff => {}
             0xff00 => self.joypad_select = value & 0x30,
             0xff02 => self.write_serial_control(value),
@@ -206,6 +222,7 @@ impl Bus {
     }
 
     /// Brings the timer, the LCD and the cartridge clock up to date.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn sync(&mut self) {
         let cycles = self.pending;
         self.pending = 0;
@@ -218,6 +235,7 @@ impl Bus {
     }
 
     /// Cycles from the last sync until the next event.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn cycles_to_event(&self) -> u32 {
         self.timer
             .cycles_to_overflow()
@@ -262,7 +280,7 @@ impl Bus {
         self.io[0x46] = page;
         let source = (page as u16) << 8;
         for i in 0..0xa0 {
-            self.oam[i as usize] = self.peek(source + i);
+            self.ppu.oam[i as usize] = self.peek(source + i);
         }
     }
 }

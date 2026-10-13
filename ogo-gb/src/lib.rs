@@ -3,6 +3,10 @@
 //! `no_std` with `alloc`, so it builds for the ESP32 and for the PC alike; its tests run on the PC
 //! (`cargo xtask test`), including the public test ROMs when they are present (see
 //! tests/test_roms.rs). It starts in the state the boot ROM leaves behind, without running one.
+//!
+//! On the ESP32 (`target_os = "espidf"`), the functions that run for every instruction or every
+//! line are placed in IRAM, and the tile decoding table in internal RAM: from flash, the CPU loop
+//! and the drawing evict each other from the 32 KB cache, which costs over 10% of the speed.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -25,6 +29,8 @@ pub use cpu::Registers;
 pub const CLOCK_HZ: u32 = 4_194_304;
 /// Clock cycles per frame: 154 lines of 456 cycles, about 59.7 frames per second.
 pub const CYCLES_PER_FRAME: u32 = ppu::LINE_CYCLES * ppu::LINES as u32;
+pub const SCREEN_WIDTH: usize = 160;
+pub const SCREEN_HEIGHT: usize = 144;
 
 // Interrupt bits in IE and IF
 const INT_VBLANK: u8 = 0x01;
@@ -51,8 +57,6 @@ impl Buttons {
 pub struct GameBoy {
     cpu: Cpu,
     bus: Bus,
-    /// Cycles run past the end of the last frame.
-    frame_cycles: u32,
 }
 
 impl GameBoy {
@@ -60,16 +64,24 @@ impl GameBoy {
         GameBoy {
             cpu: Cpu::default(),
             bus: Bus::new(cart),
-            frame_cycles: 0,
         }
     }
 
-    /// Runs for one frame's worth of cycles.
+    /// Runs until the LCD has completed a frame (VBlank begins), or for a frame's worth of cycles
+    /// while it's off.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     pub fn run_frame(&mut self) {
-        while self.frame_cycles < CYCLES_PER_FRAME {
-            self.frame_cycles += self.step();
+        self.bus.ppu.frame_done = false;
+        let mut cycles = 0;
+        while !self.bus.ppu.frame_done && cycles < CYCLES_PER_FRAME {
+            cycles += self.step();
         }
-        self.frame_cycles -= CYCLES_PER_FRAME;
+    }
+
+    /// The picture: `SCREEN_WIDTH` x `SCREEN_HEIGHT` shades, row by row, from 0 (white) to
+    /// 3 (black). Complete after `run_frame`.
+    pub fn frame(&self) -> &[u8] {
+        &self.bus.ppu.frame
     }
 
     pub fn set_buttons(&mut self, buttons: Buttons) {

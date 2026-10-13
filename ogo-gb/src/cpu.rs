@@ -63,6 +63,7 @@ pub(crate) struct Cpu {
 impl GameBoy {
     /// Runs one instruction (or interrupt dispatch, or one machine cycle of HALT) and lets the
     /// rest of the machine catch up. Returns the clock cycles it took.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     pub fn step(&mut self) -> u32 {
         self.cpu.cycles = 0;
         let pending = self.bus.ie & self.bus.iflag & 0x1f;
@@ -98,6 +99,7 @@ impl GameBoy {
         &self.cpu.r
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn dispatch_interrupt(&mut self, pending: u8) {
         self.cpu.ime = false;
         let bit = pending.trailing_zeros();
@@ -148,6 +150,7 @@ impl GameBoy {
         high << 8 | low
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn push(&mut self, value: u16) {
         self.cpu.r.sp = self.cpu.r.sp.wrapping_sub(1);
         self.write(self.cpu.r.sp, (value >> 8) as u8);
@@ -155,6 +158,7 @@ impl GameBoy {
         self.write(self.cpu.r.sp, value as u8);
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn pop(&mut self) -> u16 {
         let low = self.read(self.cpu.r.sp) as u16;
         self.cpu.r.sp = self.cpu.r.sp.wrapping_add(1);
@@ -251,6 +255,7 @@ impl GameBoy {
     // Arithmetic
 
     /// ADD, ADC, SUB, SBC, AND, XOR, OR, CP by their 3-bit index in the opcode.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn alu(&mut self, op: u8, value: u8) {
         let a = self.cpu.r.a;
         let (result, flags) = match op {
@@ -278,18 +283,21 @@ impl GameBoy {
         }
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn inc8(&mut self, value: u8) -> u8 {
         let result = value.wrapping_add(1);
         self.cpu.r.f = (self.cpu.r.f & C) | flag(Z, result == 0) | flag(H, value & 0x0f == 0x0f);
         result
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn dec8(&mut self, value: u8) -> u8 {
         let result = value.wrapping_sub(1);
         self.cpu.r.f = (self.cpu.r.f & C) | N | flag(Z, result == 0) | flag(H, value & 0x0f == 0);
         result
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn add_hl(&mut self, value: u16) {
         let hl = self.hl();
         let (result, carry) = hl.overflowing_add(value);
@@ -300,6 +308,7 @@ impl GameBoy {
     }
 
     /// SP plus a signed byte, for ADD SP,e and LD HL,SP+e. The flags come from the low byte.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn sp_plus_offset(&mut self) -> u16 {
         let offset = self.fetch8();
         let sp = self.cpu.r.sp;
@@ -309,6 +318,7 @@ impl GameBoy {
         sp.wrapping_add(offset as i8 as u16)
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn daa(&mut self) {
         let f = self.cpu.r.f;
         let mut a = self.cpu.r.a;
@@ -334,6 +344,7 @@ impl GameBoy {
     }
 
     /// RLC, RRC, RL, RR, SLA, SRA, SWAP, SRL by their 3-bit index in a CB opcode. Sets Z and C.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn shift(&mut self, op: u8, value: u8) -> u8 {
         let carry_in = self.carry();
         let (result, carry) = match op {
@@ -352,11 +363,13 @@ impl GameBoy {
 
     // Control flow
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn jump(&mut self, target: u16) {
         self.cpu.r.pc = target;
         self.cpu.cycles += 4;
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn call(&mut self, target: u16) {
         self.cpu.cycles += 4;
         let pc = self.cpu.r.pc;
@@ -364,11 +377,13 @@ impl GameBoy {
         self.cpu.r.pc = target;
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn ret(&mut self) {
         let target = self.pop();
         self.jump(target);
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn halt(&mut self) {
         if !self.cpu.ime && self.bus.ie & self.bus.iflag & 0x1f != 0 {
             self.cpu.halt_bug = true;
@@ -379,6 +394,7 @@ impl GameBoy {
 
     // Instructions
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn execute(&mut self, opcode: u8) {
         match opcode {
             0x00 => {}
@@ -596,6 +612,7 @@ impl GameBoy {
         }
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn execute_cb(&mut self) {
         let opcode = self.fetch8();
         let index = opcode & 7;

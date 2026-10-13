@@ -52,7 +52,7 @@ internet.
 |---|---|
 | [ogo-format](../ogo-format/src/lib.rs) | Everything that doesn't need the ESP32: `game.toml`, the `.ogo` reader and writer, the image description layout, settings steps, text fitting, battery percentage. Own workspace, tested on the PC |
 | [ogo-board](../ogo-board/src/lib.rs) | Board support (display, backlight, buttons, speaker, SD card, battery, LED) and the contracts that touch the hardware: boot contract (`boot`), image description in flash (`image`), flash writing (`flash`), settings in NVS (`settings`). Also the shared look (`ui`: colours and drawing helpers for launcher, recovery, the SDK's overlays and games) |
-| [ogo-gb](../ogo-gb/src/lib.rs) | Game Boy (DMG) emulator core, `no_std` with `alloc`: the SM83 CPU, memory map, cartridges with MBC1, MBC3 (with clock) and MBC5, timer, joypad and LCD timing. Starts in the state the boot ROM leaves, without one. Own workspace, tested on the PC with public test ROMs |
+| [ogo-gb](../ogo-gb/src/lib.rs) | Game Boy (DMG) emulator core, `no_std` with `alloc`: the SM83 CPU, memory map, cartridges with MBC1, MBC3 (with clock) and MBC5, timer, joypad and the LCD (timing and drawing, a line at a time). Starts in the state the boot ROM leaves, without one. On the ESP32 its hot path runs from IRAM. Own workspace, tested on the PC with public test ROMs, including screenshot comparisons |
 | [ogo-sdk](../ogo-sdk/src/lib.rs) | What games build on: the `Game` trait, frame loop, input, sound, saves, pause menu, VOL |
 | [ogo-launcher](../ogo-launcher/src/main.rs) | The launcher firmware |
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |

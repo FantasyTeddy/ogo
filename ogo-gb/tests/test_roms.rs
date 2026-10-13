@@ -2,9 +2,9 @@
 //! unpacked into `ogo-gb/test-roms/` or the folder in `OGO_GB_TEST_ROMS`. Without them the tests
 //! are skipped, except in CI (`CI` set), which downloads them.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use ogo_gb::{Cartridge, GameBoy, CLOCK_HZ};
+use ogo_gb::{Cartridge, GameBoy, CLOCK_HZ, CYCLES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 fn rom_dir() -> Option<PathBuf> {
     let dir = std::env::var_os("OGO_GB_TEST_ROMS")
@@ -105,6 +105,7 @@ fn mooneye_cpu_and_timer() {
             "mooneye-test-suite/acceptance/bits/reg_f.gb",
             "mooneye-test-suite/acceptance/instr/daa.gb",
             "mooneye-test-suite/acceptance/if_ie_registers.gb",
+            "mooneye-test-suite/acceptance/bits/unused_hwio-GS.gb",
             "mooneye-test-suite/acceptance/timer/div_write.gb",
             "mooneye-test-suite/acceptance/timer/tim00.gb",
             "mooneye-test-suite/acceptance/timer/tim01.gb",
@@ -142,4 +143,115 @@ fn mooneye_mbc() {
         ],
         mooneye,
     );
+}
+
+/// The grey levels the screenshots use for the four shades, white to black.
+const GREYS: [u8; 4] = [0xff, 0xaa, 0x55, 0x00];
+
+/// Runs until `LD B,B` or for `frames`, then two more frames, and compares the picture with the
+/// screenshot `png`. A differing picture is written to the test's temp folder.
+fn screenshot(dir: &std::path::Path, name: &str, png: &str, frames: u32) -> Result<(), String> {
+    let mut gb = load(dir, name);
+    let mut frame = 0;
+    'run: while frame < frames {
+        gb.run_frame();
+        frame += 1;
+        // Stop at the frame in which the ROM says it's done
+        for _ in 0..CYCLES_PER_FRAME / 4 {
+            if gb.peek(gb.registers().pc) == 0x40 {
+                break 'run;
+            }
+            gb.step();
+        }
+    }
+    gb.run_frame();
+    gb.run_frame();
+
+    let expected = read_png(&dir.join(png))?;
+    let actual: Vec<u8> = gb
+        .frame()
+        .iter()
+        .map(|&shade| GREYS[shade as usize])
+        .collect();
+    let wrong = expected.iter().zip(&actual).filter(|(e, a)| e != a).count();
+    if wrong == 0 {
+        return Ok(());
+    }
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(
+        Path::new(name)
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+            + "-actual.png",
+    );
+    write_png(&out, &actual);
+    Err(format!("{wrong} pixels differ, see {}", out.display()))
+}
+
+/// The screenshot as one grey level per pixel (the red channel; the shades are grey).
+fn read_png(path: &Path) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
+    if (info.width as usize, info.height as usize) != (SCREEN_WIDTH, SCREEN_HEIGHT) {
+        return Err(format!(
+            "{}: not {SCREEN_WIDTH}x{SCREEN_HEIGHT}",
+            path.display()
+        ));
+    }
+    let channels = info.color_type.samples();
+    Ok(buf[..info.buffer_size()]
+        .chunks(channels)
+        .map(|pixel| pixel[0])
+        .collect())
+}
+
+fn write_png(path: &Path, greys: &[u8]) {
+    let file = std::fs::File::create(path).unwrap();
+    let mut encoder = png::Encoder::new(file, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32);
+    encoder.set_color(png::ColorType::Grayscale);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_image_data(greys).unwrap();
+}
+
+#[test]
+fn screenshots() {
+    let Some(dir) = rom_dir() else { return };
+    let tests = [
+        ("dmg-acid2/dmg-acid2.gb", "dmg-acid2/dmg-acid2-dmg.png", 60),
+        (
+            "turtle-tests/window_y_trigger/window_y_trigger.gb",
+            "turtle-tests/window_y_trigger/window_y_trigger.png",
+            30,
+        ),
+        (
+            "turtle-tests/window_y_trigger_wx_offscreen/window_y_trigger_wx_offscreen.gb",
+            "turtle-tests/window_y_trigger_wx_offscreen/window_y_trigger_wx_offscreen.png",
+            30,
+        ),
+        (
+            "scribbltests/scxly/scxly.gb",
+            "scribbltests/scxly/scxly-dmg.png",
+            10,
+        ),
+        (
+            "scribbltests/palettely/palettely.gb",
+            "scribbltests/palettely/palettely-dmg.png",
+            10,
+        ),
+    ];
+    let failures: Vec<String> = tests
+        .iter()
+        .filter_map(|&(rom, png, frames)| {
+            screenshot(&dir, rom, png, frames)
+                .err()
+                .map(|e| format!("{rom}: {e}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }

@@ -218,6 +218,7 @@ impl Cartridge {
         self.update_offsets();
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     pub(crate) fn read_ram(&self, addr: u16) -> u8 {
         if !self.ram_enabled {
             return 0xff;
@@ -233,6 +234,7 @@ impl Cartridge {
         self.ram[(self.ram_offset + (addr as usize & 0x1fff)) % self.ram.len()]
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     pub(crate) fn write_ram(&mut self, addr: u16, value: u8) {
         if !self.ram_enabled {
             return;

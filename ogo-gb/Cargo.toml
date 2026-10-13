@@ -10,3 +10,7 @@ description = "A Game Boy (DMG) emulator core: no_std with alloc, builds and tes
 [workspace]
 
 [dependencies]
+
+[dev-dependencies]
+# Reads the reference screenshots of the test ROMs and writes the actual pictures
+png = "0.18"

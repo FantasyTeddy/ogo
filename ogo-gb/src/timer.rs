@@ -36,6 +36,7 @@ impl Timer {
     }
 
     /// Advances by `cycles`; returns whether TIMA overflowed (the timer interrupt).
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     pub fn tick(&mut self, cycles: u32) -> bool {
         let old = self.counter as u32;
         let new = old + cycles;
@@ -52,6 +53,7 @@ impl Timer {
         overflow
     }
 
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn step_tima(&mut self) -> bool {
         let (tima, overflow) = self.tima.overflowing_add(1);
         self.tima = if overflow { self.tma } else { tima };
@@ -59,6 +61,7 @@ impl Timer {
     }
 
     /// Cycles until TIMA overflows; `u32::MAX` while the timer is stopped.
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     pub fn cycles_to_overflow(&self) -> u32 {
         if self.tac & 4 == 0 {
             return u32::MAX;

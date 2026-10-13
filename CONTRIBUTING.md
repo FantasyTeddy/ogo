@@ -94,7 +94,8 @@ introduced the formatting.
 and writer, the image description, the partition table and slot labels (checked against
 `partitions.csv`), merging the flash image, settings steps, text fitting. Then those of `ogo-gb`, the
 Game Boy core, which also run public test ROMs (Blargg's CPU and timing tests, Mooneye's CPU, timer
-and MBC tests). Unpack the
+and MBC tests, and screenshot comparisons such as dmg-acid2; a differing picture is written to the
+build folder's `tmp`). Unpack the
 [test ROM collection v7.0](https://github.com/c-sp/game-boy-test-roms/releases/tag/v7.0) into
 `ogo-gb\test-roms\` (ignored by git), or point `OGO_GB_TEST_ROMS` at it; without them those tests are
 skipped. `cargo run --release --manifest-path ogo-gb/Cargo.toml --target host-tuple --example bench
@@ -140,7 +141,7 @@ the workspace version fails before anything is published.
 | [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
 | [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
-| [ogo-gb/](ogo-gb/) | Game Boy emulator core (`no_std`): CPU, memory map, cartridges, timer, LCD timing; tested on the PC |
+| [ogo-gb/](ogo-gb/) | Game Boy emulator core (`no_std`): CPU, memory map, cartridges, timer, LCD timing and drawing; tested on the PC |
 | [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
 | [games/brickfall/](games/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
 | [games/smash/](games/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
