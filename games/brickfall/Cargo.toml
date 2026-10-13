@@ -1,0 +1,25 @@
+[package]
+name = "brickfall"
+version = "1.0.0"
+authors = ["ogo examples"]
+edition.workspace = true
+license.workspace = true
+description = "Brickfall: steer falling bricks and fill rows to clear them"
+
+# Read by `cargo xtask pack` for game.toml
+[package.metadata.ogo]
+name = "Brickfall"
+
+[[bin]]
+name = "brickfall"
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+[dependencies]
+ogo-sdk.workspace = true
+embedded-graphics.workspace = true
+log.workspace = true
+# Not used directly, but build.rs only gets ESP-IDF's linker arguments from a direct dependency.
+esp-idf-svc.workspace = true
+
+[build-dependencies]
+embuild.workspace = true

@@ -104,6 +104,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "brickfall"
+version = "1.0.0"
+dependencies = [
+ "embedded-graphics",
+ "embuild",
+ "esp-idf-svc",
+ "log",
+ "ogo-sdk",
+]
+
+[[package]]
 name = "bstr"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
