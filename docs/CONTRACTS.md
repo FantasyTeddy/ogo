@@ -73,6 +73,7 @@ All in the namespace `ogo` of the default NVS partition. Keys are limited to 15 
 | `wifi_ssid`, `wifi_pass` | str | launcher | The WiFi network set on the web page; removed by "Forget WiFi network" |
 | `brightness` | u8 | launcher (settings screen) | Backlight in percent: 10, 20, … 100. Default 100 |
 | `volume` | u8 | launcher (settings screen), games (VOL) | Volume in percent: 0, 25, 50, 75, 100. Default 50 |
+| `music` | u8 | launcher (settings screen), games (pause menu) | Games play music: 1 on, 0 off. Default on |
 
 Missing keys mean the defaults. Values between the steps are rounded to the nearest step.
 

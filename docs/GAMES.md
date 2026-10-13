@@ -121,12 +121,35 @@ ui::text(fb, "Game over", Point::new(160, 120), &FONT_10X20, ui::TEXT, Alignment
 - `released(button)`: went up since the last frame
 
 Buttons: `Up`, `Down`, `Left`, `Right`, `A`, `B`, `Select`, `Start`. **MENU and VOL belong to the
-SDK:** MENU opens the pause menu (resume, exit to the launcher; `update` isn't called while it's
-open, `draw` is), VOL cycles the volume.
+SDK:** MENU opens the pause menu (resume, music on/off, exit to the launcher; `update` isn't called
+while it's open, `draw` is, and the music pauses), VOL cycles the volume.
 
 **Sound.** `ctx.sound().play(&[Note::new(frequency_hz, duration_ms), …])` queues notes (sine tones;
 a frequency of 0 is a pause) and returns at once. Up to 4 sounds can wait; more are dropped. The
 volume is the user's setting, so leave it alone. There is no sample (PCM) playback.
+
+**Music.** A `Track` loops under the sound effects, a little quieter. It has one or two `Part`s
+played together, e.g. a melody and a bass line, each with its own `Wave` (`Square`, `Triangle` or
+`Sine`). `ogo_sdk::pitch` names the frequencies (`A4` is 440 Hz, `CS4` is C sharp, `REST` a pause).
+The parts must be equally long; `Track::new` in a `const` checks that when compiling.
+
+```rust
+use ogo_sdk::pitch::*;
+
+const MELODY: &[Note] = &[Note::new(C5, 200), Note::new(E5, 200), Note::new(G5, 400)];
+const BASS: &[Note] = &[Note::new(C3, 400), Note::new(G3, 400)];
+const MUSIC: Track = Track::new(&[
+    Part { wave: Wave::Square, notes: MELODY },
+    Part { wave: Wave::Triangle, notes: BASS },
+]);
+
+ctx.sound().play_music(MUSIC);        // from the start, replacing any track before
+ctx.sound().set_music_speed(120);     // tempo in percent, e.g. faster on later levels
+ctx.sound().stop_music();
+```
+
+The player can switch music off (launcher settings, pause menu); the game still calls `play_music`
+as usual and just isn't heard.
 
 **Saves.** `ctx.saves()` stores one file per name in `/ogo/saves/<id>/` on the SD card (names: a-z,
 A-Z, 0-9, `-` and `_`). They survive reinstalling and deleting the game.

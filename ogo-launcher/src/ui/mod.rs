@@ -47,6 +47,8 @@ pub enum SettingsItem {
         percent: u8,
         value: String,
     },
+    /// On or off, switched with A or Left/Right.
+    Toggle { label: &'static str, on: bool },
     /// Done with A. A disabled action is drawn dimmed.
     Action {
         label: String,
@@ -78,8 +80,10 @@ const DETAIL_WIDTH: u32 = WIDTH - LIST_WIDTH;
 const ROW_HEIGHT: u32 = 28;
 /// Rows that fit into the list.
 pub const VISIBLE_ROWS: usize = (BODY_HEIGHT / ROW_HEIGHT) as usize;
-/// Settings screen: where values start, and the level bars.
+/// Settings screen: where values start, the level bars, and the rows to change (lower than the
+/// list's, so four fit under the info lines).
 const SETTINGS_VALUE_X: i32 = 100;
+const SETTINGS_ROW_HEIGHT: u32 = 24;
 const SETTINGS_BAR_WIDTH: u32 = 140;
 const SCROLLBAR_WIDTH: u32 = 3;
 const LIST_TEXT_X: i32 = 8;
@@ -412,12 +416,12 @@ impl Ui {
         .ok();
 
         for (i, item) in view.items.iter().enumerate() {
-            let top = items_top + 8 + i as i32 * ROW_HEIGHT as i32;
-            let middle = top + ROW_HEIGHT as i32 / 2;
+            let top = items_top + 8 + i as i32 * SETTINGS_ROW_HEIGHT as i32;
+            let middle = top + SETTINGS_ROW_HEIGHT as i32 / 2;
             if i == view.selected {
                 selection(
                     canvas,
-                    Rectangle::new(Point::new(0, top), Size::new(WIDTH, ROW_HEIGHT)),
+                    Rectangle::new(Point::new(0, top), Size::new(WIDTH, SETTINGS_ROW_HEIGHT)),
                 );
             }
             match item {
@@ -454,6 +458,24 @@ impl Ui {
                         &FONT_8X13,
                         TEXT,
                         Alignment::Right,
+                    );
+                }
+                SettingsItem::Toggle { label, on } => {
+                    text(
+                        canvas,
+                        label,
+                        Point::new(LIST_TEXT_X + 4, middle),
+                        &FONT_8X13,
+                        TEXT,
+                        Alignment::Left,
+                    );
+                    text(
+                        canvas,
+                        if *on { "On" } else { "Off" },
+                        Point::new(SETTINGS_VALUE_X, middle),
+                        &FONT_8X13,
+                        if *on { TEXT } else { DIM },
+                        Alignment::Left,
                     );
                 }
                 SettingsItem::Action {

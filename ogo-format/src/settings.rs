@@ -1,5 +1,5 @@
-//! The steps of the shared settings (brightness, volume). Storing them in NVS is
-//! `ogo_board::settings`.
+//! The steps and defaults of the shared settings (brightness, volume, music). Storing them in NVS
+//! is `ogo_board::settings`.
 
 /// Backlight levels in percent. The lowest still shows the screen.
 pub const BRIGHTNESS_STEPS: [u8; 10] = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
@@ -7,6 +7,7 @@ pub const BRIGHTNESS_STEPS: [u8; 10] = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 pub const VOLUME_STEPS: [u8; 5] = [0, 25, 50, 75, 100];
 pub const DEFAULT_BRIGHTNESS: u8 = 100;
 pub const DEFAULT_VOLUME: u8 = 50;
+pub const DEFAULT_MUSIC: bool = true;
 
 /// The step `delta` steps away from `current`, clamped to the ends.
 pub fn step(steps: &[u8], current: u8, delta: isize) -> u8 {

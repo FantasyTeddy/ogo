@@ -97,8 +97,8 @@ ESP32 is tested on the device.
 
 **On the device**, after `cargo xtask flash --all` (recovery too, when the shared crates changed):
 1. The launcher starts; the settings screen shows the expected version, commit and slot.
-2. A game starts (installing it first if it changed), its pause menu and VOL work, and "Exit to
-   launcher" returns.
+2. A game starts (installing it first if it changed), its music plays under the sound effects, its
+   pause menu (music on/off too) and VOL work, and "Exit to launcher" returns.
 3. The WiFi screen: the web page logs in with the PIN, uploads and deletes a game, and the game list
    is rescanned when the screen closes.
 4. A launcher update from the web page restarts into the other slot and says "Launcher updated".

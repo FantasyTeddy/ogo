@@ -11,16 +11,16 @@ launcher updates are managed from a web page served by the device itself.
 - Game library on the SD card, with icons
 - Installs a game into a dedicated flash slot and boots it; reinstalls are skipped when the game is
   unchanged
-- Games built on a small SDK (`ogo-sdk`): frame loop, input, sound, saves, pause menu, exit back to
-  the launcher
+- Games built on a small SDK (`ogo-sdk`): frame loop, input, sound effects and music, saves, pause
+  menu, exit back to the launcher
 - Recovery app, entered by holding MENU at power-on: start either launcher slot, or reinstall the
   launcher from the SD card
 - Web page over WiFi, protected by a PIN shown on the device: upload and delete games, pick the WiFi
   network, see battery and free space
 - Launcher updates from the web page, into the other of two launcher slots; if the new launcher
   doesn't start properly, the device goes back to the previous one by itself
-- Settings screen (MENU): device info, brightness and volume (both also used by games), forget the
-  WiFi network
+- Settings screen (MENU): device info, brightness, volume and music on/off (all also used by
+  games), forget the WiFi network
 
 ## What you need
 
@@ -62,9 +62,9 @@ Each release also contains the games as `.ogo` packages. To install one:
 
 In the game list, **A** starts the selected game; the first start (or after an update) installs it
 with a progress bar. **START** rescans the card, **SELECT** opens the WiFi screen, **MENU** the
-settings. In a game, **MENU** opens the pause menu with "Exit to launcher", and **VOL** changes the
-volume (kept for the launcher and other games too). Any reset while a game runs also lands back in
-the launcher.
+settings. In a game, **MENU** opens the pause menu with music on/off and "Exit to launcher", and
+**VOL** changes the volume (both kept for the launcher and other games too). Any reset while a game
+runs also lands back in the launcher.
 
 ## Web page
 

@@ -112,7 +112,7 @@ random 4-digit PIN shown on the device unlocks a session cookie (details in
 
 **Settings screen** ([settings_screen.rs](../ogo-launcher/src/settings_screen.rs)). Info at the top
 (launcher version and slot, build ID and commit, SD card space, saved WiFi network), then
-brightness, volume and "Forget WiFi network" (A twice). Brightness and volume apply right away and
+brightness, volume, music on/off and "Forget WiFi network" (A twice). Changes apply right away and
 are saved to NVS when the screen closes. A network from `/ogo/settings.toml` can't be forgotten here.
 
 **Self-update.** "Update launcher" on the web page streams `launcher.bin` straight into the launcher
@@ -149,23 +149,26 @@ anything the launcher or a web update does.
 
 [ogo-sdk](../ogo-sdk/src/lib.rs) runs a game's `Game` implementation:
 - **Start.** First the boot-back step of the boot contract, so any reset returns to the launcher.
-  Then it loads brightness and volume from NVS and sets up the board with them, before the backlight
-  turns on.
+  Then it loads brightness, volume and music on/off from NVS and sets up the board with them, before
+  the backlight turns on.
 - **Frame loop.** `update` runs at `Game::FPS` (default 30), then `draw`. If the loop falls far
   behind, it skips ahead instead of catching up. FreeRTOS runs at 1 kHz ticks for steady timing.
 - **Display.** Two full-screen buffers (150 KB each, in PSRAM). A display thread sends one to the
   LCD while the game draws the other ([presenter.rs](../ogo-sdk/src/presenter.rs)).
 - **Input** is sampled once per frame, which also debounces.
-- **MENU** opens the pause menu (resume, exit to the launcher); `update` isn't called meanwhile.
-  **VOL** cycles the volume with an on-screen indicator and saves it 4 s after the last press (by
-  then the amplifier is usually off, so muting it for the flash write cuts no sound), or at once
-  when exiting.
-- **Sound.** Notes (sine tones with fades) queued to the audio thread in `ogo-board`.
+- **MENU** opens the pause menu (resume, music on/off, exit to the launcher); `update` isn't called
+  and the music pauses meanwhile. **VOL** cycles the volume with an on-screen indicator. Changes are
+  saved 4 s after the last one (by then the amplifier is
+  usually off, so muting it for the flash write cuts no sound), but not while music plays; closing
+  the pause menu or exiting saves at once.
+- **Sound.** The audio thread in `ogo-board` generates the samples as it plays: sound effects (sine
+  tones with fades, from a short queue) mixed over a looping music track of up to two parts (square,
+  triangle or sine). Volume and music tempo apply at once.
 - **Saves.** One text or binary file per name under `/ogo/saves/<id>/`, written via a temp file.
 
 ## Settings
 
-Brightness and volume are shared by the launcher and games through NVS
+Brightness, volume and music on/off are shared by the launcher and games through NVS
 ([ogo_board::settings](../ogo-board/src/settings.rs)). `Board::take_with` applies them before the
 backlight turns on, so nothing flashes at full brightness first. The WiFi network is the launcher's
 alone ([settings.rs](../ogo-launcher/src/settings.rs)).

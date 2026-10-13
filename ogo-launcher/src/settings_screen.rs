@@ -1,5 +1,5 @@
-//! The settings screen (MENU): device info at the top, then brightness, volume and forgetting the
-//! WiFi network. Brightness and volume apply right away and are saved to NVS when leaving.
+//! The settings screen (MENU): device info at the top, then brightness, volume, music in games and
+//! forgetting the WiFi network. Changes apply right away and are saved to NVS when leaving.
 
 use ogo_board::{boot, flash, image, sd, settings, Note, Settings};
 
@@ -10,7 +10,7 @@ use crate::{
     Launcher, Screen, SOUND_ERROR,
 };
 
-/// Played when the volume changes, at the new volume.
+/// Played when the volume changes, at the new volume, and when music is switched.
 const SOUND_VOLUME: &[Note] = &[Note::new(660, 40)];
 const SOUND_FORGOTTEN: &[Note] = &[Note::new(660, 60), Note::new(440, 100)];
 
@@ -18,10 +18,16 @@ const SOUND_FORGOTTEN: &[Note] = &[Note::new(660, 60), Note::new(440, 100)];
 enum Item {
     Brightness,
     Volume,
+    Music,
     ForgetWifi,
 }
 
-const ITEMS: [Item; 3] = [Item::Brightness, Item::Volume, Item::ForgetWifi];
+const ITEMS: [Item; 4] = [
+    Item::Brightness,
+    Item::Volume,
+    Item::Music,
+    Item::ForgetWifi,
+];
 
 pub struct State {
     selected: usize,
@@ -104,13 +110,21 @@ impl Launcher {
                         self.board.speaker.set_volume(volume);
                         self.board.speaker.play(SOUND_VOLUME);
                     }
+                    Item::Music => self.toggle_music(),
                     Item::ForgetWifi => return Ok(()),
                 }
             }
+            Nav::Select if item == Item::Music => self.toggle_music(),
             Nav::Select if item == Item::ForgetWifi => return self.forget_wifi(),
             Nav::Select | Nav::Rescan | Nav::Connect => return Ok(()),
         }
         self.draw_settings()
+    }
+
+    fn toggle_music(&mut self) {
+        self.settings.music = !self.settings.music;
+        self.board.speaker.set_music_enabled(self.settings.music);
+        self.board.speaker.play(SOUND_VOLUME);
     }
 
     /// The first A asks for confirmation, the second forgets the network in NVS.
@@ -197,6 +211,10 @@ impl Launcher {
                     percent: self.settings.volume,
                     value: volume_value,
                 },
+                SettingsItem::Toggle {
+                    label: "Music",
+                    on: self.settings.music,
+                },
                 forget,
             ],
             selected: state.selected,
@@ -209,6 +227,7 @@ impl State {
     /// Footer controls, for the selected item.
     pub(crate) fn controls(&self) -> &'static str {
         match ITEMS[self.selected] {
+            Item::Music => "U/D choose  A switch  B back",
             Item::ForgetWifi => "U/D choose  A forget  B back",
             _ => "U/D choose  L/R change  B back",
         }

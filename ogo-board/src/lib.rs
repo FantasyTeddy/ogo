@@ -35,7 +35,7 @@ pub use canvas::Canvas;
 pub use display::{Backlight, Display, DisplayResultExt};
 pub use sd::SdCard;
 pub use settings::Settings;
-pub use speaker::{Note, Speaker};
+pub use speaker::{Note, Part, Speaker, Track, Wave};
 
 /// Largest single SPI transfer, in bytes. Used for LCD pixel batches and SD sectors.
 const SPI_DMA_BUFFER: usize = 4096;
@@ -60,9 +60,9 @@ impl Board {
         Self::take_with(&Settings::default(), |_| Ok(()))
     }
 
-    /// Like [`Board::take`], but applies `settings` (brightness, volume), and calls `first_frame`
-    /// as soon as the display works, before the backlight turns on and before the slower SD card
-    /// setup. Use it to show a boot screen.
+    /// Like [`Board::take`], but applies `settings` (brightness, volume, music), and calls
+    /// `first_frame` as soon as the display works, before the backlight turns on and before the
+    /// slower SD card setup. Use it to show a boot screen.
     pub fn take_with(
         settings: &Settings,
         first_frame: impl FnOnce(&mut Display) -> anyhow::Result<()>,
@@ -126,6 +126,7 @@ impl Board {
         let battery = Battery::new(adc, pins.gpio36)?;
         let mut speaker = Speaker::new(pins.gpio25, pins.gpio26)?;
         speaker.set_volume(settings.volume);
+        speaker.set_music_enabled(settings.music);
         let led = Led::new(pins.gpio2)?;
 
         Ok(Self {

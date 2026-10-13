@@ -24,12 +24,14 @@ pub const MENU_SOUND: &[Note] = &[Note::new(660, 30)];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseAction {
     Resume,
+    ToggleMusic,
     Exit,
 }
 
-const ITEMS: [(&str, PauseAction); 2] = [
-    ("Resume", PauseAction::Resume),
-    ("Exit to launcher", PauseAction::Exit),
+const ITEMS: [PauseAction; 3] = [
+    PauseAction::Resume,
+    PauseAction::ToggleMusic,
+    PauseAction::Exit,
 ];
 
 #[derive(Debug, Default)]
@@ -38,13 +40,20 @@ pub struct PauseMenu {
 }
 
 impl PauseMenu {
-    /// Up/Down choose, A confirms, B or MENU resume.
+    /// Up/Down choose, A confirms (Left/Right also switch the music), B or MENU resume.
     pub fn update(&mut self, input: &Input) -> Option<PauseAction> {
-        if input.pressed(Button::Up) || input.pressed(Button::Down) {
+        if input.pressed(Button::Up) {
+            self.selected = (self.selected + ITEMS.len() - 1) % ITEMS.len();
+        }
+        if input.pressed(Button::Down) {
             self.selected = (self.selected + 1) % ITEMS.len();
         }
-        if input.pressed(Button::A) {
-            return Some(ITEMS[self.selected].1);
+        let item = ITEMS[self.selected];
+        if input.pressed(Button::A)
+            || (item == PauseAction::ToggleMusic
+                && (input.pressed(Button::Left) || input.pressed(Button::Right)))
+        {
+            return Some(item);
         }
         if input.pressed(Button::B) || input.pressed(Button::Menu) {
             return Some(PauseAction::Resume);
@@ -53,9 +62,9 @@ impl PauseMenu {
     }
 
     /// Dims the game's frame and draws the menu on top.
-    pub fn draw(&self, fb: &mut Canvas) {
+    pub fn draw(&self, fb: &mut Canvas, music: bool) {
         fb.dim();
-        let area = Rectangle::with_center(fb.bounding_box().center(), Size::new(200, 110));
+        let area = Rectangle::with_center(fb.bounding_box().center(), Size::new(200, 138));
         panel(fb, area);
 
         let center_x = area.center().x;
@@ -65,7 +74,13 @@ impl PauseMenu {
             Point::new(center_x, area.top_left.y + 20),
             &FONT_10X20,
         );
-        for (i, (label, _)) in ITEMS.iter().enumerate() {
+        for (i, item) in ITEMS.into_iter().enumerate() {
+            let label = match item {
+                PauseAction::Resume => "Resume",
+                PauseAction::ToggleMusic if music => "Music: On",
+                PauseAction::ToggleMusic => "Music: Off",
+                PauseAction::Exit => "Exit to launcher",
+            };
             let row = Rectangle::new(
                 Point::new(area.top_left.x + 10, area.top_left.y + 44 + i as i32 * 28),
                 Size::new(180, 24),

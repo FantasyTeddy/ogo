@@ -7,7 +7,7 @@ use embedded_graphics::{
     primitives::{Circle, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::Alignment,
 };
-use ogo_sdk::{prelude::*, ui::text};
+use ogo_sdk::{pitch::*, prelude::*, ui::text};
 
 const CELL: i32 = 16;
 const HUD_HEIGHT: i32 = 16;
@@ -38,6 +38,48 @@ const SOUND_DIE: &[Note] = &[
     Note::new(262, 240),
 ];
 const SOUND_BEST: &[Note] = &[Note::new(784, 80), Note::new(988, 80), Note::new(1319, 160)];
+
+/// Music: eight bars in C major, 140 beats per minute at the start.
+const EIGHTH_MS: u32 = 214;
+/// Music tempo in percent per step of speed-up.
+const MUSIC_SPEEDUP: u32 = 10;
+#[rustfmt::skip]
+const MELODY: &[Note] = &[
+    n(C5, 1), n(E5, 1), n(G5, 1), n(E5, 1), n(C5, 2), n(G4, 2),
+    n(A4, 1), n(C5, 1), n(E5, 1), n(C5, 1), n(A4, 2), n(REST, 2),
+    n(F4, 1), n(A4, 1), n(C5, 1), n(A4, 1), n(G4, 1), n(B4, 1), n(D5, 1), n(B4, 1),
+    n(C5, 2), n(G4, 1), n(E4, 1), n(C4, 2), n(REST, 2),
+    n(E5, 1), n(E5, 1), n(D5, 1), n(C5, 1), n(D5, 2), n(G4, 2),
+    n(C5, 1), n(C5, 1), n(B4, 1), n(A4, 1), n(B4, 2), n(E4, 2),
+    n(A4, 1), n(B4, 1), n(C5, 1), n(D5, 1), n(E5, 1), n(F5, 1), n(G5, 2),
+    n(G5, 1), n(F5, 1), n(E5, 1), n(D5, 1), n(C5, 2), n(REST, 2),
+];
+#[rustfmt::skip]
+const BASS: &[Note] = &[
+    n(C3, 2), n(G3, 2), n(C3, 2), n(G3, 2),
+    n(A3, 2), n(E3, 2), n(A3, 2), n(E3, 2),
+    n(F3, 2), n(C3, 2), n(G3, 2), n(D3, 2),
+    n(C3, 2), n(G3, 2), n(C3, 2), n(G3, 2),
+    n(C3, 2), n(G3, 2), n(G3, 2), n(D3, 2),
+    n(A3, 2), n(E3, 2), n(E3, 2), n(B3, 2),
+    n(F3, 2), n(C3, 2), n(G3, 2), n(D3, 2),
+    n(C3, 2), n(G3, 2), n(C3, 2), n(G3, 2),
+];
+const MUSIC: Track = Track::new(&[
+    Part {
+        wave: Wave::Square,
+        notes: MELODY,
+    },
+    Part {
+        wave: Wave::Triangle,
+        notes: BASS,
+    },
+]);
+
+/// A note of the music, `eighths` long.
+const fn n(pitch: u32, eighths: u32) -> Note {
+    Note::new(pitch, eighths * EIGHTH_MS)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
@@ -108,6 +150,13 @@ impl Snake {
         self.place_food(ctx);
         self.state = State::Playing;
         ctx.sound().play(SOUND_START);
+        ctx.sound().play_music(MUSIC);
+        ctx.sound().set_music_speed(self.music_speed());
+    }
+
+    /// Faster with the snake.
+    fn music_speed(&self) -> u32 {
+        100 + (START_INTERVAL - self.interval()) * MUSIC_SPEEDUP
     }
 
     fn place_food(&mut self, ctx: &Ctx) {
@@ -173,11 +222,13 @@ impl Snake {
         if eats {
             self.eaten += 1;
             ctx.sound().play(SOUND_EAT);
+            ctx.sound().set_music_speed(self.music_speed());
             self.place_food(ctx);
         }
     }
 
     fn game_over(&mut self, ctx: &mut Ctx) {
+        ctx.sound().stop_music();
         let new_best = self.score() > self.best;
         if new_best {
             self.best = self.score();

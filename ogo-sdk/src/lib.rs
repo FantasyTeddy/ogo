@@ -17,8 +17,9 @@
 //! ```
 //!
 //! The SDK makes sure any reset returns to the launcher, runs `update` at a fixed rate and `draw`
-//! once per update, and handles MENU (pause menu with "Exit to launcher") and VOL (volume). It
-//! applies the brightness and volume from the launcher's settings, and saves VOL changes.
+//! once per update, and handles MENU (pause menu with music on/off and "Exit to launcher") and VOL
+//! (volume). It applies the brightness, volume and music setting from the launcher's settings, and
+//! saves the changes made in the game.
 //!
 //! A game crate needs, besides `ogo-sdk`: a `build.rs` calling `embuild::espidf::sysenv::output()`,
 //! and a direct dependency on `esp-idf-svc` even if unused, because the build script only gets
@@ -28,6 +29,8 @@ mod ctx;
 mod overlay;
 mod presenter;
 mod saves;
+
+pub mod pitch;
 
 use std::time::{Duration, Instant};
 
@@ -44,7 +47,7 @@ pub use ogo_board as __board;
 /// The launcher's colours and drawing helpers (`text`, `selection`, `panel`, `progress_bar`), for
 /// games that want to match its look.
 pub use ogo_board::ui;
-pub use ogo_board::{BatteryLevel, Note, Speaker};
+pub use ogo_board::{BatteryLevel, Note, Part, Speaker, Track, Wave};
 pub use saves::Saves;
 
 use overlay::{PauseAction, PauseMenu, VolumeIndicator, MENU_SOUND};
@@ -64,7 +67,7 @@ pub mod prelude {
     pub use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
     pub use ogo_board::Button;
 
-    pub use crate::{Ctx, Framebuffer, Game, Note, SCREEN_HEIGHT, SCREEN_WIDTH};
+    pub use crate::{Ctx, Framebuffer, Game, Note, Part, Track, Wave, SCREEN_HEIGHT, SCREEN_WIDTH};
 }
 
 pub trait Game: Sized {
@@ -146,17 +149,28 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             let next = settings::cycle(&settings::VOLUME_STEPS, ctx.sound().volume());
             ctx.sound().set_volume(next);
             ctx.sound().play(MENU_SOUND);
-            ctx.volume_changed();
+            ctx.settings_changed();
             volume.show();
         }
 
         match &mut pause {
             Some(menu) => match menu.update(ctx.input()) {
-                Some(PauseAction::Resume) => pause = None,
+                Some(PauseAction::Resume) => {
+                    pause = None;
+                    ctx.save_settings_now();
+                    ctx.sound().set_music_paused(false);
+                }
+                Some(PauseAction::ToggleMusic) => {
+                    let enabled = !ctx.sound().music_enabled();
+                    ctx.sound().set_music_enabled(enabled);
+                    ctx.sound().play(MENU_SOUND);
+                    ctx.settings_changed();
+                }
                 Some(PauseAction::Exit) => ctx.exit_to_launcher(),
                 None => {}
             },
             None if ctx.input().pressed(Button::Menu) => {
+                ctx.sound().set_music_paused(true);
                 ctx.sound().play(MENU_SOUND);
                 pause = Some(PauseMenu::default());
             }
@@ -169,7 +183,7 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
         let fb = presenter.frame().context("no frame buffer")?;
         game.draw(fb);
         if let Some(menu) = &pause {
-            menu.draw(fb);
+            menu.draw(fb, ctx.sound().music_enabled());
         }
         volume.draw(fb, ctx.sound().volume());
         presenter.present()?;

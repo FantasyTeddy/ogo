@@ -6,7 +6,7 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::Alignment,
 };
-use ogo_sdk::{prelude::*, ui::text};
+use ogo_sdk::{pitch::*, prelude::*, ui::text};
 
 const COLS: usize = 10;
 const ROWS: usize = 20;
@@ -85,6 +85,49 @@ const SOUND_DIE: &[Note] = &[
     Note::new(147, 300),
 ];
 const SOUND_BEST: &[Note] = &[Note::new(784, 80), Note::new(988, 80), Note::new(1319, 160)];
+
+/// Music: eight bars in A minor, 150 beats per minute at level 1.
+const EIGHTH_MS: u32 = 200;
+/// Music tempo in percent per level, and the fastest it gets.
+const MUSIC_SPEEDUP: u32 = 5;
+const MAX_MUSIC_SPEED: u32 = 150;
+#[rustfmt::skip]
+const MELODY: &[Note] = &[
+    n(A4, 1), n(C5, 1), n(E5, 1), n(A5, 1), n(G5, 1), n(E5, 1), n(C5, 1), n(E5, 1),
+    n(F5, 2), n(E5, 1), n(D5, 1), n(E5, 2), n(REST, 2),
+    n(D5, 1), n(F5, 1), n(A5, 1), n(F5, 1), n(E5, 1), n(C5, 1), n(A4, 1), n(C5, 1),
+    n(B4, 2), n(GS4, 1), n(B4, 1), n(E5, 2), n(REST, 2),
+    n(A5, 1), n(G5, 1), n(F5, 1), n(E5, 1), n(D5, 1), n(E5, 1), n(F5, 1), n(D5, 1),
+    n(E5, 1), n(D5, 1), n(C5, 1), n(B4, 1), n(C5, 1), n(D5, 1), n(E5, 2),
+    n(F5, 1), n(E5, 1), n(D5, 1), n(C5, 1), n(B4, 1), n(C5, 1), n(D5, 1), n(B4, 1),
+    n(A4, 2), n(E4, 1), n(GS4, 1), n(A4, 2), n(REST, 2),
+];
+#[rustfmt::skip]
+const BASS: &[Note] = &[
+    n(A3, 1), n(A4, 1), n(A3, 1), n(A4, 1), n(A3, 1), n(A4, 1), n(A3, 1), n(A4, 1),
+    n(D3, 1), n(D4, 1), n(D3, 1), n(D4, 1), n(A3, 1), n(A4, 1), n(A3, 1), n(A4, 1),
+    n(D3, 1), n(D4, 1), n(D3, 1), n(D4, 1), n(A3, 1), n(A4, 1), n(A3, 1), n(A4, 1),
+    n(E3, 1), n(E4, 1), n(E3, 1), n(E4, 1), n(E3, 1), n(E4, 1), n(E3, 1), n(E4, 1),
+    n(F3, 1), n(F4, 1), n(F3, 1), n(F4, 1), n(D3, 1), n(D4, 1), n(D3, 1), n(D4, 1),
+    n(C3, 1), n(C4, 1), n(C3, 1), n(C4, 1), n(G3, 1), n(G4, 1), n(G3, 1), n(G4, 1),
+    n(D3, 1), n(D4, 1), n(D3, 1), n(D4, 1), n(E3, 1), n(E4, 1), n(E3, 1), n(E4, 1),
+    n(A3, 1), n(A4, 1), n(A3, 1), n(A4, 1), n(E3, 1), n(E4, 1), n(E3, 1), n(E4, 1),
+];
+const MUSIC: Track = Track::new(&[
+    Part {
+        wave: Wave::Square,
+        notes: MELODY,
+    },
+    Part {
+        wave: Wave::Triangle,
+        notes: BASS,
+    },
+]);
+
+/// A note of the music, `eighths` long.
+const fn n(pitch: u32, eighths: u32) -> Note {
+    Note::new(pitch, eighths * EIGHTH_MS)
+}
 
 /// An RGB888 colour as RGB565.
 const fn rgb(r: u8, g: u8, b: u8) -> Rgb565 {
@@ -250,7 +293,14 @@ impl Brickfall {
         self.next = self.next_kind(ctx);
         self.state = State::Playing;
         ctx.sound().play(SOUND_START);
+        ctx.sound().play_music(MUSIC);
+        ctx.sound().set_music_speed(self.music_speed());
         self.spawn(ctx);
+    }
+
+    /// Faster with every level.
+    fn music_speed(&self) -> u32 {
+        (100 + (self.level() - 1) * MUSIC_SPEEDUP).min(MAX_MUSIC_SPEED)
     }
 
     fn next_kind(&mut self, ctx: &Ctx) -> Kind {
@@ -427,12 +477,14 @@ impl Brickfall {
         self.full_rows.clear();
         if self.level() > level {
             ctx.sound().play(SOUND_LEVEL);
+            ctx.sound().set_music_speed(self.music_speed());
         }
         self.state = State::Playing;
         self.spawn(ctx);
     }
 
     fn game_over(&mut self, ctx: &mut Ctx) {
+        ctx.sound().stop_music();
         let new_best = self.score > self.best;
         if new_best {
             self.best = self.score;
