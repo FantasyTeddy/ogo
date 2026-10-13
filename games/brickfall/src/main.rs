@@ -599,7 +599,7 @@ impl Brickfall {
         for (i, line) in [
             "LEFT/RIGHT: move    A/B: turn",
             "DOWN: drop faster   UP: drop",
-            "MENU: pause         VOL: volume",
+            "MENU: pause         VOL: sound",
         ]
         .into_iter()
         .enumerate()

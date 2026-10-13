@@ -181,6 +181,7 @@ impl Launcher {
             let now = Instant::now();
             if let Some(nav) = navigator.update(self.board.buttons.read()?, now) {
                 match self.screen {
+                    _ if nav == Nav::Mute => self.toggle_mute()?,
                     Screen::Games => self.handle_games(nav)?,
                     Screen::Notice => self.dismiss_notice()?,
                     Screen::Wifi(_) => self.handle_connect(nav)?,
@@ -227,7 +228,7 @@ impl Launcher {
             Nav::Rescan => return self.rescan(),
             Nav::Connect => return self.open_connect(),
             Nav::Settings => return self.open_settings(),
-            Nav::Back => {}
+            Nav::Back | Nav::Mute => {}
         }
         if self.list != before {
             self.draw_library()?;

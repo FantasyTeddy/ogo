@@ -60,7 +60,7 @@ impl Board {
         Self::take_with(&Settings::default(), |_| Ok(()))
     }
 
-    /// Like [`Board::take`], but applies `settings` (brightness, volume, music), and calls
+    /// Like [`Board::take`], but applies `settings` (brightness, volume, music, muted), and calls
     /// `first_frame` as soon as the display works, before the backlight turns on and before the
     /// slower SD card setup. Use it to show a boot screen.
     pub fn take_with(
@@ -125,7 +125,7 @@ impl Board {
         )?;
         let battery = Battery::new(adc, pins.gpio36)?;
         let mut speaker = Speaker::new(pins.gpio25, pins.gpio26)?;
-        speaker.set_volume(settings.volume);
+        speaker.set_volume(settings.speaker_volume());
         speaker.set_music_enabled(settings.music);
         let led = Led::new(pins.gpio2)?;
 

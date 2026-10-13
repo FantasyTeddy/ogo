@@ -23,6 +23,8 @@ pub enum Nav {
     Settings,
     /// B: leave the current screen.
     Back,
+    /// VOL: switch muted on or off, on any screen.
+    Mute,
 }
 
 /// Press events; Up/Down/Left/Right repeat while held.
@@ -51,6 +53,9 @@ impl Navigator {
         }
         if state.just_pressed(previous, Button::B) {
             return Some(Nav::Back);
+        }
+        if state.just_pressed(previous, Button::Volume) {
+            return Some(Nav::Mute);
         }
 
         for button in [Button::Up, Button::Down, Button::Left, Button::Right] {

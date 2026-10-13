@@ -13,9 +13,9 @@ use ogo_board::{
 use crate::saves::Saves;
 
 const BATTERY_INTERVAL: Duration = Duration::from_secs(5);
-/// A changed setting (VOL, music in the pause menu) is saved this long after the last change: by
-/// then the amplifier is usually off already (see `ogo_board::speaker`), so muting it for the
-/// flash write doesn't cut a sound. While music plays, the save waits until it stops or pauses; closing
+/// A changed setting (VOL, the pause menu) is saved this long after the last change: by then the
+/// amplifier is usually off already (see `ogo_board::speaker`), so muting it for the flash write
+/// doesn't cut a sound. While music plays, the save waits until it stops or pauses; closing
 /// the pause menu saves at once, before the music goes on.
 const SETTINGS_SAVE_DELAY: Duration = Duration::from_secs(4);
 
@@ -59,7 +59,9 @@ pub struct Ctx {
     saves: Saves,
     /// The settings in NVS; `None` if they couldn't be opened.
     nvs: Option<EspDefaultNvs>,
-    /// When to save a changed volume or music setting.
+    /// As applied to the speaker; VOL and the pause menu change them.
+    settings: Settings,
+    /// When to save changed settings.
     settings_save_at: Option<Instant>,
     frame: u64,
     // Keeps the card mounted for the saves.
@@ -67,6 +69,7 @@ pub struct Ctx {
 }
 
 impl Ctx {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         game_id: &str,
         buttons: Buttons,
@@ -75,6 +78,7 @@ impl Ctx {
         led: Led,
         sd: Option<SdCard>,
         nvs: Option<EspDefaultNvs>,
+        settings: Settings,
     ) -> Self {
         let battery = battery_sensor.read().ok();
         Self {
@@ -87,6 +91,7 @@ impl Ctx {
             led,
             saves: Saves::new(sd.as_ref(), game_id),
             nvs,
+            settings,
             settings_save_at: None,
             frame: 0,
             _sd: sd,
@@ -107,8 +112,15 @@ impl Ctx {
         Ok(())
     }
 
-    /// VOL was pressed or the music switched: save the settings soon.
-    pub(crate) fn settings_changed(&mut self) {
+    pub(crate) fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// Changes the settings (VOL, the pause menu), applies them to the speaker and saves them soon.
+    pub(crate) fn change_settings(&mut self, change: impl FnOnce(&mut Settings)) {
+        change(&mut self.settings);
+        self.speaker.set_volume(self.settings.speaker_volume());
+        self.speaker.set_music_enabled(self.settings.music);
         self.settings_save_at = Some(Instant::now() + SETTINGS_SAVE_DELAY);
     }
 
@@ -124,14 +136,9 @@ impl Ctx {
         let Some(nvs) = &self.nvs else {
             return;
         };
-        let settings = Settings {
-            volume: self.speaker.volume(),
-            music: self.speaker.music_enabled(),
-            ..Settings::load(nvs)
-        };
         // Writing flash stalls the audio DMA, which would click.
         self.speaker.set_muted(true);
-        if let Err(e) = settings.save(nvs) {
+        if let Err(e) = self.settings.save(nvs) {
             log::warn!("Saving the settings failed: {e:?}");
         }
         self.speaker.set_muted(false);

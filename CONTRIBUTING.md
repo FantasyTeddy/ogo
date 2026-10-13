@@ -96,9 +96,10 @@ and writer, the image description, the partition table and slot labels (checked 
 ESP32 is tested on the device.
 
 **On the device**, after `cargo xtask flash --all` (recovery too, when the shared crates changed):
-1. The launcher starts; the settings screen shows the expected version, commit and slot.
+1. The launcher starts; the settings screen shows the expected version, commit and slot; VOL mutes
+   and unmutes.
 2. A game starts (installing it first if it changed), its music plays under the sound effects, its
-   pause menu (music on/off too) and VOL work, and "Exit to launcher" returns.
+   pause menu (volume and music too) and VOL's three sound modes work, and "Exit to launcher" returns.
 3. The WiFi screen: the web page logs in with the PIN, uploads and deletes a game, and the game list
    is rescanned when the screen closes.
 4. A launcher update from the web page restarts into the other slot and says "Launcher updated".

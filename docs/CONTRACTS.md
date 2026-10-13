@@ -72,8 +72,9 @@ All in the namespace `ogo` of the default NVS partition. Keys are limited to 15 
 | `update_target` | str | launcher | Slot a launcher update went to, until the next start has checked it |
 | `wifi_ssid`, `wifi_pass` | str | launcher | The WiFi network set on the web page; removed by "Forget WiFi network" |
 | `brightness` | u8 | launcher (settings screen) | Backlight in percent: 10, 20, … 100. Default 100 |
-| `volume` | u8 | launcher (settings screen), games (VOL) | Volume in percent: 0, 25, 50, 75, 100. Default 50 |
-| `music` | u8 | launcher (settings screen), games (pause menu) | Games play music: 1 on, 0 off. Default on |
+| `volume` | u8 | launcher (settings screen), games (pause menu) | Volume level in percent as shown: 0, 10, 20, … 100. The speaker plays a curve of it, so each step sounds equally louder (10 → 10%, 50 → 28%, 100 → 100%; `VOLUME_OUTPUT`). Default 50 |
+| `music` | u8 | launcher (settings screen), games (pause menu, VOL) | Games play music: 1 on, 0 off. Default on |
+| `muted` | u8 | launcher (VOL), games (VOL; changing the volume unmutes) | No sound, `volume` kept: 1 muted, 0 not. Default not muted |
 
 Missing keys mean the defaults. Values between the steps are rounded to the nearest step.
 

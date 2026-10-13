@@ -3,7 +3,7 @@
 An ogo game is its own firmware image. The launcher copies it into the game slot and restarts into
 it; the game then has the whole device until it restarts back into the launcher. Games are built on
 [ogo-sdk](../ogo-sdk/src/lib.rs), which takes care of everything that isn't the game itself: the
-switch back to the launcher, the frame loop, the screen, the pause menu and the volume.
+switch back to the launcher, the frame loop, the screen, the pause menu and the sound settings.
 
 [games/snake](../games/snake/src/main.rs) is a complete example. This guide assumes the toolchain
 from [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites) is installed.
@@ -121,8 +121,9 @@ ui::text(fb, "Game over", Point::new(160, 120), &FONT_10X20, ui::TEXT, Alignment
 - `released(button)`: went up since the last frame
 
 Buttons: `Up`, `Down`, `Left`, `Right`, `A`, `B`, `Select`, `Start`. **MENU and VOL belong to the
-SDK:** MENU opens the pause menu (resume, music on/off, exit to the launcher; `update` isn't called
-while it's open, `draw` is, and the music pauses), VOL cycles the volume.
+SDK:** MENU opens the pause menu (resume, volume, music on/off, exit to the launcher; `update` isn't
+called while it's open, `draw` is, and the music pauses), VOL switches between all sound, effects
+only (music off) and muted.
 
 **Sound.** `ctx.sound().play(&[Note::new(frequency_hz, duration_ms), …])` queues notes (sine tones;
 a frequency of 0 is a pause) and returns at once. Up to 4 sounds can wait; more are dropped. The
@@ -148,8 +149,8 @@ ctx.sound().set_music_speed(120);     // tempo in percent, e.g. faster on later 
 ctx.sound().stop_music();
 ```
 
-The player can switch music off (launcher settings, pause menu); the game still calls `play_music`
-as usual and just isn't heard.
+The player can switch music off (VOL, pause menu, launcher settings); the game still calls
+`play_music` as usual and just isn't heard.
 
 **Saves.** `ctx.saves()` stores one file per name in `/ogo/saves/<id>/` on the SD card (names: a-z,
 A-Z, 0-9, `-` and `_`). They survive reinstalling and deleting the game.

@@ -322,7 +322,7 @@ impl Game for Snake {
                 );
                 text(
                     fb,
-                    "MENU: pause   VOL: volume",
+                    "MENU: pause   VOL: sound",
                     Point::new(center_x, 200),
                     &FONT_8X13,
                     DIM,

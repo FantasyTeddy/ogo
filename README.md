@@ -21,6 +21,7 @@ launcher updates are managed from a web page served by the device itself.
   doesn't start properly, the device goes back to the previous one by itself
 - Settings screen (MENU): device info, brightness, volume and music on/off (all also used by
   games), forget the WiFi network
+- Sound in three modes, switched with VOL in games: all sound, effects only (music off), muted
 
 ## What you need
 
@@ -62,9 +63,10 @@ Each release also contains the games as `.ogo` packages. To install one:
 
 In the game list, **A** starts the selected game; the first start (or after an update) installs it
 with a progress bar. **START** rescans the card, **SELECT** opens the WiFi screen, **MENU** the
-settings. In a game, **MENU** opens the pause menu with music on/off and "Exit to launcher", and
-**VOL** changes the volume (both kept for the launcher and other games too). Any reset while a game
-runs also lands back in the launcher.
+settings, and **VOL** mutes or unmutes. In a game, **MENU** opens the pause menu with the volume,
+music on/off and "Exit to launcher"; **VOL** switches between all sound, effects only (music off) and
+muted. All of these are kept for the launcher and other games too. Any reset while a game runs also
+lands back in the launcher.
 
 ## Web page
 

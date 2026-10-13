@@ -103,11 +103,14 @@ impl Launcher {
                     Item::Volume => {
                         let volume =
                             settings::step(&settings::VOLUME_STEPS, self.settings.volume, delta);
-                        if volume == self.settings.volume {
+                        if volume == self.settings.volume && !self.settings.muted {
                             return Ok(());
                         }
                         self.settings.volume = volume;
-                        self.board.speaker.set_volume(volume);
+                        self.settings.muted = false;
+                        self.board
+                            .speaker
+                            .set_volume(self.settings.speaker_volume());
                         self.board.speaker.play(SOUND_VOLUME);
                     }
                     Item::Music => self.toggle_music(),
@@ -116,9 +119,34 @@ impl Launcher {
             }
             Nav::Select if item == Item::Music => self.toggle_music(),
             Nav::Select if item == Item::ForgetWifi => return self.forget_wifi(),
-            Nav::Select | Nav::Rescan | Nav::Connect => return Ok(()),
+            Nav::Select | Nav::Rescan | Nav::Connect | Nav::Mute => return Ok(()),
         }
         self.draw_settings()
+    }
+
+    /// VOL, on any screen: switches muted on or off, and saves that at once.
+    pub(crate) fn toggle_mute(&mut self) -> anyhow::Result<()> {
+        self.settings.muted = !self.settings.muted;
+        // Writing flash stalls the audio DMA, which would click; muting first also keeps it quiet.
+        self.board.speaker.set_muted(true);
+        let result = self.settings.save(&self.nvs);
+        self.board.speaker.set_muted(false);
+        self.board
+            .speaker
+            .set_volume(self.settings.speaker_volume());
+        if let Err(e) = result {
+            log::error!("Saving the settings failed: {e:?}");
+        }
+        if let Screen::Settings(state) = &mut self.screen {
+            state.saved.muted = self.settings.muted;
+            self.draw_settings()?;
+        }
+        if self.settings.muted {
+            self.show_message("Sound muted")
+        } else {
+            self.board.speaker.play(SOUND_VOLUME);
+            self.show_message("Sound on")
+        }
     }
 
     fn toggle_music(&mut self) {
@@ -188,7 +216,9 @@ impl Launcher {
                 enabled: matches!(saved, Some((_, WifiSource::Nvs))),
             },
         };
-        let volume_value = if self.settings.volume == 0 {
+        let volume_value = if self.settings.muted {
+            "Muted".to_owned()
+        } else if self.settings.volume == 0 {
             "Off".to_owned()
         } else {
             format!("{}%", self.settings.volume)
@@ -208,7 +238,11 @@ impl Launcher {
                 },
                 SettingsItem::Level {
                     label: "Volume",
-                    percent: self.settings.volume,
+                    percent: if self.settings.muted {
+                        0
+                    } else {
+                        self.settings.volume
+                    },
                     value: volume_value,
                 },
                 SettingsItem::Toggle {
