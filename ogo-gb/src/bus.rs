@@ -3,6 +3,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
+use crate::apu::Apu;
 use crate::cart::Cartridge;
 use crate::ppu::Ppu;
 use crate::timer::Timer;
@@ -32,6 +33,7 @@ pub(crate) struct Bus {
     pub iflag: u8,
     pub timer: Timer,
     pub ppu: Ppu,
+    pub apu: Apu,
     /// P1 bits 4-5: which button group is selected (0 = selected).
     joypad_select: u8,
     buttons: Buttons,
@@ -55,6 +57,7 @@ impl Bus {
             iflag: 0xe1,
             timer: Timer::new(),
             ppu: Ppu::new(),
+            apu: Apu::new(),
             joypad_select: 0x30,
             buttons: Buttons::default(),
             serial_log: None,
@@ -125,12 +128,12 @@ impl Bus {
         }
     }
 
-    /// Whether accessing `addr` touches state that runs behind: timer and IF, the LCD timing
-    /// registers, or the cartridge clock (whose latch is written in the ROM area).
+    /// Whether accessing `addr` touches state that runs behind: timer and IF, sound, the LCD
+    /// timing registers, or the cartridge clock (whose latch is written in the ROM area).
     #[inline(always)]
     fn needs_sync(&self, addr: u16) -> bool {
         match addr {
-            0xff04..=0xff0f | 0xff40..=0xff45 => true,
+            0xff04..=0xff45 => true,
             0x0000..=0x7fff | 0xa000..=0xbfff => self.cart.has_clock(),
             _ => false,
         }
@@ -149,6 +152,7 @@ impl Bus {
             0xff06 => self.timer.tma,
             0xff07 => self.timer.tac,
             0xff0f => self.iflag | 0xe0,
+            0xff10..=0xff3f => self.apu.read(addr),
             0xff40 => self.ppu.lcdc,
             0xff41 => self.ppu.read_stat(),
             0xff42 => self.ppu.scy,
@@ -189,6 +193,7 @@ impl Bus {
                 }
             }
             0xff0f => self.iflag = value & 0x1f,
+            0xff10..=0xff3f => self.apu.write(addr, value),
             0xff40 => self.iflag |= self.ppu.write_lcdc(value),
             0xff41 => self.iflag |= self.ppu.write_stat(value),
             0xff42 => self.ppu.scy = value,
@@ -232,6 +237,7 @@ impl Bus {
         }
         self.iflag |= self.ppu.tick(cycles);
         self.cart.tick(cycles);
+        self.apu.tick(cycles);
         self.next_event = self.cycles_to_event();
     }
 
@@ -241,6 +247,7 @@ impl Bus {
         self.timer
             .cycles_to_overflow()
             .min(self.ppu.cycles_to_mode_change())
+            .min(self.apu.cycles_to_event())
     }
 
     fn read_joypad(&self) -> u8 {

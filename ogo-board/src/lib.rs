@@ -36,7 +36,7 @@ pub use canvas::Canvas;
 pub use display::{Backlight, Display, DisplayResultExt};
 pub use sd::SdCard;
 pub use settings::Settings;
-pub use speaker::{Note, Part, Speaker, Track, Wave};
+pub use speaker::{Note, Part, Speaker, Stream, Track, Wave};
 
 /// Largest single SPI transfer, in bytes. Used for LCD pixel batches and SD sectors.
 const SPI_DMA_BUFFER: usize = 4096;

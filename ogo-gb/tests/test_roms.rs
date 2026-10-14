@@ -255,3 +255,50 @@ fn screenshots() {
         .collect();
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
+
+/// Blargg's newer ROMs report in cartridge RAM: the signature DE B0 61 at $A001, the status at
+/// $A000 (0x80 while running, 0 when passed) and a text from $A004.
+fn blargg_memory(dir: &Path, name: &str) -> Result<(), String> {
+    let mut gb = load(dir, name);
+    let mut cycles = 0u64;
+    while cycles < 40 * CLOCK_HZ as u64 {
+        for _ in 0..1000 {
+            cycles += gb.step() as u64;
+        }
+        let signature = [gb.peek(0xa001), gb.peek(0xa002), gb.peek(0xa003)];
+        let status = gb.peek(0xa000);
+        if signature == [0xde, 0xb0, 0x61] && status != 0x80 {
+            if status == 0 {
+                return Ok(());
+            }
+            let text: String = (0xa004..0xbfff)
+                .map(|addr| gb.peek(addr))
+                .take_while(|&b| b != 0)
+                .map(char::from)
+                .collect();
+            return Err(format!(
+                "status {status}: {}",
+                text.trim().replace('\n', " | ")
+            ));
+        }
+    }
+    Err("timed out".into())
+}
+
+#[test]
+fn blargg_sound() {
+    run_all(
+        &[
+            "blargg/dmg_sound/rom_singles/01-registers.gb",
+            "blargg/dmg_sound/rom_singles/02-len ctr.gb",
+            "blargg/dmg_sound/rom_singles/03-trigger.gb",
+            "blargg/dmg_sound/rom_singles/04-sweep.gb",
+            "blargg/dmg_sound/rom_singles/05-sweep details.gb",
+            "blargg/dmg_sound/rom_singles/06-overflow on trigger.gb",
+            "blargg/dmg_sound/rom_singles/07-len sweep period sync.gb",
+            "blargg/dmg_sound/rom_singles/08-len ctr during power.gb",
+            "blargg/dmg_sound/rom_singles/11-regs after power.gb",
+        ],
+        blargg_memory,
+    );
+}

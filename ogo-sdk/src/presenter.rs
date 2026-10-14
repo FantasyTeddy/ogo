@@ -41,7 +41,8 @@ impl Presenter {
             Size::new(display::WIDTH.into(), display::HEIGHT.into()),
         );
         let (to_display, frames) = mpsc::sync_channel::<Frame>(1);
-        let (to_game, sent) = mpsc::sync_channel::<Canvas>(2 * BUFFERS);
+        // Room for the small extra buffers too (the volume box, clearing where it was)
+        let (to_game, sent) = mpsc::sync_channel::<Canvas>(4 * BUFFERS);
 
         let display = SendDisplay(display);
         ogo_board::thread::spawn_on_second_core("display", 8192, move || {

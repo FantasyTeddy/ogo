@@ -160,7 +160,15 @@ ctx.sound().stop_music();
 ```
 
 The player can switch music off (VOL, pause menu, launcher settings); the game still calls
-`play_music` as usual and just isn't heard.
+`play_music` as usual and just isn't heard. A game without music of its own, or whose sound can't be
+split into music and effects (an emulator), sets `const MUSIC: bool = false;` in its `impl Game`:
+VOL then only switches between sound on and muted, and the pause menu has no music line.
+
+**Samples.** A game that makes its own sound, like an emulator, opens a `Stream` with
+`ctx.sound().open_stream()` and pushes mono, signed 16-bit samples at `ogo_sdk::SAMPLE_RATE`
+(32 kHz), e.g. once per frame. They are mixed with the sound effects and follow the volume, but not
+the music setting. Keep about 75 ms buffered (`buffered()`): the stream starts playing from there,
+pauses when it runs dry and beyond 125 ms drops the oldest samples, back to 75 ms. Dropping the `Stream` ends it.
 
 **Saves.** `ctx.saves()` stores one file per name in `/ogo/saves/<id>/` on the SD card (names: a-z,
 A-Z, 0-9, `-` and `_`). They survive reinstalling and deleting the game.

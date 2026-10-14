@@ -44,13 +44,15 @@ use ogo_board::{
 pub use ctx::{Ctx, Input};
 #[doc(hidden)]
 pub use ogo_board as __board;
+/// Samples per second of the speaker, for a [`Stream`].
+pub use ogo_board::speaker::SAMPLE_RATE;
 /// The launcher's colours and drawing helpers (`text`, `selection`, `panel`, `progress_bar`), for
 /// games that want to match its look.
 pub use ogo_board::ui;
-pub use ogo_board::{in_internal_ram, BatteryLevel, Note, Part, Speaker, Track, Wave};
+pub use ogo_board::{in_internal_ram, BatteryLevel, Note, Part, Speaker, Stream, Track, Wave};
 pub use saves::Saves;
 
-use overlay::{PauseAction, PauseMenu, SoundIndicator, MENU_SOUND};
+use overlay::{PauseAction, PauseMenu, SoundIndicator, INDICATOR_AREA, MENU_SOUND};
 use presenter::Presenter;
 
 /// The 320x240 frame a game draws into. Implements embedded-graphics' `DrawTarget`.
@@ -74,6 +76,11 @@ pub trait Game: Sized {
     /// Updates (and frames) per second. The display manages about 30 full frames per second, or
     /// more with a smaller [`Game::area`].
     const FPS: u32 = 30;
+
+    /// Whether the game has music of its own, apart from its sound effects. Without (e.g. an
+    /// emulator, whose sound can't be split like that), VOL only switches between sound on and
+    /// muted, and the pause menu has no music line.
+    const MUSIC: bool = true;
 
     fn new(ctx: &mut Ctx) -> Self;
 
@@ -155,7 +162,7 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
     let frame_time = Duration::from_micros(1_000_000 / u64::from(G::FPS.max(1)));
     let mut next_frame = Instant::now();
     let mut pause: Option<PauseMenu> = None;
-    let mut indicator = SoundIndicator::default();
+    let mut indicator = SoundIndicator::new(G::MUSIC);
     let screen = Rectangle::new(Point::zero(), Size::new(SCREEN_WIDTH, SCREEN_HEIGHT));
     let mut area = None;
     // Where the screen still shows something outside the game's area (an overlay, an earlier
@@ -166,7 +173,12 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
         ctx.poll()?;
 
         if ctx.input().pressed(Button::Volume) {
-            ctx.change_settings(|s| s.set_sound_mode(s.sound_mode().next()));
+            if G::MUSIC {
+                ctx.change_settings(|s| s.set_sound_mode(s.sound_mode().next()));
+            } else {
+                // Only on and muted; the music setting stays as it is for other games
+                ctx.change_settings(|s| s.muted = !s.muted);
+            }
             ctx.sound().play(MENU_SOUND);
             indicator.show();
         }
@@ -175,6 +187,7 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             Some(menu) => match menu.update(ctx.input()) {
                 Some(PauseAction::Resume) => {
                     pause = None;
+                    ctx.input_mut().ignore_held();
                     ctx.save_settings_now();
                     ctx.sound().set_music_paused(false);
                 }
@@ -195,7 +208,7 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             None if ctx.input().pressed(Button::Menu) => {
                 ctx.sound().set_music_paused(true);
                 ctx.sound().play(MENU_SOUND);
-                pause = Some(PauseMenu::default());
+                pause = Some(PauseMenu::new(G::MUSIC));
                 game.paused(&mut ctx);
             }
             None => {
@@ -230,14 +243,39 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             Some(area) => {
                 let mut canvas = presenter.take_area(area)?;
                 game.draw(&mut canvas);
-                if pause.is_none() && !indicator.visible() && stale.is_none() {
+                let indicator_shown = indicator.visible();
+                let indicator_overlaps =
+                    indicator_shown && !INDICATOR_AREA.intersection(&area).is_zero_sized();
+                if pause.is_none() && stale != Some(screen) && !indicator_overlaps {
+                    // The area from its own buffer; the volume box beside it, and the black where
+                    // it was, in small buffers of their own
                     let whole = canvas.bounding_box();
                     presenter.present(canvas, vec![whole])?;
+                    if indicator_shown {
+                        let mut boxed = in_internal_ram(|| Framebuffer::new(INDICATOR_AREA));
+                        indicator.draw(
+                            &mut boxed.translated(-INDICATOR_AREA.top_left),
+                            ctx.settings(),
+                        );
+                        let whole = boxed.bounding_box();
+                        presenter.present(boxed, vec![whole])?;
+                        stale = Some(INDICATOR_AREA);
+                    } else if let Some(rect) = stale.take() {
+                        let black = in_internal_ram(|| Framebuffer::new(rect));
+                        let whole = black.bounding_box();
+                        presenter.present(black, vec![whole])?;
+                    }
                 } else {
-                    // Overlays need the whole screen: the area goes into a full-screen buffer,
-                    // black around it
+                    // Overlays need the whole screen: the area goes into a full-screen buffer.
+                    // Only what's sent must be right there: the area, the overlays (drawn whole)
+                    // and where an overlay was (black). Clearing all of PSRAM's 150 KB takes
+                    // milliseconds, so that's only for the pause menu, which dims everything.
                     let mut fb = presenter.take_full()?;
-                    fb.clear(Rgb565::BLACK).ok();
+                    if pause.is_some() || stale == Some(screen) {
+                        fb.clear(Rgb565::BLACK).ok();
+                    } else if let Some(rect) = stale {
+                        fb.fill_solid(&rect, Rgb565::BLACK).ok();
+                    }
                     fb.copy_from(&canvas);
                     presenter.recycle(canvas);
                     let mut send: Vec<Rectangle> =

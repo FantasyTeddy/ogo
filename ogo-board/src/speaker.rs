@@ -6,10 +6,10 @@
 //! nothing plays. Switching DAC modes per sound, or leaving the input undriven, makes the
 //! amplifier click or crackle. Every note also fades in and out.
 //!
-//! The audio thread generates the samples as it goes and mixes two things: sound effects (sine
-//! tones, played one after another from a short queue) and music (a looping [`Track`] of up to
-//! [`MAX_PARTS`] parts), which plays quieter, under the effects. Volume and tempo changes apply at
-//! once.
+//! The audio thread generates the samples as it goes and mixes up to three things: sound effects
+//! (sine tones, played one after another from a short queue), music (a looping [`Track`] of up to
+//! [`MAX_PARTS`] parts), which plays quieter, under the effects, and a [`Stream`] of samples the
+//! game makes itself. Volume and tempo changes apply at once.
 //!
 //! The amplifier hisses faintly while on, so the audio thread switches it off after
 //! [`AMP_IDLE_OFF_MS`] of silence. It needs time to wake up (short beeps right after switching
@@ -34,8 +34,8 @@ use esp_idf_svc::{
 const DAC_CHANNEL_MASK: sys::dac_channel_mask_t = sys::dac_channel_mask_t_DAC_CHANNEL_MASK_CH1; // GPIO26
 /// DAC level between sounds, and the center of every wave.
 const IDLE_LEVEL: u8 = 128;
-/// The ESP32's default DAC clock can't go below 19.6 kHz.
-const SAMPLE_RATE: u32 = 32_000;
+/// Samples per second. The ESP32's default DAC clock can't go below 19.6 kHz.
+pub const SAMPLE_RATE: u32 = 32_000;
 const DMA_DESCRIPTORS: u32 = 6;
 const DMA_BUFFER_BYTES: usize = 128;
 /// Samples the audio thread hands to the DMA per write (8 ms).
@@ -54,6 +54,12 @@ const EFFECT_GAIN_WITH_MUSIC: f32 = 0.75;
 const MUSIC_GAIN: f32 = 0.25;
 /// Parts a [`Track`] can have.
 pub const MAX_PARTS: usize = 2;
+/// A [`Stream`] starts playing (again) once this much is buffered (75 ms), so that a game handing
+/// over samples once per frame doesn't run dry in between.
+const STREAM_START: usize = SAMPLE_RATE as usize * 75 / 1000;
+/// Beyond this (125 ms), the oldest samples of a [`Stream`] are dropped, down to [`STREAM_START`],
+/// to keep the delay short.
+const STREAM_MAX: usize = SAMPLE_RATE as usize * 125 / 1000;
 /// Silence after which the amplifier is switched off.
 pub const AMP_IDLE_OFF_MS: u32 = 3000;
 /// Idle level played after switching the amplifier on, before the sound starts.
@@ -175,9 +181,51 @@ impl Amp {
     }
 }
 
+/// Samples a game makes itself, e.g. an emulator's sound: mono, signed 16-bit, at
+/// [`SAMPLE_RATE`]. Made by [`Speaker::open_stream`]; dropping it ends the stream.
+pub struct Stream {
+    buffer: Arc<Mutex<StreamBuffer>>,
+    commands: SyncSender<Command>,
+}
+
+#[derive(Default)]
+struct StreamBuffer {
+    samples: VecDeque<i16>,
+    /// Enough was buffered to start; cleared when it runs dry.
+    playing: bool,
+}
+
+impl Stream {
+    /// Adds samples to play after the ones before. Keep about 75 ms buffered: it plays from then
+    /// on, pauses when it runs dry, and beyond 125 ms drops the oldest samples down to 75 ms.
+    pub fn push(&self, samples: &[i16]) {
+        let mut buffer = self.buffer.lock().unwrap();
+        buffer.samples.extend(samples);
+        // Back to the start level at once: trimming to the limit would leave the level there,
+        // since a game makes samples as fast as they play, and then every push would cut a few,
+        // which sounds like distortion
+        if buffer.samples.len() > STREAM_MAX {
+            let excess = buffer.samples.len() - STREAM_START;
+            buffer.samples.drain(..excess);
+        }
+    }
+
+    /// Samples waiting to be played.
+    pub fn buffered(&self) -> usize {
+        self.buffer.lock().unwrap().samples.len()
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        self.commands.try_send(Command::Stream(None)).ok();
+    }
+}
+
 /// What the [`Speaker`] tells the audio thread.
 enum Command {
     Effect(Vec<Note>),
+    Stream(Option<Arc<Mutex<StreamBuffer>>>),
     Volume(u8),
     Music(Option<Track>),
     MusicSpeed(u32),
@@ -306,6 +354,24 @@ impl Speaker {
         self.send(Command::MusicPaused(paused));
     }
 
+    /// Starts playing samples the game makes itself, mixed with the sound effects (and the music,
+    /// if any); replaces an earlier stream. Follows the volume, but not the music setting.
+    pub fn open_stream(&mut self) -> Stream {
+        let buffer = Arc::new(Mutex::new(StreamBuffer::default()));
+        // Waits if the queue is full: a stream that never starts would be worse than a short wait
+        if self
+            .commands
+            .send(Command::Stream(Some(buffer.clone())))
+            .is_err()
+        {
+            log::error!("The audio thread has stopped");
+        }
+        Stream {
+            buffer,
+            commands: self.commands.clone(),
+        }
+    }
+
     /// Music can be heard: it's set, switched on and not paused, and the volume isn't 0.
     pub fn music_playing(&self) -> bool {
         self.music && self.music_enabled && !self.music_paused && self.volume > 0
@@ -430,6 +496,7 @@ struct Mixer {
     music_speed: u32,
     music_enabled: bool,
     music_paused: bool,
+    stream: Option<Arc<Mutex<StreamBuffer>>>,
 }
 
 impl Mixer {
@@ -443,6 +510,7 @@ impl Mixer {
             music_speed: 100,
             music_enabled: true,
             music_paused: false,
+            stream: None,
         }
     }
 
@@ -463,6 +531,7 @@ impl Mixer {
             Command::MusicSpeed(percent) => self.music_speed = percent,
             Command::MusicEnabled(enabled) => self.music_enabled = enabled,
             Command::MusicPaused(paused) => self.music_paused = paused,
+            Command::Stream(stream) => self.stream = stream,
         }
     }
 
@@ -473,7 +542,30 @@ impl Mixer {
     }
 
     fn is_playing(&self) -> bool {
-        !self.effects.is_empty() || self.music().is_some()
+        !self.effects.is_empty() || self.music().is_some() || self.stream.is_some()
+    }
+
+    /// The stream's next samples, as -1.0 to 1.0; 0 where it has none (yet).
+    fn take_stream(&mut self, out: &mut [f32]) {
+        out.fill(0.0);
+        let Some(stream) = &self.stream else {
+            return;
+        };
+        let mut buffer = stream.lock().unwrap();
+        if !buffer.playing && buffer.samples.len() >= STREAM_START {
+            buffer.playing = true;
+        }
+        if !buffer.playing {
+            return;
+        }
+        if buffer.samples.len() < out.len() {
+            // Ran dry: wait until enough is buffered again
+            buffer.playing = false;
+        }
+        let count = out.len().min(buffer.samples.len());
+        for (value, sample) in out.iter_mut().zip(buffer.samples.drain(..count)) {
+            *value = f32::from(sample) / 32768.0;
+        }
     }
 
     /// 8-bit unsigned samples around `IDLE_LEVEL`.
@@ -485,8 +577,10 @@ impl Mixer {
         } else {
             1.0
         };
-        for sample in chunk {
-            let mut value = effect_gain * self.next_effect();
+        let mut stream = [0.0; CHUNK_SAMPLES];
+        self.take_stream(&mut stream[..chunk.len()]);
+        for (sample, streamed) in chunk.iter_mut().zip(stream) {
+            let mut value = streamed + effect_gain * self.next_effect();
             if let Some(track) = music {
                 let gain = MUSIC_GAIN / track.parts.len() as f32;
                 for (voice, part) in self.music_voices.iter_mut().zip(track.parts) {

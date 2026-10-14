@@ -61,6 +61,16 @@ impl ButtonState {
         self.0 != 0
     }
 
+    /// The buttons held here but not in `other`.
+    pub fn without(self, other: ButtonState) -> ButtonState {
+        ButtonState(self.0 & !other.0)
+    }
+
+    /// The buttons held both here and in `other`.
+    pub fn and(self, other: ButtonState) -> ButtonState {
+        ButtonState(self.0 & other.0)
+    }
+
     fn set(&mut self, button: Button, held: bool) {
         if held {
             self.0 |= button as u16;

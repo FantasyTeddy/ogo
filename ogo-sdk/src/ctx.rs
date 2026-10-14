@@ -25,6 +25,8 @@ const SETTINGS_SAVE_DELAY: Duration = Duration::from_secs(4);
 pub struct Input {
     held: ButtonState,
     previous: ButtonState,
+    /// Count as released until they are let go.
+    ignored: ButtonState,
 }
 
 impl Input {
@@ -44,8 +46,16 @@ impl Input {
     }
 
     pub(crate) fn update(&mut self, state: ButtonState) {
+        self.ignored = self.ignored.and(state);
         self.previous = self.held;
-        self.held = state;
+        self.held = state.without(self.ignored);
+    }
+
+    /// The buttons held now count as released until they are let go, e.g. the A that closed the
+    /// pause menu: the game shouldn't see it.
+    pub(crate) fn ignore_held(&mut self) {
+        self.ignored = self.held;
+        self.held = ButtonState::default();
     }
 }
 
@@ -151,6 +161,10 @@ impl Ctx {
 
     pub fn input(&self) -> &Input {
         &self.input
+    }
+
+    pub(crate) fn input_mut(&mut self) -> &mut Input {
+        &mut self.input
     }
 
     pub fn sound(&mut self) -> &mut Speaker {

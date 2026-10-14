@@ -71,8 +71,9 @@ lands back in the launcher.
 **GB** plays Game Boy games (the original, not Color) from your own ROM files: put the `.gb` files
 into `/roms/gb/` on the SD card, where other emulators for the device look too. It shows them in a list; **A** starts one, at its original size
 in the middle of the screen. The buttons are the Game Boy's; **MENU** opens the pause menu as in
-every game. Games with a battery-backed save keep it in `/ogo/saves/gb/`, saved when the pause menu
-opens and a few seconds after the game changed it. There's no sound yet.
+every game, and **VOL** switches the sound on and off (Game Boy games play music and sound effects on
+the same channels, so there's no switching off only the music). Games with a battery-backed save keep it in `/ogo/saves/gb/`, saved when the pause menu
+opens and a few seconds after the game changed it.
 
 ## Web page
 

@@ -12,6 +12,7 @@
 
 extern crate alloc;
 
+mod apu;
 mod bus;
 mod cart;
 mod cpu;
@@ -78,6 +79,17 @@ impl GameBoy {
         while !self.bus.ppu.frame_done && cycles < CYCLES_PER_FRAME {
             cycles += self.step();
         }
+    }
+
+    /// Makes sound samples at `rate` per second, from now on; 0 (the default) makes none. Mono,
+    /// signed 16-bit; take them with `take_samples`.
+    pub fn set_sample_rate(&mut self, rate: u32) {
+        self.bus.apu.set_sample_rate(rate);
+    }
+
+    /// Moves the sound samples made so far to the end of `out`.
+    pub fn take_samples(&mut self, out: &mut Vec<i16>) {
+        out.append(&mut self.bus.apu.samples);
     }
 
     /// Whether `run_frame` draws the picture. Skipping it saves about a third of the time a

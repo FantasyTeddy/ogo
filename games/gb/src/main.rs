@@ -15,7 +15,7 @@ use embedded_graphics::{
     text::Alignment,
 };
 use ogo_gb::{Buttons, Cartridge, GameBoy, CLOCK_HZ, CYCLES_PER_FRAME};
-use ogo_sdk::{in_internal_ram, prelude::*, ui};
+use ogo_sdk::{in_internal_ram, prelude::*, ui, Stream, SAMPLE_RATE};
 
 /// Where the stock firmware and other ODROID-GO emulators keep Game Boy ROMs too.
 const ROM_DIR: &str = "/sd/roms/gb";
@@ -37,6 +37,9 @@ const FRAMES_PER_UPDATE: u64 = 2;
 const MAX_FRAMES_PER_UPDATE: u64 = 4;
 /// Further behind than this (e.g. after the pause menu), the clock starts over instead.
 const MAX_BEHIND: u64 = 30;
+/// Games rarely use all four sound channels at full volume, and the speaker has 8 bits: louder,
+/// clipping the rare peaks.
+const SOUND_GAIN: i32 = 2;
 /// How often the cartridge RAM is checked for changes to save: every 2 s.
 const SAVE_EVERY: u64 = 60;
 /// How often the speed is logged: every 10 s.
@@ -90,10 +93,18 @@ struct Playing {
     /// Time spent emulating and copying the picture since `log_start`, for the speed log.
     emulating: Duration,
     copying: Cell<Duration>,
+    sound: Stream,
+    /// The pause menu was open: the clock starts over instead of catching up on the pause.
+    was_paused: bool,
+    /// The latest sound samples, on their way to `sound`.
+    samples: Vec<i16>,
 }
 
 impl Game for Gb {
     const FPS: u32 = 30;
+    /// Game Boy games play music and sound effects on the same channels, often on the same one
+    /// in turn: they can't be told apart.
+    const MUSIC: bool = false;
 
     fn new(ctx: &mut Ctx) -> Self {
         let list = List::scan(ctx);
@@ -143,6 +154,7 @@ impl Game for Gb {
     fn paused(&mut self, ctx: &mut Ctx) {
         if let Gb::Playing(playing) = self {
             playing.save(ctx);
+            playing.was_paused = true;
         }
     }
 }
@@ -282,6 +294,7 @@ impl Playing {
             }
         }
         let saved_ram = gb.cartridge().ram().to_vec();
+        gb.set_sample_rate(SAMPLE_RATE);
 
         if let Err(e) = ctx.set_cpu_mhz(240) {
             log::warn!("{e:?}");
@@ -298,6 +311,9 @@ impl Playing {
             log_start: now,
             emulating: Duration::ZERO,
             copying: Cell::new(Duration::ZERO),
+            sound: ctx.sound().open_stream(),
+            was_paused: false,
+            samples: Vec::with_capacity(SAMPLE_RATE as usize / 10),
         })
     }
 
@@ -309,6 +325,11 @@ impl Playing {
             .fold(0, |bits, (_, bit)| bits | bit);
         self.gb.set_buttons(Buttons(buttons));
 
+        if self.was_paused {
+            self.was_paused = false;
+            self.clock_start = Instant::now();
+            self.frames = 0;
+        }
         // The frames that bring the emulation to where it should be once this update is shown:
         // usually two, sometimes one, as the updates are slightly faster than two Game Boy frames
         let due = (self.clock_start.elapsed().as_nanos() / FRAME_NANOS) as u64 + FRAMES_PER_UPDATE;
@@ -336,6 +357,13 @@ impl Playing {
         self.skipped += skip;
         self.emulating += started.elapsed();
 
+        self.gb.take_samples(&mut self.samples);
+        for sample in &mut self.samples {
+            *sample = (*sample as i32 * SOUND_GAIN).clamp(-32768, 32767) as i16;
+        }
+        self.sound.push(&self.samples);
+        self.samples.clear();
+
         if ctx.frame().is_multiple_of(SAVE_EVERY) {
             self.save(ctx);
         }
@@ -343,11 +371,12 @@ impl Playing {
             let seconds = self.log_start.elapsed().as_secs_f32();
             let per_update = |time: Duration| time.as_secs_f32() * 1000.0 / LOG_EVERY as f32;
             log::info!(
-                "{:.1} pictures/s, {} frames not drawn; per picture {:.1} ms emulating, {:.1} ms copying",
+                "{:.1} pictures/s, {} not drawn; per picture {:.1} ms emulating, {:.1} ms copying; {} ms sound",
                 LOG_EVERY as f32 / seconds,
                 self.skipped,
                 per_update(self.emulating),
                 per_update(self.copying.get()),
+                self.sound.buffered() as u32 * 1000 / SAMPLE_RATE,
             );
             self.log_start = Instant::now();
             self.skipped = 0;
