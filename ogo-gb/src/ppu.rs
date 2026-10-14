@@ -246,10 +246,10 @@ impl Ppu {
     fn decode_tiles(&self, map: usize, first_column: usize, y: u8) -> [u8; LINE_TILES * 8] {
         let mut pixels = [0u8; LINE_TILES * 8];
         let map_row = map + (y as usize / 8) * 32;
-        for (i, tile_pixels) in pixels.chunks_exact_mut(8).enumerate() {
+        for (i, tile_pixels) in pixels.as_chunks_mut::<8>().0.iter_mut().enumerate() {
             let tile = self.vram[map_row + (first_column + i) % 32];
             let (low, high) = self.tile_row(tile, y & 7);
-            tile_pixels.copy_from_slice(&decode_row(low, high));
+            *tile_pixels = decode_row(low, high);
         }
         pixels
     }

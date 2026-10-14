@@ -82,7 +82,17 @@ Writing a game is described in [docs/GAMES.md](docs/GAMES.md).
 **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
 the `ogo-format` and `ogo-gb` tests and Clippy on them and xtask with stable Rust, then, on Linux with the
 pinned Xtensa toolchain, the format check, Clippy on the firmware and `cargo xtask release`, whose
-files are kept as an artifact of the run. Formatting differences and Clippy warnings fail the build.
+files are kept as an artifact of the run. Formatting differences and Clippy warnings fail the build. The
+pinned toolchain's Clippy is older than stable's, so for the PC crates lint them with stable, as CI
+does:
+
+```powershell
+$env:RUSTUP_TOOLCHAIN = "stable"
+cargo clippy --manifest-path ogo-gb/Cargo.toml --target host-tuple --all-targets -- -D warnings
+cargo clippy --manifest-path ogo-format/Cargo.toml --target host-tuple --all-targets -- -D warnings
+cargo clippy --manifest-path xtask/Cargo.toml --target host-tuple -- -D warnings
+Remove-Item Env:RUSTUP_TOOLCHAIN
+```
 
 **Formatting:** the code uses rustfmt's default style. Before committing, run `cargo fmt` in the
 project folder, and with `--manifest-path` `ogo-format/Cargo.toml`, `ogo-gb/Cargo.toml` and
