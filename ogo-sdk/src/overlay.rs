@@ -18,7 +18,7 @@ use ogo_board::{
     Button, Canvas, Note, Settings,
 };
 
-use crate::ctx::Input;
+use crate::{ctx::Input, MenuSetting};
 
 const INDICATOR_SHOWN_FOR: Duration = Duration::from_millis(1200);
 /// Where the sound indicator shows, top right.
@@ -34,6 +34,8 @@ pub enum PauseAction {
     /// Steps down (-1) or up (1); unmutes.
     Volume(isize),
     ToggleMusic,
+    /// One of the game's own settings, by index, changed by -1 or 1.
+    GameSetting(usize, isize),
     Exit,
 }
 
@@ -42,27 +44,29 @@ enum Item {
     Resume,
     Volume,
     Music,
+    /// One of the game's own settings, by index.
+    Game(usize),
     Exit,
 }
-
-const ITEMS: [Item; 4] = [Item::Resume, Item::Volume, Item::Music, Item::Exit];
-/// For games without music of their own.
-const ITEMS_WITHOUT_MUSIC: [Item; 3] = [Item::Resume, Item::Volume, Item::Exit];
 const ROW_HEIGHT: i32 = 28;
 
 #[derive(Debug)]
 pub struct PauseMenu {
-    items: &'static [Item],
+    items: Vec<Item>,
     selected: usize,
 }
 
 impl PauseMenu {
     /// `music`: the game has music of its own, so the menu has a line to switch it.
-    pub fn new(music: bool) -> Self {
-        Self {
-            items: if music { &ITEMS } else { &ITEMS_WITHOUT_MUSIC },
-            selected: 0,
+    /// `game_settings`: how many settings of its own the game has.
+    pub fn new(music: bool, game_settings: usize) -> Self {
+        let mut items = vec![Item::Resume, Item::Volume];
+        if music {
+            items.push(Item::Music);
         }
+        items.extend((0..game_settings).map(Item::Game));
+        items.push(Item::Exit);
+        Self { items, selected: 0 }
     }
 
     /// Up/Down choose, Left/Right change the volume or switch the music, A confirms, B or MENU
@@ -83,6 +87,8 @@ impl PauseMenu {
             Item::Volume if left => return Some(PauseAction::Volume(-1)),
             Item::Volume if right => return Some(PauseAction::Volume(1)),
             Item::Music if a || left || right => return Some(PauseAction::ToggleMusic),
+            Item::Game(index) if left => return Some(PauseAction::GameSetting(index, -1)),
+            Item::Game(index) if a || right => return Some(PauseAction::GameSetting(index, 1)),
             Item::Exit if a => return Some(PauseAction::Exit),
             _ => {}
         }
@@ -92,8 +98,8 @@ impl PauseMenu {
         None
     }
 
-    /// Dims the game's frame and draws the menu on top.
-    pub fn draw(&self, fb: &mut Canvas, settings: &Settings) {
+    /// Dims the game's frame and draws the menu on top, with the game's own settings.
+    pub fn draw(&self, fb: &mut Canvas, settings: &Settings, game_settings: &[MenuSetting]) {
         fb.dim();
         let height = 54 + self.items.len() as i32 * ROW_HEIGHT;
         let area =
@@ -112,6 +118,9 @@ impl PauseMenu {
                 Item::Resume => "Resume".to_owned(),
                 Item::Volume => format!("Volume: {}", volume_text(settings)),
                 Item::Music => format!("Music: {}", if settings.music { "On" } else { "Off" }),
+                Item::Game(index) => game_settings
+                    .get(index)
+                    .map_or_else(String::new, |s| format!("{}: {}", s.label, s.value)),
                 Item::Exit => "Exit to launcher".to_owned(),
             };
             let row = Rectangle::new(
@@ -127,7 +136,7 @@ impl PauseMenu {
             }
             text(fb, &label, row.center(), &FONT_8X13);
             // Left/Right change these.
-            if selected && matches!(item, Item::Volume | Item::Music) {
+            if selected && matches!(item, Item::Volume | Item::Music | Item::Game(_)) {
                 let middle = row.center().y;
                 text(fb, "<", Point::new(row.top_left.x + 10, middle), &FONT_8X13);
                 let right = row.top_left.x + row.size.width as i32 - 10;

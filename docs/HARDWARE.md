@@ -44,7 +44,11 @@ all are in [pins.rs](../ogo-board/src/pins.rs).
   signals go via the GPIO matrix, and ESP-IDF rejects anything above ~26.7 MHz.
 - Landscape 320×240: rotate 90° **and** flip horizontally (the panel is mounted mirrored). Color
   order is BGR.
-- A full frame takes about 31 ms at 40 MHz, so ~30 fps is the ceiling for full redraws.
+- A full frame takes about 45 ms at 40 MHz (about 4 MB/s, measured), so ~22 fps is the ceiling for
+  full redraws.
+- Pixel data is sent as queued transfers from two buffers (`display::DisplaySpi`), so filling one
+  overlaps with sending the other; filling them pixel by pixel through mipidsi's iterator took as
+  long as the transfer itself.
 - The panel keeps whatever the previous app showed, so it's cleared before the backlight turns on.
 - **Backlight:** LEDC PWM at 5 kHz with 13 bits on GPIO14 (high = on). The duty cycle grows
   quadratically with the brightness setting, since perceived brightness is roughly the square root of

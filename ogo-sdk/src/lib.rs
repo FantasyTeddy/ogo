@@ -25,6 +25,7 @@
 //! and a direct dependency on `esp-idf-svc` even if unused, because the build script only gets
 //! ESP-IDF's linker arguments from a direct dependency. See `games/snake` for a complete example.
 
+mod area;
 mod ctx;
 mod overlay;
 mod presenter;
@@ -41,6 +42,7 @@ use ogo_board::{
     settings, Board, Button, Settings,
 };
 
+pub use area::{Area, MenuSetting};
 pub use ctx::{Ctx, Input};
 #[doc(hidden)]
 pub use ogo_board as __board;
@@ -69,11 +71,14 @@ pub mod prelude {
     pub use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
     pub use ogo_board::Button;
 
-    pub use crate::{Ctx, Framebuffer, Game, Note, Part, Track, Wave, SCREEN_HEIGHT, SCREEN_WIDTH};
+    pub use crate::{
+        Area, Ctx, Framebuffer, Game, MenuSetting, Note, Part, Track, Wave, SCREEN_HEIGHT,
+        SCREEN_WIDTH,
+    };
 }
 
 pub trait Game: Sized {
-    /// Updates (and frames) per second. The display manages about 30 full frames per second, or
+    /// Updates (and frames) per second. The display manages about 22 full frames per second, or
     /// more with a smaller [`Game::area`].
     const FPS: u32 = 30;
 
@@ -92,13 +97,23 @@ pub trait Game: Sized {
     fn draw(&self, fb: &mut Framebuffer);
 
     /// The part of the screen the game draws, if not all of it; asked before each `draw`. `draw`
-    /// then gets a framebuffer of just that size in internal RAM, with (0, 0) at the area's
-    /// top-left corner. The SDK keeps the rest of the screen black and sends only this part to the
-    /// display. Both are much faster: a quarter of the screen takes about a quarter of the time to
-    /// send, and internal RAM is several times faster to draw into than the PSRAM of a full frame.
-    fn area(&self) -> Option<Rectangle> {
+    /// then gets a framebuffer of just the area's size in internal RAM, with (0, 0) at its
+    /// top-left corner; a scaled area is scaled up on the way to the display. The SDK keeps the
+    /// rest of the screen black and sends only this part to the display. Both are much faster: a
+    /// quarter of the screen takes about a quarter of the time to send, and internal RAM is several
+    /// times faster to draw into than the PSRAM of a full frame.
+    fn area(&self) -> Option<Area> {
         None
     }
+
+    /// The game's own settings for the pause menu, e.g. a colour scheme; asked while it's open.
+    fn menu_settings(&self) -> Vec<MenuSetting> {
+        Vec::new()
+    }
+
+    /// Changes setting `index` of [`Game::menu_settings`] by one step: `delta` is -1 (Left) or 1
+    /// (Right or A).
+    fn change_menu_setting(&mut self, _ctx: &mut Ctx, _index: usize, _delta: isize) {}
 
     /// Called when the pause menu opens: a good moment to save, since "Exit to launcher" and
     /// switching off often follow.
@@ -198,6 +213,10 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
                     });
                     ctx.sound().play(MENU_SOUND);
                 }
+                Some(PauseAction::GameSetting(index, delta)) => {
+                    game.change_menu_setting(&mut ctx, index, delta);
+                    ctx.sound().play(MENU_SOUND);
+                }
                 Some(PauseAction::ToggleMusic) => {
                     ctx.change_settings(|s| s.music = !s.music);
                     ctx.sound().play(MENU_SOUND);
@@ -208,7 +227,7 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             None if ctx.input().pressed(Button::Menu) => {
                 ctx.sound().set_music_paused(true);
                 ctx.sound().play(MENU_SOUND);
-                pause = Some(PauseMenu::new(G::MUSIC));
+                pause = Some(PauseMenu::new(G::MUSIC, game.menu_settings().len()));
                 game.paused(&mut ctx);
             }
             None => {
@@ -217,14 +236,14 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             }
         }
 
-        let new_area = game.area().filter(|a| *a != screen);
+        let new_area = game.area().filter(|a| *a != Area::at(screen));
         if new_area != area {
             area = new_area;
             stale = Some(screen);
         }
         let overlays = |fb: &mut Framebuffer, indicator: &mut SoundIndicator| {
             let mut drawn = pause.as_ref().map(|menu| {
-                menu.draw(fb, ctx.settings());
+                menu.draw(fb, ctx.settings(), &game.menu_settings());
                 screen
             });
             if let Some(rect) = indicator.draw(fb, ctx.settings()) {
@@ -245,7 +264,7 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
                 game.draw(&mut canvas);
                 let indicator_shown = indicator.visible();
                 let indicator_overlaps =
-                    indicator_shown && !INDICATOR_AREA.intersection(&area).is_zero_sized();
+                    indicator_shown && !INDICATOR_AREA.intersection(&area.screen).is_zero_sized();
                 if pause.is_none() && stale != Some(screen) && !indicator_overlaps {
                     // The area from its own buffer; the volume box beside it, and the black where
                     // it was, in small buffers of their own
@@ -278,8 +297,10 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
                     }
                     fb.copy_from(&canvas);
                     presenter.recycle(canvas);
-                    let mut send: Vec<Rectangle> =
-                        [Some(area), stale.take()].into_iter().flatten().collect();
+                    let mut send: Vec<Rectangle> = [Some(area.screen), stale.take()]
+                        .into_iter()
+                        .flatten()
+                        .collect();
                     if let Some(rect) = overlays(&mut fb, &mut indicator) {
                         send.push(rect);
                         stale = Some(rect);

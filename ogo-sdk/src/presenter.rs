@@ -13,6 +13,8 @@ use anyhow::{anyhow, Context};
 use embedded_graphics::{prelude::*, primitives::Rectangle};
 use ogo_board::{display, in_internal_ram, Canvas, Display};
 
+use crate::Area;
+
 /// A buffer and the parts of it (in its own coordinates) to send to the display.
 type Frame = (Canvas, Vec<Rectangle>);
 
@@ -26,7 +28,7 @@ pub struct Presenter {
     /// Free full-screen buffers.
     full: Vec<Canvas>,
     /// The game's area and its free buffers.
-    area: Option<Rectangle>,
+    area: Option<Area>,
     area_buffers: Vec<Canvas>,
 }
 
@@ -80,14 +82,14 @@ impl Presenter {
         }
     }
 
-    /// A buffer covering `area` of the screen, in internal RAM. Waits until the display thread has
-    /// sent one. For a new area, both buffers are made at once, while internal RAM still has
-    /// blocks large enough.
-    pub fn take_area(&mut self, area: Rectangle) -> anyhow::Result<Canvas> {
+    /// A buffer for the game's `area` of the screen, in internal RAM. Waits until the display
+    /// thread has sent one. For a new area, both buffers are made at once, while internal RAM still
+    /// has blocks large enough.
+    pub fn take_area(&mut self, area: Area) -> anyhow::Result<Canvas> {
         if self.area != Some(area) {
             self.area = Some(area);
             self.area_buffers = (0..BUFFERS)
-                .map(|_| in_internal_ram(|| Canvas::new(area)))
+                .map(|_| in_internal_ram(|| Canvas::scaled(area.size, area.screen)))
                 .collect();
         }
         loop {
@@ -100,9 +102,10 @@ impl Presenter {
 
     /// Takes back a buffer that wasn't sent.
     pub fn recycle(&mut self, canvas: Canvas) {
-        if canvas.area() == self.screen {
+        let area = Area::scaled(canvas.area().size, canvas.screen_area());
+        if area == Area::at(self.screen) {
             self.full.push(canvas);
-        } else if Some(canvas.area()) == self.area {
+        } else if Some(area) == self.area {
             self.area_buffers.push(canvas);
         }
         // Otherwise it's for an area the game no longer uses: dropped

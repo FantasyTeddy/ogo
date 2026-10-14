@@ -19,15 +19,27 @@ use ogo_sdk::{in_internal_ram, prelude::*, ui, Stream, SAMPLE_RATE};
 
 /// Where the stock firmware and other ODROID-GO emulators keep Game Boy ROMs too.
 const ROM_DIR: &str = "/sd/roms/gb";
-/// The Game Boy's 160x144 pixels, in the middle of the screen.
-const PICTURE: Rectangle = Rectangle::new(Point::new(80, 48), Size::new(160, 144));
-/// The four shades, white to black, as red (5 bits) and green (6 bits); blue is like red.
-const SHADE_RED: [u8; 4] = [31, 21, 10, 0];
-const SHADE_GREEN: [u8; 4] = [63, 42, 21, 0];
-/// The colour of a pixel from its shades in two frames in a row (`previous << 2 | current`): their
-/// average. Games that show sprites or effects only every other frame then look as they did on
-/// the Game Boy's slow LCD, although only every second frame is shown.
-const BLENDED: [Rgb565; 16] = blended();
+/// The Game Boy's 160x144 pixels.
+const PICTURE_SIZE: Size = Size::new(160, 144);
+/// The picture's place on the screen, in the middle: at its own size, or 1.5x as large.
+const SMALL: Rectangle = Rectangle::new(Point::new(80, 48), PICTURE_SIZE);
+const LARGE: Rectangle = Rectangle::new(Point::new(40, 12), Size::new(240, 216));
+/// The colour schemes for the four shades, white to black: neutral grey, the original Game Boy's
+/// yellowish green, and the olive grey of the later pocket model.
+const PALETTES: [(&str, [[u8; 3]; 4]); 3] = [
+    (
+        "Grey",
+        [[255, 255, 255], [170, 170, 170], [85, 85, 85], [0, 0, 0]],
+    ),
+    (
+        "Green",
+        [[155, 188, 15], [139, 172, 15], [48, 98, 48], [15, 56, 15]],
+    ),
+    (
+        "Pocket",
+        [[196, 207, 161], [139, 149, 109], [77, 83, 60], [31, 31, 31]],
+    ),
+];
 /// A Game Boy frame in real time: about 59.7 per second.
 const FRAME_NANOS: u128 = 1_000_000_000 * CYCLES_PER_FRAME as u128 / CLOCK_HZ as u128;
 /// Game Boy frames per update: the SDK runs 30 updates per second.
@@ -65,7 +77,12 @@ const ROW_HEIGHT: i32 = 20;
 const VISIBLE_ROWS: usize = 9;
 const NAME_CHARS: usize = 36;
 
-enum Gb {
+struct Gb {
+    screen: Screen,
+    picture: Picture,
+}
+
+enum Screen {
     List(List),
     /// The selected ROM starts with the next update: the SDK sets up the buffers for the picture
     /// first, which need the larger blocks of internal RAM, before the emulator takes its share.
@@ -80,6 +97,55 @@ struct List {
     selected: usize,
     /// Why there's nothing to choose, or why the last ROM didn't start.
     message: Option<String>,
+}
+
+/// How the picture looks: the user's choice in the pause menu, kept in the saves.
+struct Picture {
+    palette: usize,
+    large: bool,
+    /// The colour of a pixel from its shades in two frames in a row (`previous << 2 | current`):
+    /// their average. Games that show sprites or effects only every other frame then look as they
+    /// did on the Game Boy's slow LCD, although only every second frame is shown.
+    blended: [Rgb565; 16],
+}
+
+impl Picture {
+    fn load(ctx: &Ctx) -> Self {
+        let palette = ctx
+            .saves()
+            .read::<usize>("palette")
+            .filter(|&p| p < PALETTES.len())
+            .unwrap_or(0);
+        let large = ctx.saves().read::<bool>("large").unwrap_or(false);
+        Picture {
+            palette,
+            large,
+            blended: blended(&PALETTES[palette].1),
+        }
+    }
+
+    fn change(&mut self, ctx: &Ctx, index: usize, delta: isize) {
+        match index {
+            0 => {
+                self.palette =
+                    (self.palette as isize + delta).rem_euclid(PALETTES.len() as isize) as usize;
+                self.blended = blended(&PALETTES[self.palette].1);
+                ctx.saves().write("palette", &self.palette).ok();
+            }
+            _ => {
+                self.large = !self.large;
+                ctx.saves().write("large", &self.large).ok();
+            }
+        }
+    }
+
+    fn area(&self) -> Area {
+        if self.large {
+            Area::scaled(PICTURE_SIZE, LARGE)
+        } else {
+            Area::at(SMALL)
+        }
+    }
 }
 
 struct Playing {
@@ -113,55 +179,74 @@ impl Game for Gb {
     const MUSIC: bool = false;
 
     fn new(ctx: &mut Ctx) -> Self {
-        let list = List::scan(ctx);
-        Gb::List(list)
+        Gb {
+            screen: Screen::List(List::scan(ctx)),
+            picture: Picture::load(ctx),
+        }
     }
 
     fn update(&mut self, ctx: &mut Ctx) {
-        match self {
-            Gb::List(list) => {
+        match &mut self.screen {
+            Screen::List(list) => {
                 if list.update(ctx) {
-                    *self = Gb::Starting(std::mem::take(list));
+                    self.screen = Screen::Starting(std::mem::take(list));
                 }
             }
-            Gb::Starting(list) => {
+            Screen::Starting(list) => {
                 let name = list.roms[list.selected].clone();
-                *self = match Playing::start(ctx, &name) {
+                self.screen = match Playing::start(ctx, &name) {
                     Ok(playing) => {
                         ctx.saves().write("last", &name).ok();
-                        Gb::Playing(Box::new(playing))
+                        Screen::Playing(Box::new(playing))
                     }
                     Err(e) => {
                         log::warn!("{name}: {e:?}");
                         let mut list = std::mem::take(list);
                         list.message = Some(format!("{e}"));
-                        Gb::List(list)
+                        Screen::List(list)
                     }
                 };
             }
-            Gb::Playing(playing) => playing.update(ctx),
+            Screen::Playing(playing) => playing.update(ctx),
         }
     }
 
     fn draw(&self, fb: &mut Framebuffer) {
-        match self {
-            Gb::List(list) => list.draw(fb),
-            Gb::Starting(_) => {
+        match &self.screen {
+            Screen::List(list) => list.draw(fb),
+            Screen::Starting(_) => {
                 fb.clear(Rgb565::BLACK).ok();
             }
-            Gb::Playing(playing) => playing.draw(fb),
+            Screen::Playing(playing) => playing.draw(fb, &self.picture.blended),
         }
     }
 
-    fn area(&self) -> Option<Rectangle> {
-        matches!(self, Gb::Starting(_) | Gb::Playing(_)).then_some(PICTURE)
+    fn area(&self) -> Option<Area> {
+        matches!(self.screen, Screen::Starting(_) | Screen::Playing(_)).then(|| self.picture.area())
     }
 
     fn paused(&mut self, ctx: &mut Ctx) {
-        if let Gb::Playing(playing) = self {
+        if let Screen::Playing(playing) = &mut self.screen {
             playing.save(ctx);
             playing.was_paused = true;
         }
+    }
+
+    fn menu_settings(&self) -> Vec<MenuSetting> {
+        vec![
+            MenuSetting {
+                label: "Colours",
+                value: PALETTES[self.picture.palette].0.to_string(),
+            },
+            MenuSetting {
+                label: "Size",
+                value: if self.picture.large { "1.5x" } else { "1:1" }.to_string(),
+            },
+        ]
+    }
+
+    fn change_menu_setting(&mut self, ctx: &mut Ctx, index: usize, delta: isize) {
+        self.picture.change(ctx, index, delta);
     }
 }
 
@@ -410,13 +495,13 @@ impl Playing {
         }
     }
 
-    fn draw(&self, fb: &mut Framebuffer) {
+    fn draw(&self, fb: &mut Framebuffer, colors: &[Rgb565; 16]) {
         let started = Instant::now();
         let pixels = self
             .previous
             .iter()
             .zip(self.gb.frame())
-            .map(|(&previous, &current)| BLENDED[(previous << 2 | current) as usize & 15]);
+            .map(|(&previous, &current)| colors[(previous << 2 | current) as usize & 15]);
         // The framebuffer is just the picture's area
         fb.fill_contiguous(&fb.bounding_box(), pixels).ok();
         self.copying.set(self.copying.get() + started.elapsed());
@@ -440,17 +525,13 @@ fn save_name(file_name: &str) -> String {
         .collect()
 }
 
-const fn blended() -> [Rgb565; 16] {
-    let mut colors = [Rgb565::BLACK; 16];
-    let mut i = 0;
-    while i < 16 {
-        let (a, b) = (i >> 2, i & 3);
-        let red = (SHADE_RED[a] + SHADE_RED[b]).div_ceil(2);
-        let green = (SHADE_GREEN[a] + SHADE_GREEN[b]).div_ceil(2);
-        colors[i] = Rgb565::new(red, green, red);
-        i += 1;
-    }
-    colors
+/// The colours for each pair of shades in two frames in a row, from a palette in 8-bit RGB.
+fn blended(palette: &[[u8; 3]; 4]) -> [Rgb565; 16] {
+    core::array::from_fn(|i| {
+        let (a, b) = (palette[i >> 2], palette[i & 3]);
+        let mix = |c: usize| (a[c] as u16 + b[c] as u16).div_ceil(2) as u8;
+        Rgb565::new(mix(0) >> 3, mix(1) >> 2, mix(2) >> 3)
+    })
 }
 
 ogo_sdk::main!(Gb);

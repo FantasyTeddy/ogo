@@ -101,18 +101,26 @@ in `draw`.
 **Screen.** `draw` gets a 320×240 `Framebuffer` (`SCREEN_WIDTH` × `SCREEN_HEIGHT`), an
 [embedded-graphics](https://docs.rs/embedded-graphics/0.8) `DrawTarget` in RGB565. It still holds an
 older frame, so clear or overwrite all of it every time. The SDK sends finished frames to the LCD
-from another thread while the game draws the next one. A full frame takes about 31 ms to send, so
-30 fps is the realistic rate for full redraws.
+from another thread while the game draws the next one. A full frame takes about 45 ms to send, so
+about 22 full redraws per second is the limit; a game asking for more (`FPS`) runs slower.
 
 A game that only uses part of the screen can say so in `area()`, asked before each `draw`, e.g.
-`Some(Rectangle::new(Point::new(80, 48), Size::new(160, 144)))`. `draw` then gets a framebuffer of
-just that size, with (0, 0) at the area's top-left corner, kept in internal RAM: several times
-faster to draw into than a full frame, which has to live in the slower PSRAM. The SDK keeps the rest
-of the screen black (also after the pause menu or the volume box) and sends only the area, which is
-correspondingly faster too. Returning `None` again goes back to the whole screen. The area's two
-buffers are allocated when it first appears; a game that also needs large blocks of internal RAM
-(see `in_internal_ram` below) should allocate them afterwards. `Framebuffer::fill_contiguous` copies
-a block of pixels row by row, e.g. a picture drawn every frame.
+`Some(Area::at(Rectangle::new(Point::new(80, 48), Size::new(160, 144))))`. `draw` then gets a
+framebuffer of just that size, with (0, 0) at the area's top-left corner, kept in internal RAM:
+several times faster to draw into than a full frame, which has to live in the slower PSRAM. The SDK
+keeps the rest of the screen black (also after the pause menu or the volume box) and sends only the
+area, which is correspondingly faster too. Returning `None` again goes back to the whole screen.
+
+`Area::scaled(size, screen)` shows a framebuffer of `size` larger, filling `screen`: the game draws
+at its own size and the display thread scales the picture up while sending it, on the other core.
+Where a screen pixel falls between two of the framebuffer's, it gets their average, so e.g. 1.5x
+looks even instead of doubling every other pixel. Sending takes as long as the screen area needs
+(240x216 about 23 ms).
+
+The area's two buffers are allocated when it first appears; a game that also needs large blocks of
+internal RAM (see `in_internal_ram` below) should allocate them afterwards.
+`Framebuffer::fill_contiguous` copies a block of pixels row by row, e.g. a picture drawn every
+frame.
 
 `ogo_sdk::ui` has the launcher's colours (`TEXT`, `DIM`, `BAR`, `SELECTION`, …) and a few helpers:
 `text` (one line, vertically centred on a point), `selection` (highlight a row), `panel` (a box with
@@ -179,7 +187,12 @@ ctx.saves().write("best", &best)?;                       // as text, via a temp 
 ctx.saves().write_bytes("level", &bytes)?;               // anything else: serialize it yourself
 ```
 
-Writes go to the SD card immediately, so there's nothing to flush before exiting. For data that
+Writes go to the SD card immediately, so there's nothing to flush before exiting.
+
+**Settings of the game's own** go into the pause menu, below the volume: `menu_settings()` lists
+them as `MenuSetting { label, value }` (e.g. "Colours: Green"), and `change_menu_setting(ctx, index,
+delta)` changes one when the player presses Left (`delta` -1), Right or A (1). Saving them, e.g. in
+the saves, is up to the game. For data that
 changes all the time, `fn paused(&mut self, ctx: &mut Ctx)` in the `impl Game` is called when the
 pause menu opens: a good moment to save, since exiting or switching off often follows.
 
