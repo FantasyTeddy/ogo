@@ -35,6 +35,10 @@ const FRAMES_PER_UPDATE: u64 = 2;
 /// Frames per update at most, to catch up when emulating falls behind; the ones beyond two aren't
 /// drawn.
 const MAX_FRAMES_PER_UPDATE: u64 = 4;
+/// An update that emulated longer than this (80% of its time) leaves too little for the rest: the
+/// next one draws only its last frame, without blending, so the emulation, and with it the sound,
+/// keeps up in heavy scenes.
+const TIGHT: Duration = Duration::from_micros(1_000_000 * 8 / (30 * 10));
 /// Further behind than this (e.g. after the pause menu), the clock starts over instead.
 const MAX_BEHIND: u64 = 30;
 /// Games rarely use all four sound channels at full volume, and the speaker has 8 bits: louder,
@@ -96,6 +100,8 @@ struct Playing {
     sound: Stream,
     /// The pause menu was open: the clock starts over instead of catching up on the pause.
     was_paused: bool,
+    /// The last update took longer than `TIGHT`.
+    tight: bool,
     /// The latest sound samples, on their way to `sound`.
     samples: Vec<i16>,
 }
@@ -313,6 +319,7 @@ impl Playing {
             copying: Cell::new(Duration::ZERO),
             sound: ctx.sound().open_stream(),
             was_paused: false,
+            tight: false,
             samples: Vec::with_capacity(SAMPLE_RATE as usize / 10),
         })
     }
@@ -342,20 +349,23 @@ impl Playing {
         let count = count.clamp(1, MAX_FRAMES_PER_UPDATE);
 
         let started = Instant::now();
-        let skip = count.saturating_sub(2);
+        let drawn = count.min(if self.tight { 1 } else { 2 });
+        let skip = count - drawn;
         self.gb.set_drawing(false);
         for _ in 0..skip {
             self.gb.run_frame();
         }
         self.gb.set_drawing(true);
-        if count >= 2 {
+        self.gb.run_frame();
+        self.previous.copy_from_slice(self.gb.frame());
+        if drawn == 2 {
             self.gb.run_frame();
         }
-        self.previous.copy_from_slice(self.gb.frame());
-        self.gb.run_frame();
         self.frames += count;
         self.skipped += skip;
-        self.emulating += started.elapsed();
+        let took = started.elapsed();
+        self.tight = took > TIGHT;
+        self.emulating += took;
 
         self.gb.take_samples(&mut self.samples);
         for sample in &mut self.samples {
