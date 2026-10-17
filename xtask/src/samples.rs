@@ -188,6 +188,7 @@ fn write_game(dir: &Path, sample: &Sample, sdk_version: u32) -> anyhow::Result<(
         author: sample.author.to_owned(),
         sdk_version,
         sha256: ogo_format::hex(&Sha256::digest(&bin)),
+        folders: Vec::new(),
     };
     fs::write(dir.join("game.bin"), &bin)?;
     fs::write(dir.join("game.toml"), manifest.to_toml())?;

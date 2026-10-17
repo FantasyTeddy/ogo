@@ -9,6 +9,8 @@ description = "Plays Game Boy ROMs from the SD card, with ogo-gb"
 # Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]
 name = "GB"
+# The web page lets the user upload ROMs here
+folders = [{ label = "ROMs", path = "roms/gb", extensions = ["gb"] }]
 
 [[bin]]
 name = "gb"

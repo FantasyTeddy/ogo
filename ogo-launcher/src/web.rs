@@ -28,7 +28,7 @@ use ogo_board::{
     image::{self, ImageKind},
     BatteryLevel,
 };
-use ogo_format::slots;
+use ogo_format::{game::Folder, slots, url::percent_decode};
 use serde::Serialize;
 
 use crate::{
@@ -59,6 +59,13 @@ pub enum WebEvent {
     },
     Deleted {
         id: String,
+    },
+    /// A file was uploaded into a game's folder.
+    FileSaved {
+        name: String,
+    },
+    FileDeleted {
+        name: String,
     },
     Failed(String),
     WifiSaved(WifiCredentials),
@@ -175,12 +182,13 @@ impl WebServer {
 
         // Everything else needs a session.
         type Handler = fn(Req, &WebState) -> anyhow::Result<()>;
-        let routes: [(&str, Method, Handler); 10] = [
+        let routes: [(&str, Method, Handler); 11] = [
             ("/api/status", Method::Get, status),
             ("/api/games", Method::Get, list_games),
             ("/api/games", Method::Post, upload),
-            ("/api/games/*", Method::Get, icon),
-            ("/api/games/*", Method::Delete, delete),
+            ("/api/games/*", Method::Get, game_get),
+            ("/api/games/*", Method::Post, game_post),
+            ("/api/games/*", Method::Delete, game_delete),
             ("/api/wifi", Method::Post, set_wifi),
             ("/api/wifi/networks", Method::Get, networks),
             ("/api/wifi/scan", Method::Post, scan),
@@ -444,6 +452,7 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
         version: String,
         author: String,
         has_icon: bool,
+        folders: Vec<Folder>,
         /// Why the entry can't be used, for broken ones.
         error: Option<String>,
     }
@@ -460,6 +469,7 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
                 version: game.version,
                 author: game.author,
                 has_icon: game.has_icon,
+                folders: game.folders,
                 error: None,
             },
             Entry::Broken(broken) => GameJson {
@@ -468,6 +478,7 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
                 version: String::new(),
                 author: String::new(),
                 has_icon: false,
+                folders: Vec::new(),
                 error: Some(broken.reason),
             },
         })
@@ -475,11 +486,47 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
     json(req, 200, &games)
 }
 
-/// The game id from `/api/games/<id>` or `/api/games/<id>/...`, if valid.
-fn game_id(uri: &str) -> Option<String> {
-    let path = uri.split('?').next()?;
-    let id = path.strip_prefix("/api/games/")?.split('/').next()?;
-    ogo_format::game::is_valid_id(id).then(|| id.to_owned())
+/// `/api/games/<id>/<rest>...`: the game id, if valid, and the rest of the path, percent-decoded.
+fn game_path(uri: &str) -> Option<(String, Vec<String>)> {
+    let path = uri.split('?').next()?.strip_prefix("/api/games/")?;
+    let mut parts = path.split('/');
+    let id = parts
+        .next()
+        .filter(|id| ogo_format::game::is_valid_id(id))?;
+    let rest = parts.map(percent_decode).collect::<Option<Vec<_>>>()?;
+    Some((id.to_owned(), rest))
+}
+
+fn game_get(req: Req, state: &WebState) -> anyhow::Result<()> {
+    let Some((id, rest)) = game_path(req.uri()) else {
+        return json(req, 404, &Message::new("Not found"));
+    };
+    match rest.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["icon.bmp"] => icon(req, state, &id),
+        ["folders", folder] => list_files(req, state, &id, folder),
+        _ => json(req, 404, &Message::new("Not found")),
+    }
+}
+
+fn game_post(req: Req, state: &WebState) -> anyhow::Result<()> {
+    let Some((id, rest)) = game_path(req.uri()) else {
+        return json(req, 404, &Message::new("Not found"));
+    };
+    match rest.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["folders", folder, name] => upload_file(req, state, &id, folder, name),
+        _ => json(req, 404, &Message::new("Not found")),
+    }
+}
+
+fn game_delete(req: Req, state: &WebState) -> anyhow::Result<()> {
+    let Some((id, rest)) = game_path(req.uri()) else {
+        return json(req, 404, &Message::new("No such game"));
+    };
+    match rest.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        [] => delete(req, state, &id),
+        ["folders", folder, name] => delete_file(req, state, &id, folder, name),
+        _ => json(req, 404, &Message::new("Not found")),
+    }
 }
 
 fn upload(mut req: Req, state: &WebState) -> anyhow::Result<()> {
@@ -553,24 +600,147 @@ fn receive(req: &mut Req, path: &Path, total: usize, state: &WebState) -> anyhow
     Ok(())
 }
 
-fn delete(req: Req, state: &WebState) -> anyhow::Result<()> {
-    let (Some(id), Some(games_dir)) = (game_id(req.uri()), state.games_dir()) else {
+fn delete(req: Req, state: &WebState, id: &str) -> anyhow::Result<()> {
+    let Some(games_dir) = state.games_dir() else {
         return json(req, 404, &Message::new("No such game"));
     };
-    let dir = games_dir.join(&id);
+    let dir = games_dir.join(id);
     if !dir.is_dir() {
         return json(req, 404, &Message::new("No such game"));
     }
     fs::remove_dir_all(&dir).with_context(|| format!("can't delete {id}"))?;
-    state.send(WebEvent::Deleted { id: id.clone() });
+    state.send(WebEvent::Deleted { id: id.to_owned() });
     json(req, 200, &Message::new(format!("Deleted {id}")))
 }
 
+/// Game `id`'s folder number `index` (from `game.toml`) and where it is on the SD card.
+fn game_folder(state: &WebState, id: &str, index: &str) -> Result<(Folder, PathBuf), Message> {
+    let (Some(games_dir), Some(root)) = (state.games_dir(), state.sd_root.as_ref()) else {
+        return Err(Message::new("No SD card in the device"));
+    };
+    let game = library::load_game(&games_dir.join(id), Some(id))
+        .map_err(|_| Message::new("No such game"))?;
+    let folder = index
+        .parse::<usize>()
+        .ok()
+        .and_then(|index| game.folders.into_iter().nth(index))
+        .ok_or_else(|| Message::new("No such folder"))?;
+    let dir = root.join(&folder.path);
+    Ok((folder, dir))
+}
+
+/// `GET /api/games/<id>/folders/<n>`: the files in the folder the game reads, by name.
+fn list_files(req: Req, state: &WebState, id: &str, index: &str) -> anyhow::Result<()> {
+    #[derive(Serialize)]
+    struct FileJson {
+        name: String,
+        size: u64,
+    }
+    let (folder, dir) = match game_folder(state, id, index) {
+        Ok(found) => found,
+        Err(message) => return json(req, 404, &message),
+    };
+    // A folder that doesn't exist yet is just empty
+    let mut files: Vec<FileJson> = fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().into_string().ok()?;
+            let meta = entry.metadata().ok()?;
+            (meta.is_file() && folder.accepts(&name)).then_some(FileJson {
+                name,
+                size: meta.len(),
+            })
+        })
+        .collect();
+    files.sort_by_key(|file| file.name.to_lowercase());
+    json(req, 200, &files)
+}
+
+/// `POST /api/games/<id>/folders/<n>/<name>` with the file as the raw body. It's received under a
+/// temporary name, so a broken upload never replaces a file; one with the same name is replaced.
+fn upload_file(
+    mut req: Req,
+    state: &WebState,
+    id: &str,
+    index: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    let (folder, dir) = match game_folder(state, id, index) {
+        Ok(found) => found,
+        Err(message) => return json(req, 404, &message),
+    };
+    if !folder.accepts(name) {
+        let extensions: Vec<String> = folder.extensions.iter().map(|e| format!(".{e}")).collect();
+        let reason = if ogo_format::game::is_valid_file_name(name) {
+            format!("only {} files", extensions.join(", "))
+        } else {
+            "names can't start with \".\", end in \".\" or a space, or contain / \\ : * ? \" < > |"
+                .to_owned()
+        };
+        return json(req, 400, &Message::new(format!("{name}: {reason}")));
+    }
+    let total = content_len(&req);
+    if total == 0 {
+        return json(req, 400, &Message::new("Empty upload"));
+    }
+    if total > MAX_UPLOAD_BYTES {
+        return json(
+            req,
+            413,
+            &Message::new(format!("Too big: at most {} MB", MAX_UPLOAD_BYTES >> 20)),
+        );
+    }
+
+    let partial = dir.join(".upload.part");
+    let target = dir.join(name);
+    let result = receive(&mut req, &partial, total, state).and_then(|()| {
+        // FAT can't rename onto an existing file
+        if target.exists() {
+            fs::remove_file(&target).with_context(|| format!("can't replace {name}"))?;
+        }
+        fs::rename(&partial, &target).with_context(|| format!("can't save {name}"))
+    });
+    if let Err(e) = result {
+        let _ = fs::remove_file(&partial);
+        state.send(WebEvent::Failed("Upload failed".into()));
+        return json(req, 400, &Message::new(format!("Upload failed: {e:#}")));
+    }
+    state.send(WebEvent::FileSaved {
+        name: name.to_owned(),
+    });
+    json(req, 200, &Message::new(format!("Saved {name}")))
+}
+
+/// `DELETE /api/games/<id>/folders/<n>/<name>`.
+fn delete_file(
+    req: Req,
+    state: &WebState,
+    id: &str,
+    index: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    let (folder, dir) = match game_folder(state, id, index) {
+        Ok(found) => found,
+        Err(message) => return json(req, 404, &message),
+    };
+    let path = dir.join(name);
+    if !folder.accepts(name) || !path.is_file() {
+        return json(req, 404, &Message::new("No such file"));
+    }
+    fs::remove_file(&path).with_context(|| format!("can't delete {name}"))?;
+    state.send(WebEvent::FileDeleted {
+        name: name.to_owned(),
+    });
+    json(req, 200, &Message::new(format!("Deleted {name}")))
+}
+
 /// `GET /api/games/<id>/icon.bmp`: the icon as a 16-bit BMP, which browsers show directly.
-fn icon(req: Req, state: &WebState) -> anyhow::Result<()> {
-    let path = game_id(req.uri())
-        .zip(state.games_dir())
-        .map(|(id, dir)| dir.join(id).join("icon.rgb565"));
+fn icon(req: Req, state: &WebState, id: &str) -> anyhow::Result<()> {
+    let path = state
+        .games_dir()
+        .map(|dir| dir.join(id).join("icon.rgb565"));
     let Some(pixels) = path.and_then(|path| fs::read(path).ok()) else {
         return json(req, 404, &Message::new("No icon"));
     };

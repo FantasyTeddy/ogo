@@ -1,4 +1,4 @@
-//! A game's `game.toml` and icon.
+//! A game's `game.toml`, its icon, and the folders on the SD card it reads files from.
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +23,80 @@ pub struct Manifest {
     pub sdk_version: u32,
     /// SHA-256 of `game.bin`, hex.
     pub sha256: String,
+    /// Folders on the SD card the game reads files from, which the web page lets the user fill.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<Folder>,
+}
+
+/// A folder on the SD card a game reads files from, e.g. ROMs for an emulator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Folder {
+    /// What the files are, for the web page, e.g. "ROMs".
+    pub label: String,
+    /// Relative to the SD card root, e.g. "roms/gb"; see [`is_valid_folder_path`].
+    pub path: String,
+    /// The file extensions the game reads, without the dot, e.g. ["gb"]; matched ignoring case.
+    pub extensions: Vec<String>,
+}
+
+impl Folder {
+    /// Whether `name` is a file the game reads from this folder: a valid file name with one of
+    /// the extensions.
+    pub fn accepts(&self, name: &str) -> bool {
+        is_valid_file_name(name)
+            && name.rsplit_once('.').is_some_and(|(_, extension)| {
+                self.extensions
+                    .iter()
+                    .any(|e| e.eq_ignore_ascii_case(extension))
+            })
+    }
+
+    fn check(&self) -> Result<(), String> {
+        if self.label.trim().is_empty() {
+            return Err(format!("folder \"{}\" has no label", self.path));
+        }
+        if !is_valid_folder_path(&self.path) {
+            return Err(format!(
+                "invalid folder path \"{}\" (use a-z, 0-9, - and _, separated by /, not under ogo/)",
+                self.path
+            ));
+        }
+        let valid_extension =
+            |e: &String| !e.is_empty() && e.bytes().all(|b| b.is_ascii_alphanumeric());
+        if self.extensions.is_empty() || !self.extensions.iter().all(valid_extension) {
+            return Err(format!(
+                "folder \"{}\" needs extensions of letters and digits, without the dot",
+                self.path
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Folder paths in `game.toml`: relative to the SD card root, parts of lowercase letters, digits,
+/// `-` and `_` separated by `/`, and not under `ogo/`, which belongs to the launcher.
+pub fn is_valid_folder_path(path: &str) -> bool {
+    let valid_part = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+    };
+    path.split('/').all(valid_part) && path.split('/').next() != Some("ogo")
+}
+
+/// Names of files uploaded into a game's folder: at most 255 bytes, not starting with a dot, no
+/// path separators or other characters FAT doesn't allow, and not ending in a dot or space (FAT
+/// would drop them).
+pub fn is_valid_file_name(name: &str) -> bool {
+    const NOT_ALLOWED: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+    !name.is_empty()
+        && name.len() <= 255
+        && !name.starts_with('.')
+        && !name.ends_with(['.', ' '])
+        && !name
+            .chars()
+            .any(|c| c.is_control() || NOT_ALLOWED.contains(&c))
 }
 
 impl Manifest {
@@ -53,7 +127,7 @@ impl Manifest {
         if self.sha256.len() != 64 || !self.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err("sha256 is not a SHA-256 hex string".into());
         }
-        Ok(())
+        self.folders.iter().try_for_each(Folder::check)
     }
 }
 
@@ -107,6 +181,15 @@ mod tests {
             author: String::new(),
             sdk_version: 1,
             sha256: "ab".repeat(32),
+            folders: Vec::new(),
+        }
+    }
+
+    fn roms() -> Folder {
+        Folder {
+            label: "ROMs".into(),
+            path: "roms/gb".into(),
+            extensions: vec!["gb".into()],
         }
     }
 
@@ -114,6 +197,90 @@ mod tests {
     fn round_trips_through_toml() {
         let manifest = manifest();
         assert_eq!(Manifest::parse(&manifest.to_toml()), Ok(manifest));
+    }
+
+    #[test]
+    fn folders_round_trip_and_are_optional() {
+        let with_folders = Manifest {
+            folders: vec![roms()],
+            ..manifest()
+        };
+        let text = with_folders.to_toml();
+        assert!(text.contains("[[folders]]"), "{text}");
+        assert_eq!(Manifest::parse(&text), Ok(with_folders));
+        // Without folders, game.toml looks as before
+        assert!(!manifest().to_toml().contains("folders"));
+    }
+
+    #[test]
+    fn check_rejects_bad_folders() {
+        let check = |change: fn(&mut Folder)| {
+            let mut folder = roms();
+            change(&mut folder);
+            Manifest {
+                folders: vec![folder],
+                ..manifest()
+            }
+            .check(None, 1)
+        };
+        assert_eq!(check(|_| {}), Ok(()));
+        assert!(check(|f| f.label = " ".into())
+            .unwrap_err()
+            .contains("label"));
+        assert!(check(|f| f.extensions.clear())
+            .unwrap_err()
+            .contains("extensions"));
+        assert!(check(|f| f.extensions = vec![".gb".into()])
+            .unwrap_err()
+            .contains("extensions"));
+        assert!(check(|f| f.path = "ogo/games".into())
+            .unwrap_err()
+            .contains("folder path"));
+    }
+
+    #[test]
+    fn folder_paths() {
+        assert!(is_valid_folder_path("roms"));
+        assert!(is_valid_folder_path("roms/gb"));
+        assert!(is_valid_folder_path("my_game/levels-2"));
+        assert!(is_valid_folder_path("ogo-roms"));
+        assert!(!is_valid_folder_path(""));
+        assert!(!is_valid_folder_path("/roms"));
+        assert!(!is_valid_folder_path("roms/"));
+        assert!(!is_valid_folder_path("roms//gb"));
+        assert!(!is_valid_folder_path("../roms"));
+        assert!(!is_valid_folder_path("roms/./gb"));
+        assert!(!is_valid_folder_path("Roms"));
+        assert!(!is_valid_folder_path("ogo"));
+        assert!(!is_valid_folder_path("ogo/saves"));
+    }
+
+    #[test]
+    fn file_names() {
+        assert!(is_valid_file_name("Tetris (JUE) (V1.1) [!].gb"));
+        assert!(is_valid_file_name("Pokémon Blau.gb"));
+        assert!(is_valid_file_name(&format!("{}.gb", "a".repeat(252))));
+        assert!(!is_valid_file_name(&format!("{}.gb", "a".repeat(253))));
+        assert!(!is_valid_file_name(""));
+        assert!(!is_valid_file_name(".hidden.gb"));
+        assert!(!is_valid_file_name(".."));
+        assert!(!is_valid_file_name("a/b.gb"));
+        assert!(!is_valid_file_name("a\\b.gb"));
+        assert!(!is_valid_file_name("what?.gb"));
+        assert!(!is_valid_file_name("tab\t.gb"));
+        assert!(!is_valid_file_name("name.gb."));
+        assert!(!is_valid_file_name("name.gb "));
+    }
+
+    #[test]
+    fn folders_accept_their_extensions() {
+        let folder = roms();
+        assert!(folder.accepts("Tetris.gb"));
+        assert!(folder.accepts("TETRIS.GB"));
+        assert!(!folder.accepts("Tetris.gbc"));
+        assert!(!folder.accepts("Tetris"));
+        assert!(!folder.accepts("gb"));
+        assert!(!folder.accepts("../Tetris.gb"));
     }
 
     #[test]

@@ -6,7 +6,7 @@ use std::{
 };
 
 pub use ogo_format::game::ICON_SIZE;
-use ogo_format::game::{Manifest, ICON_BYTES, SDK_VERSION};
+use ogo_format::game::{Folder, Manifest, ICON_BYTES, SDK_VERSION};
 
 /// Folder with the installed games, relative to the SD card root.
 pub const GAMES_DIR: &str = "ogo/games";
@@ -21,6 +21,8 @@ pub struct Game {
     pub sha256: String,
     pub dir: PathBuf,
     pub has_icon: bool,
+    /// Folders on the SD card the game reads files from (`game.toml`).
+    pub folders: Vec<Folder>,
 }
 
 impl Game {
@@ -107,10 +109,27 @@ pub fn scan_dir(games_dir: &Path) -> Option<Vec<Entry>> {
     Some(entries)
 }
 
+/// Stack for parsing `game.toml`, see [`parse_manifest`]: twice what GB's needed (4.8 KB).
+const PARSE_STACK_BYTES: usize = 10 * 1024;
+
+/// Parses `game.toml` on a thread of its own. The toml deserializer recurses for every level of
+/// nesting (`[[folders]]` with its `extensions` adds several), which overflowed the main task's
+/// 8 KB stack under the launcher's own frames; the HTTP server's task calls this too.
+fn parse_manifest(text: &str) -> Result<Manifest, String> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(PARSE_STACK_BYTES)
+            .spawn_scoped(scope, || Manifest::parse(text))
+            .map_err(|e| format!("game.toml: can't start the parser: {e}"))?
+            .join()
+            .map_err(|_| "game.toml: the parser crashed".to_owned())?
+    })
+}
+
 /// Reads and checks `dir/game.toml`. With `folder`, the id must match it.
 pub fn load_game(dir: &Path, folder: Option<&str>) -> Result<Game, String> {
     let text = fs::read_to_string(dir.join("game.toml")).map_err(|e| format!("game.toml: {e}"))?;
-    let manifest = Manifest::parse(&text)?;
+    let manifest = parse_manifest(&text)?;
     manifest.check(folder, SDK_VERSION)?;
     if !dir.join("game.bin").is_file() {
         return Err("game.bin is missing".into());
@@ -137,5 +156,6 @@ pub fn load_game(dir: &Path, folder: Option<&str>) -> Result<Game, String> {
         sha256: manifest.sha256.to_ascii_lowercase(),
         dir: dir.to_owned(),
         has_icon,
+        folders: manifest.folders,
     })
 }

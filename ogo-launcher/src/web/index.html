@@ -44,22 +44,45 @@
   input { background: var(--bg); color: var(--text); border: 1px solid var(--line);
           border-radius: 6px; padding: 8px 10px; font: inherit; min-width: 0; }
   input.grow { flex: 1 1 180px; }
-  input[type=file] { flex: 1 1 220px; }
+  input[type=file] { flex: 1 1 220px; padding: 5px 6px; color: var(--dim); cursor: pointer; }
+  input[type=file]::file-selector-button { background: var(--card); color: var(--text); border: 1px solid var(--line);
+                                           border-radius: 5px; padding: 3px 10px; margin-right: 10px; font: inherit;
+                                           cursor: pointer; }
+  input[type=file]:hover::file-selector-button { background: var(--hover); }
   button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
            padding: 8px 14px; font: inherit; cursor: pointer; }
-  button:hover { background: var(--accent-dark); }
+  button:hover:not(:disabled) { background: var(--accent-dark); }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--dim); }
   button.small { padding: 4px 10px; font-size: 13px; }
   button:disabled { opacity: .5; cursor: default; }
   ul.list { list-style: none; margin: 0; padding: 0; }
-  .games li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
-  .games li:first-child { border-top: 0; }
+  .games > li { padding: 8px 0; border-top: 1px solid var(--line); }
+  .games > li:first-child { border-top: 0; }
+  .game { display: flex; align-items: center; gap: 12px; }
+  .game .actions { display: flex; gap: 6px; flex: none; }
   .games img, .games .noicon { width: 48px; height: 48px; border-radius: 6px; flex: none;
                                 background: var(--line); image-rendering: pixelated; }
   .games .info { flex: 1; min-width: 0; }
   .name { font-weight: 600; overflow-wrap: anywhere; }
   .meta { color: var(--dim); font-size: 13px; }
   .error { color: var(--bad); font-size: 13px; }
+  .folder-toggle { display: flex; align-items: center; gap: 6px; }
+  .folder-toggle svg { transition: transform .15s; }
+  .folder-toggle[aria-expanded=true] { color: var(--text); border-color: var(--dim); }
+  .folder-toggle[aria-expanded=true] svg { transform: rotate(180deg); }
+  /* Below its game, lined up with the name (icon 48 px + gap 12 px) */
+  .folder { margin: 10px 0 4px 60px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line);
+            border-radius: 8px; }
+  @media (max-width: 520px) { .folder { margin-left: 0; } }
+  .folder-head { display: flex; justify-content: space-between; gap: 8px; color: var(--dim); font-size: 13px;
+                 margin-bottom: 4px; }
+  .folder .row { margin-top: 10px; }
+  .folder input[type=file] { background: var(--card); }
+  .files li { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line);
+              font-size: 13px; }
+  .files li:first-child { border-top: 0; }
+  .files .fname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .files .fsize { color: var(--dim); white-space: nowrap; }
   .networks li { border-top: 1px solid var(--line); }
   .networks li:first-child { border-top: 0; }
   .networks .pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 6px;
@@ -282,6 +305,13 @@ function size(bytes) {
   return `${Math.round(bytes / 2 ** 20)} MB`;
 }
 
+/** A file's size: KB below 1 MB, MB with one decimal below 10 MB. */
+function fileSize(bytes) {
+  if (bytes < 2 ** 20) return `${Math.max(1, Math.round(bytes / 2 ** 10))} KB`;
+  const mb = bytes / 2 ** 20;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
 async function loadStatus() {
   const s = await api("GET", "/api/status");
 
@@ -346,6 +376,8 @@ async function loadGames() {
   }
   for (const game of games) {
     const li = document.createElement("li");
+    const row = document.createElement("div");
+    row.className = "game";
     const icon = game.has_icon ? document.createElement("img") : document.createElement("div");
     if (game.has_icon) { icon.src = `/api/games/${game.id}/icon.bmp`; icon.alt = ""; }
     else icon.className = "noicon";
@@ -358,17 +390,146 @@ async function loadGames() {
     if (game.error) { meta.className = "error"; meta.textContent = game.error; }
     else { meta.className = "meta"; meta.textContent = `v${game.version}${game.author ? " · " + game.author : ""} · ${game.id}`; }
     info.append(name, meta);
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const panels = game.folders.map((folder, index) => {
+      const { toggle, panel } = folderView(game, folder, index);
+      actions.append(toggle);
+      return panel;
+    });
     const remove = document.createElement("button");
     remove.className = "ghost small";
     remove.textContent = "Delete";
     remove.onclick = async () => {
-      if (!confirm(`Delete ${game.name} from the SD card? Its saves stay.`)) return;
+      const files = game.folders.length ? ` Its ${game.folders.map((f) => f.label).join(", ")} stay too.` : "";
+      if (!confirm(`Delete ${game.name} from the SD card? Its saves stay.${files}`)) return;
       try { toast((await api("DELETE", `/api/games/${game.id}`)).message, "ok"); loadGames(); loadStatus(); }
       catch (e) { toast(e.message, "bad"); }
     };
-    li.append(icon, info, remove);
+    actions.append(remove);
+    row.append(icon, info, actions);
+    li.append(row, ...panels);
     list.append(li);
   }
+}
+
+// Folders the user opened, by "<game id>/<index>", so they stay open when the list reloads.
+const openFolders = new Set();
+
+const CHEVRON = '<svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">' +
+  '<path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+/**
+ * A game's folder (from its game.toml): a toggle for the game's row, and a panel below the row with
+ * the files in it, delete buttons and an upload field.
+ */
+function folderView(game, folder, index) {
+  const key = `${game.id}/${index}`;
+  const url = `/api/games/${game.id}/folders/${index}`;
+  const extensions = folder.extensions.map((e) => "." + e);
+
+  const toggle = document.createElement("button");
+  toggle.className = "ghost small folder-toggle";
+  const label = document.createElement("span");
+  label.textContent = folder.label;
+  toggle.append(label);
+  toggle.insertAdjacentHTML("beforeend", CHEVRON);
+
+  const panel = document.createElement("div");
+  panel.className = "folder";
+  const head = document.createElement("div");
+  head.className = "folder-head";
+  const where = document.createElement("span");
+  where.textContent = `${folder.label} in /${folder.path}/`;
+  const count = document.createElement("span");
+  head.append(where, count);
+  const files = document.createElement("ul");
+  files.className = "list files";
+  const row = document.createElement("div");
+  row.className = "row";
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.accept = extensions.join(",");
+  const button = document.createElement("button");
+  button.textContent = "Upload";
+  needsFile(input, button);
+  const progress = document.createElement("progress");
+  progress.hidden = true;
+  const hint = document.createElement("p");
+  hint.className = "hint";
+  hint.textContent = `${extensions.join(", ")} files; one with the same name is replaced.`;
+  row.append(input, button);
+  panel.append(head, files, row, progress, hint);
+
+  const show = (open) => {
+    panel.hidden = !open;
+    toggle.setAttribute("aria-expanded", open);
+    open ? openFolders.add(key) : openFolders.delete(key);
+  };
+  toggle.onclick = () => show(panel.hidden);
+  show(openFolders.has(key));
+
+  async function load() {
+    const list = await api("GET", url);
+    label.textContent = `${folder.label} (${list.length})`;
+    count.textContent = list.length === 1 ? "1 file" : `${list.length} files`;
+    files.replaceChildren(...list.map((file) => {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "fname";
+      name.textContent = file.name;
+      const fsize = document.createElement("span");
+      fsize.className = "fsize";
+      fsize.textContent = fileSize(file.size);
+      const remove = document.createElement("button");
+      remove.className = "ghost small";
+      remove.textContent = "Delete";
+      remove.onclick = async () => {
+        if (!confirm(`Delete ${file.name} from the SD card?`)) return;
+        try { toast((await api("DELETE", `${url}/${encodeURIComponent(file.name)}`)).message, "ok"); }
+        catch (e) { toast(e.message, "bad"); }
+        load().catch((e) => toast(e.message, "bad"));
+        loadStatus();
+      };
+      li.append(name, fsize, remove);
+      return li;
+    }));
+    if (!list.length) files.innerHTML = '<li class="meta">None yet.</li>';
+  }
+
+  button.onclick = () => {
+    const chosen = [...input.files];
+    const wrong = chosen.find((file) => !extensions.some((e) => file.name.toLowerCase().endsWith(e)));
+    if (wrong) return toast(`${wrong.name}: only ${extensions.join(", ")} files`, "bad");
+    // One after the other; stops at the first that fails, whose message stays
+    const next = (i) => {
+      if (i === chosen.length) {
+        input.value = "";
+        button.disabled = true;
+        toast(chosen.length === 1 ? `Saved ${chosen[0].name}` : `Saved ${chosen.length} files`, "ok");
+        return;
+      }
+      uploadFile({ file: chosen[i], url: `${url}/${encodeURIComponent(chosen[i].name)}`, button, progress,
+                   done: (ok) => {
+                     load().catch((e) => toast(e.message, "bad"));
+                     loadStatus();
+                     if (ok) next(i + 1);
+                     else button.disabled = !input.files.length;
+                   } });
+    };
+    next(0);
+  };
+
+  load().catch((e) => toast(e.message, "bad"));
+  return { toggle, panel };
+}
+
+/** Enables `button` only while `input` has a file chosen. */
+function needsFile(input, button) {
+  const update = () => { button.disabled = !input.files.length; };
+  input.addEventListener("change", update);
+  update();
 }
 
 /** Uploads a file with a progress bar; calls done(ok) at the end. */
@@ -378,7 +539,6 @@ function uploadFile({ file, url, button, progress, done }) {
   xhr.upload.onprogress = (e) => { progress.max = e.total; progress.value = e.loaded; };
   xhr.onloadend = () => {
     progress.hidden = true;
-    button.disabled = false;
     if (xhr.status === 401) return showLogin("The session ended (the WiFi screen was closed). Enter the new PIN.");
     let message = xhr.statusText || "Upload failed";
     try { message = JSON.parse(xhr.responseText).message; } catch {}
@@ -392,20 +552,24 @@ function uploadFile({ file, url, button, progress, done }) {
   xhr.send(file);
 }
 
+needsFile($("file"), $("upload"));
 $("upload").onclick = () => {
   const file = $("file").files[0];
-  if (!file) return toast("Choose an .ogo file first", "bad");
   uploadFile({ file, url: "/api/games", button: $("upload"), progress: $("progress"), done: (ok) => {
     if (ok) { $("file").value = ""; loadGames(); loadStatus(); }
+    $("upload").disabled = !$("file").files.length;
   } });
 };
 
+needsFile($("launcher-file"), $("launcher-upload"));
 $("launcher-upload").onclick = () => {
   const file = $("launcher-file").files[0];
-  if (!file) return toast("Choose a launcher.bin first", "bad");
   if (!confirm(`Install ${file.name} as the new launcher? The device restarts afterwards.`)) return;
   uploadFile({ file, url: "/api/launcher", button: $("launcher-upload"), progress: $("launcher-progress"),
-               done: (ok) => { if (ok) $("launcher-file").value = ""; } });
+               done: (ok) => {
+                 if (ok) $("launcher-file").value = "";
+                 $("launcher-upload").disabled = !$("launcher-file").files.length;
+               } });
 };
 
 // --- WiFi ---

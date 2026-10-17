@@ -117,8 +117,8 @@ records its sound to listen to. Everything that needs the ESP32 is tested on the
    and unmutes.
 2. A game starts (installing it first if it changed), its music plays under the sound effects, its
    pause menu (volume and music too) and VOL's three sound modes work, and "Exit to launcher" returns.
-3. The WiFi screen: the web page logs in with the PIN, uploads and deletes a game, and the game list
-   is rescanned when the screen closes.
+3. The WiFi screen: the web page logs in with the PIN, uploads and deletes a game and a ROM under
+   GB, and the game list is rescanned when the screen closes.
 4. A launcher update from the web page restarts into the other slot and says "Launcher updated".
 5. Recovery (MENU at power-on) lists both launcher slots and can install `/ogo/updates/launcher.bin`.
 

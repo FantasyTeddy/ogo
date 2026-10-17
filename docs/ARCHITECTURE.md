@@ -15,7 +15,7 @@ slot and boots them. Games and the launcher itself are managed from a web page s
 | Framework | `esp-idf-svc` (Rust `std` on ESP-IDF v5.5) for WiFi, HTTP, OTA, partitions and the SD card |
 | Game format | Native firmware images, stored on the SD card and copied into a flash slot to run (the ESP32 can't run code from PSRAM or the SD card) |
 | Game updates | Each game is installed and updated on its own; replacing it on the SD card is enough |
-| Transfer | A web page on the device (upload, delete, launcher update); no PC tool needed |
+| Transfer | A web page on the device (games and the files they read, launcher update); no PC tool needed |
 | Launcher updates | A/B slots with rollback, uploaded through the same page |
 | Safety | A recovery app in the factory slot, entered with MENU at power-on |
 
@@ -111,7 +111,9 @@ Plain HTML/JS embedded in the firmware, with two tabs (`#games`, `#settings`). H
 HTTP server's task and never touch the display: they report to the main loop through `WebEvent`s over
 a channel, and the loop updates the screen, plays sounds, saves the WiFi network or restarts. A
 random 4-digit PIN shown on the device unlocks a session cookie (details in
-[CONTRACTS.md](CONTRACTS.md#web-api)). WiFi and lwIP buffers may go to PSRAM.
+[CONTRACTS.md](CONTRACTS.md#web-api)). WiFi and lwIP buffers may go to PSRAM. Games can declare
+folders on the SD card in `game.toml`, such as GB's ROMs; the page lists the files in them and uploads
+into them, so the launcher needn't know what any game reads.
 
 **Settings screen** ([settings_screen.rs](../ogo-launcher/src/settings_screen.rs)). Info at the top
 (launcher version and slot, build ID and commit, SD card space, saved WiFi network), then

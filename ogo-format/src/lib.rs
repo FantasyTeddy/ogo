@@ -12,6 +12,7 @@ pub mod scale;
 pub mod settings;
 pub mod slots;
 pub mod text;
+pub mod url;
 
 /// Lowercase hex, e.g. of a SHA-256.
 pub fn hex(bytes: &[u8]) -> String {

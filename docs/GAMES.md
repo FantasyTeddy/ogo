@@ -25,6 +25,8 @@ edition.workspace = true
 # Read by `cargo xtask pack` for game.toml
 [package.metadata.ogo]
 name = "Pong"                     # shown in the launcher's list
+# Optional: folders on the SD card the game reads files from, which the web page can fill
+# folders = [{ label = "Levels", path = "pong/levels", extensions = ["txt"] }]
 
 [[bin]]
 name = "pong"

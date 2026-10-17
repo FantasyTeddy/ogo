@@ -206,6 +206,11 @@ impl Launcher {
                     session.library_changed = true;
                     (format!("Deleted {id}"), SUCCESS)
                 }
+                WebEvent::FileSaved { name } => {
+                    self.board.speaker.play(SOUND_INSTALLED);
+                    (format!("Saved {name}"), SUCCESS)
+                }
+                WebEvent::FileDeleted { name } => (format!("Deleted {name}"), SUCCESS),
                 WebEvent::Failed(reason) => {
                     self.board.speaker.set_muted(false);
                     self.board.speaker.play(SOUND_ERROR);

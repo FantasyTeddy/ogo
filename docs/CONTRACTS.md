@@ -50,10 +50,13 @@ Image sizes: launcher 1.6 MB (WiFi and the HTTP server make up most of it), reco
   settings.toml      # optional, for the first WiFi setup
 ```
 
-The GB app reads Game Boy ROMs from `/roms/gb/` (outside `/ogo/`), the folder other emulators for the
-device use too.
+Games can also read files from folders outside `/ogo/` they declare in `game.toml` (see below),
+which the web page lets the user fill. The GB app declares `/roms/gb/`, the folder other emulators
+for the device use too. An upload into such a folder is received as `.upload.part` in it and renamed
+once complete; files starting with "." aren't listed.
 
-Deleting a game on the web page removes its folder under `games/`; its saves stay.
+Deleting a game on the web page removes its folder under `games/`; its saves and the files in its
+declared folders stay.
 
 **`settings.toml`** is only read when NVS has no WiFi network:
 
@@ -143,7 +146,17 @@ version = "1.0.0"       # [package] version
 author = "ogo examples" # first of [package] authors; may be empty
 sdk_version = 1         # SDK_VERSION of the SDK the game was built with
 sha256 = "693bbd…"      # of game.bin, lowercase hex
+
+[[folders]]             # optional, any number: [package.metadata.ogo] folders
+label = "ROMs"          # what the files are, shown on the web page
+path = "roms/gb"        # relative to the SD card root
+extensions = ["gb"]     # without the dot; matched ignoring case
 ```
+
+A folder's `path` has parts of `a-z`, `0-9`, `-` and `_` separated by `/`, and isn't under `ogo/`.
+Uploaded file names have at most 255 bytes, one of the extensions, don't start with "." or end in "."
+or a space, and contain none of `/ \ : * ? " < > |` or control characters. File names on the SD
+card are UTF-8.
 
 **`icon.rgb565`** (optional): 64×64 pixels, RGB565 little-endian, row by row, exactly 8192 bytes.
 A file of another size is ignored.
@@ -155,6 +168,7 @@ and writer (the `tar` crate pulls in `filetime`, which needs Unix calls ESP-IDF 
 The launcher accepts a game folder or package when:
 - `game.toml` parses, `id` is valid and matches the folder name
 - `sdk_version` is the one the launcher supports
+- the `folders`, if any, follow the rules above
 - `sha256` is a 64-digit hex string and `game.bin` exists
 - for uploads also: `game.bin` matches `sha256` and fits into `game_0`
 
@@ -174,10 +188,13 @@ for the PIN shown on the device. After 5 wrong PINs the device picks a new one. 
 | `/`, `/logo.png` | GET | The page and the logo (no session needed) |
 | `/api/login` | POST | `{"pin": "1234"}` → session cookie |
 | `/api/status` | GET | Version, battery, SD space, both launcher slots (kind, version, build ID, commit, build time), network |
-| `/api/games` | GET | All library entries, including broken ones with the reason |
+| `/api/games` | GET | All library entries with their `folders`, including broken ones with the reason |
 | `/api/games` | POST | Upload an `.ogo` package as the raw body |
 | `/api/games/<id>/icon.bmp` | GET | The icon as a 16-bit BMP (RGB565 bitfields) |
-| `/api/games/<id>` | DELETE | Delete a game folder; its saves stay |
+| `/api/games/<id>` | DELETE | Delete a game folder; its saves and the files in its folders stay |
+| `/api/games/<id>/folders/<n>` | GET | The files in the game's `n`th folder (from 0): `[{"name", "size"}]` |
+| `/api/games/<id>/folders/<n>/<name>` | POST | Upload a file (max 10 MB) as the raw body, `<name>` percent-encoded; replaces one with the same name |
+| `/api/games/<id>/folders/<n>/<name>` | DELETE | Delete a file |
 | `/api/launcher` | POST | A `launcher.bin` as the raw body: written into the inactive launcher slot, then the device restarts into it |
 | `/api/wifi/networks` | GET | Networks from the last scan |
 | `/api/wifi/scan` | POST | Scan again |
@@ -193,5 +210,7 @@ for the PIN shown on the device. After 5 wrong PINs the device picks a new one. 
   SDK expects from NVS.
 - New NVS keys with defaults don't need a bump: games that don't know a key ignore it, and games
   that read one fall back to its default when it's missing.
+- New optional fields in `game.toml` don't need one either: launchers ignore fields they don't know
+  (an older launcher shows no folders), and missing ones get their defaults.
 - Changing the image description's layout needs a new magic, and recovery and launcher must then be
   flashed together (`cargo xtask flash --all`): each only recognises images with its own magic.

@@ -1,6 +1,7 @@
 //! Plays Game Boy ROMs from the SD card at their original size, with the `ogo-gb` core.
 //!
-//! The ROMs are `.gb` files in `/roms/gb/`. A cartridge with a battery keeps its RAM in the saves,
+//! The ROMs are `.gb` files in `/roms/gb/`, which the launcher's web page can fill (`folders` in
+//! Cargo.toml's `[package.metadata.ogo]`). A cartridge with a battery keeps its RAM in the saves,
 //! under the ROM's file name: saved when the pause menu opens, and a few seconds after it changed.
 
 use std::{
@@ -265,9 +266,10 @@ impl List {
         let selected = last
             .and_then(|last| roms.iter().position(|name| *name == last))
             .unwrap_or(0);
-        let message = roms
-            .is_empty()
-            .then(|| "Put .gb files into /roms/gb/ on the SD card".to_string());
+        let message = roms.is_empty().then(|| {
+            "No ROMs yet: upload .gb files on the WiFi page,\nor copy them to /roms/gb/ on the SD card"
+                .to_string()
+        });
         List {
             roms,
             selected,
@@ -339,10 +341,11 @@ impl List {
         }
 
         if let Some(message) = &self.message {
+            let lines = message.lines().count() as i32;
             ui::text(
                 fb,
                 message,
-                Point::new(width / 2, SCREEN_HEIGHT as i32 - 14),
+                Point::new(width / 2, SCREEN_HEIGHT as i32 - 4 - 10 * lines),
                 &FONT_6X10,
                 ui::WARNING,
                 Alignment::Center,

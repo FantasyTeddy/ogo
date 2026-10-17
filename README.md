@@ -15,8 +15,8 @@ launcher updates are managed from a web page served by the device itself.
   menu, exit back to the launcher
 - Recovery app, entered by holding MENU at power-on: start either launcher slot, or reinstall the
   launcher from the SD card
-- Web page over WiFi, protected by a PIN shown on the device: upload and delete games, pick the WiFi
-  network, see battery and free space
+- Web page over WiFi, protected by a PIN shown on the device: upload and delete games and the files
+  they use (e.g. Game Boy ROMs), pick the WiFi network, see battery and free space
 - Launcher updates from the web page, into the other of two launcher slots; if the new launcher
   doesn't start properly, the device goes back to the previous one by itself
 - Settings screen (MENU): device info, brightness, volume and music on/off (all also used by
@@ -68,8 +68,9 @@ music on/off and "Exit to launcher"; **VOL** switches between all sound, effects
 muted. All of these are kept for the launcher and other games too. Any reset while a game runs also
 lands back in the launcher.
 
-**GB** plays Game Boy games (the original, not Color) from your own ROM files: put the `.gb` files
-into `/roms/gb/` on the SD card, where other emulators for the device look too. It shows them in a
+**GB** plays Game Boy games (the original, not Color) from your own ROM files: upload the `.gb` files
+on the web page (under GB, "ROMs"), or copy them into `/roms/gb/` on the SD card, where other
+emulators for the device look too. It shows them in a
 list; **A** starts one, in the middle of the screen. The buttons are the Game Boy's; **MENU** opens the pause menu as in
 every game, and **VOL** switches the sound on and off (Game Boy games play music and sound effects on
 the same channels, so there's no switching off only the music). The pause menu also has

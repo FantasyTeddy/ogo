@@ -25,7 +25,7 @@ use anyhow::{bail, ensure, Context};
 use clap::{Parser, Subcommand};
 use ogo_format::{
     flash,
-    game::{Manifest, SDK_VERSION},
+    game::{Folder, Manifest, SDK_VERSION},
     image::{ImageDesc, ImageKind},
     slots,
 };
@@ -165,6 +165,7 @@ struct Game {
     name: String,
     version: String,
     author: String,
+    folders: Vec<Folder>,
     dir: PathBuf,
 }
 
@@ -282,6 +283,8 @@ impl Project {
         #[derive(Deserialize)]
         struct OgoMetadata {
             name: Option<String>,
+            #[serde(default)]
+            folders: Vec<Folder>,
         }
 
         let metadata: Metadata = self.metadata()?;
@@ -293,6 +296,7 @@ impl Project {
                 Some(Game {
                     name: ogo.name.unwrap_or_else(|| package.name.clone()),
                     author: package.authors.into_iter().next().unwrap_or_default(),
+                    folders: ogo.folders,
                     dir: package.manifest_path.parent()?.to_owned(),
                     id: package.name,
                     version: package.version,
@@ -336,7 +340,11 @@ impl Project {
             // Built against this tree's SDK.
             sdk_version: SDK_VERSION,
             sha256: ogo_format::hex(&Sha256::digest(&image)),
+            folders: game.folders.clone(),
         };
+        manifest
+            .check(None, SDK_VERSION)
+            .map_err(|e| anyhow::anyhow!("{}: {e}", game.id))?;
         let mut files = vec![
             ("game.toml", manifest.to_toml().into_bytes()),
             ("game.bin", image),
