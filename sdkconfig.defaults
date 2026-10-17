@@ -21,6 +21,8 @@ CONFIG_FREERTOS_HZ=1000
 # Long filenames on the SD card (the default is 8.3 names only)
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+# File names are UTF-8, as Rust expects (the default is code page 437, which garbles anything else)
+CONFIG_FATFS_API_ENCODING_UTF_8=y
 
 # Recovery: holding MENU (GPIO13, low when pressed) for 1 s at power-on boots the factory slot.
 # That needs otadata cleared; NVS (settings, installed game) is kept.
