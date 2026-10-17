@@ -166,7 +166,7 @@ anything the launcher or a web update does.
   the pause menu or exiting saves at once.
 - **Sound.** The audio thread in `ogo-board` generates the samples as it plays: sound effects (sine
   tones with fades, from a short queue) mixed over a looping music track of up to two parts (square,
-  triangle or sine). Volume and music tempo apply at once.
+  triangle or sine), plus a game's sample stream (`Stream`). Volume and music tempo apply at once.
 - **Saves.** One text or binary file per name under `/ogo/saves/<id>/`, written via a temp file.
 
 ## Settings
@@ -255,7 +255,6 @@ needs the ESP32 is tested on the device; the checklist is in
 
 - Joining a WiFi network blocks the launcher's screen for up to ~15 s while it waits.
 - The web server keeps every login session until the WiFi screen closes.
-- Games get notes (sine tones) only; there is no sample (PCM) playback.
 - One game slot: switching to another game reinstalls it.
 - The battery percentage is a rough linear estimate, and there's no charging indicator (the board has
   no charge-status signal, see [HARDWARE.md](HARDWARE.md#findings)).

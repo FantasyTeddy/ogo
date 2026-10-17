@@ -145,7 +145,7 @@ only (music off) and muted.
 
 **Sound.** `ctx.sound().play(&[Note::new(frequency_hz, duration_ms), …])` queues notes (sine tones;
 a frequency of 0 is a pause) and returns at once. Up to 4 sounds can wait; more are dropped. The
-volume is the user's setting, so leave it alone. There is no sample (PCM) playback.
+volume is the user's setting, so leave it alone.
 
 **Music.** A `Track` loops under the sound effects, a little quieter. It has one or two `Part`s
 played together, e.g. a melody and a bass line, each with its own `Wave` (`Square`, `Triangle` or
