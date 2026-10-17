@@ -43,3 +43,7 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # Power management, so games can change the CPU clock at runtime (Ctx::set_cpu_mhz); without a
 # configuration it stays at the default 160 MHz
 CONFIG_PM_ENABLE=y
+
+# A task that overflows its stack stops right there, naming the task, instead of overwriting the
+# memory next to it and crashing somewhere else later
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
