@@ -57,6 +57,9 @@ impl Buttons {
     pub const START: u8 = 0x80;
 }
 
+// The CPU first, then the bus with its frequently used fields first: Xtensa's loads reach small
+// offsets only (up to 255 for bytes), beyond that every access needs extra instructions.
+#[repr(C)]
 pub struct GameBoy {
     cpu: Cpu,
     bus: Bus,

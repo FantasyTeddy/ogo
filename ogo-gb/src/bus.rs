@@ -23,14 +23,21 @@ const IO_UNUSED_BITS: [u8; 0x80] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 ];
 
+/// The fields used for every instruction first (see `GameBoy`).
+#[repr(C)]
 pub(crate) struct Bus {
-    pub cart: Cartridge,
+    /// Cycles the timer, the LCD and the cartridge clock are behind the CPU. They catch up in
+    /// `sync`: when `next_event` is reached, or before the CPU accesses their registers.
+    pending: u32,
+    /// Cycles from the last sync until the next interrupt or LCD mode change can happen.
+    next_event: u32,
+    pub ie: u8,
+    pub iflag: u8,
     pub wram: Box<[u8; 0x2000]>,
+    pub cart: Cartridge,
     pub hram: [u8; 0x7f],
     /// I/O registers without their own model (sound, serial data), as written.
     pub io: [u8; 0x80],
-    pub ie: u8,
-    pub iflag: u8,
     pub timer: Timer,
     pub ppu: Ppu,
     pub apu: Apu,
@@ -39,11 +46,6 @@ pub(crate) struct Bus {
     buttons: Buttons,
     /// Bytes sent over the serial port, collected when enabled (test ROMs report there).
     pub serial_log: Option<Vec<u8>>,
-    /// Cycles the timer, the LCD and the cartridge clock are behind the CPU. They catch up in
-    /// `sync`: when `next_event` is reached, or before the CPU accesses their registers.
-    pending: u32,
-    /// Cycles from the last sync until the next interrupt or LCD mode change can happen.
-    next_event: u32,
 }
 
 impl Bus {
@@ -73,11 +75,12 @@ impl Bus {
             0x0..=0x7 => self.cart.read_rom(addr),
             0x8 | 0x9 => self.ppu.vram[addr as usize & 0x1fff],
             0xc..=0xe => self.wram[addr as usize & 0x1fff],
+            _ if (0xff80..0xffff).contains(&addr) => self.hram[addr as usize - 0xff80],
             _ => self.read_slow(addr),
         }
     }
 
-    /// Cartridge RAM and 0xF000-0xFFFF: the areas that may need a sync first.
+    /// Cartridge RAM and 0xF000-0xFFFF without high RAM: the areas that may need a sync first.
     #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn read_slow(&mut self, addr: u16) -> u8 {
         if self.needs_sync(addr) {
@@ -103,12 +106,13 @@ impl Bus {
         match addr >> 12 {
             0x8 | 0x9 => self.ppu.vram[addr as usize & 0x1fff] = value,
             0xc..=0xe => self.wram[addr as usize & 0x1fff] = value,
+            _ if (0xff80..0xffff).contains(&addr) => self.hram[addr as usize - 0xff80] = value,
             _ => self.write_slow(addr, value),
         }
     }
 
-    /// The cartridge (MBC registers and RAM) and 0xF000-0xFFFF: the areas that may need a sync
-    /// first.
+    /// The cartridge (MBC registers and RAM) and 0xF000-0xFFFF without high RAM: the areas that
+    /// may need a sync first.
     #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     fn write_slow(&mut self, addr: u16, value: u8) {
         let synced = self.needs_sync(addr);
