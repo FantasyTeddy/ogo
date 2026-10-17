@@ -11,8 +11,11 @@ use crate::CLOCK_HZ;
 /// The frame sequencer steps at 512 Hz: length counters on every other step (256 Hz), the sweep
 /// on every fourth (128 Hz), envelopes on every eighth (64 Hz).
 const FRAME_SEQUENCER_CYCLES: u32 = CLOCK_HZ / 512;
-/// The square waves' duty cycles, as 8 steps from bit 7 down: 12.5%, 25%, 50%, 75%.
-const DUTY: [u8; 4] = [0b0000_0001, 0b1000_0001, 0b1000_0111, 0b0111_1110];
+/// The square waves' duty cycles, as 8 steps from bit 7 down: 12.5%, 25%, 50%, 75%; a byte each,
+/// packed into one constant so that the mixing doesn't read a table from flash on the ESP32.
+const DUTY: u32 = u32::from_le_bytes([0b0000_0001, 0b1000_0001, 0b1000_0111, 0b0111_1110]);
+/// NR32's output levels (mute, 100%, 50%, 25%) as right shifts of the wave sample, 4 bits each.
+const WAVE_SHIFTS: u32 = 0x2104;
 const NOISE_DIVISORS: [u32; 8] = [8, 16, 32, 48, 64, 80, 96, 112];
 /// Bits of NR10-NR52 (0xFF10-0xFF26) that read as 1.
 const READ_MASK: [u8; 0x17] = [
@@ -60,6 +63,7 @@ impl Envelope {
     }
 
     /// The channel's DAC is on unless volume and direction are all 0.
+    #[inline(always)]
     fn dac_on(&self) -> bool {
         self.initial != 0 || self.increase
     }
@@ -94,8 +98,14 @@ fn run_timer(timer: &mut u32, period: u32, cycles: u32) -> u32 {
         0
     } else {
         let over = cycles - *timer;
-        *timer = period - over % period;
-        over / period + 1
+        if over < period {
+            // Ran out once: the usual case, without dividing (slow on the ESP32)
+            *timer = period - over;
+            1
+        } else {
+            *timer = period - over % period;
+            over / period + 1
+        }
     }
 }
 
@@ -111,18 +121,21 @@ struct Square {
 }
 
 impl Square {
+    #[inline(always)]
     fn timer_period(&self) -> u32 {
         (2048 - self.period as u32) * 4
     }
 
+    #[inline(always)]
     fn advance(&mut self, cycles: u32) {
         let period = self.timer_period();
         let steps = run_timer(&mut self.timer, period, cycles);
         self.step = (self.step + steps as u8) & 7;
     }
 
+    #[inline(always)]
     fn output(&self) -> u8 {
-        if self.on && DUTY[self.duty as usize] >> (7 - self.step) & 1 != 0 {
+        if self.on && DUTY >> (self.duty as u32 * 8 + 7 - self.step as u32) & 1 != 0 {
             self.envelope.volume
         } else {
             0
@@ -175,10 +188,12 @@ struct WaveChannel {
 }
 
 impl WaveChannel {
+    #[inline(always)]
     fn timer_period(&self) -> u32 {
         (2048 - self.period as u32) * 2
     }
 
+    #[inline(always)]
     fn advance(&mut self, cycles: u32, ram: &[u8; 16]) {
         let period = self.timer_period();
         let steps = run_timer(&mut self.timer, period, cycles);
@@ -193,9 +208,10 @@ impl WaveChannel {
         }
     }
 
+    #[inline(always)]
     fn output(&self) -> u8 {
         if self.on {
-            self.sample >> [4, 0, 1, 2][self.level as usize]
+            self.sample >> (WAVE_SHIFTS >> (self.level * 4) & 0xf)
         } else {
             0
         }
@@ -215,10 +231,12 @@ struct Noise {
 }
 
 impl Noise {
+    #[inline(always)]
     fn timer_period(&self) -> u32 {
         NOISE_DIVISORS[self.divisor as usize] << self.shift
     }
 
+    #[inline(always)]
     fn advance(&mut self, cycles: u32) {
         let period = self.timer_period();
         let steps = run_timer(&mut self.timer, period, cycles);
@@ -231,6 +249,7 @@ impl Noise {
         }
     }
 
+    #[inline(always)]
     fn output(&self) -> u8 {
         if self.on && self.lfsr & 1 == 0 {
             self.envelope.volume
@@ -257,6 +276,14 @@ pub(crate) struct Apu {
     sample_rate: u32,
     /// Counts `sample_rate` per cycle; a sample is due at each `CLOCK_HZ`.
     sample_phase: u32,
+    /// Cycles until `sample_phase` reaches `CLOCK_HZ`: `CLOCK_HZ / sample_rate`, plus one while
+    /// `sample_phase` is below `CLOCK_HZ % sample_rate` (computed once, as dividing is slow).
+    to_sample: u32,
+    cycles_per_sample: u32,
+    sample_remainder: u32,
+    /// Each channel's factor in the mix: its left and right volumes (NR50) where NR51 routes it,
+    /// 0 while its DAC is off. Updated on every register write.
+    weights: [i32; 4],
     /// The high-pass filter's state and how much of it remains after one sample.
     capacitor: f32,
     charge: f32,
@@ -278,6 +305,10 @@ impl Apu {
             sequencer_timer: FRAME_SEQUENCER_CYCLES,
             sample_rate: 0,
             sample_phase: 0,
+            to_sample: u32::MAX,
+            cycles_per_sample: 0,
+            sample_remainder: 0,
+            weights: [0; 4],
             capacitor: 0.0,
             charge: 0.0,
             samples: Vec::new(),
@@ -311,29 +342,24 @@ impl Apu {
     pub fn set_sample_rate(&mut self, rate: u32) {
         self.sample_rate = rate;
         self.sample_phase = 0;
+        if let (Some(cycles), Some(remainder)) =
+            (CLOCK_HZ.checked_div(rate), CLOCK_HZ.checked_rem(rate))
+        {
+            self.cycles_per_sample = cycles;
+            self.sample_remainder = remainder;
+            self.to_sample = self.cycles_to_sample();
+        } else {
+            self.to_sample = u32::MAX;
+        }
         // The capacitor keeps 0.999958 of its charge per cycle
         let cycles_per_sample = CLOCK_HZ as f32 / rate.max(1) as f32;
         self.charge = libm_powf(0.999_958, cycles_per_sample);
     }
 
-    /// Cycles until the next frame sequencer step, which the bus must not run past without
-    /// letting the sound catch up; `u32::MAX` while the sound is off.
-    pub fn cycles_to_event(&self) -> u32 {
-        if self.power {
-            self.sequencer_timer
-        } else {
-            u32::MAX
-        }
-    }
-
+    #[cfg_attr(target_os = "espidf", link_section = ".iram1.ogo_gb")]
     pub fn tick(&mut self, mut cycles: u32) {
         while cycles > 0 {
-            let to_sample = if self.sample_rate == 0 {
-                u32::MAX
-            } else {
-                (CLOCK_HZ - self.sample_phase).div_ceil(self.sample_rate)
-            };
-            let step = cycles.min(self.sequencer_timer).min(to_sample);
+            let step = cycles.min(self.sequencer_timer).min(self.to_sample);
             self.advance_channels(step);
             cycles -= step;
 
@@ -346,14 +372,23 @@ impl Apu {
             }
             if self.sample_rate != 0 {
                 self.sample_phase += step * self.sample_rate;
-                if self.sample_phase >= CLOCK_HZ {
+                self.to_sample -= step;
+                if self.to_sample == 0 {
                     self.sample_phase -= CLOCK_HZ;
+                    self.to_sample = self.cycles_to_sample();
                     self.push_sample();
                 }
             }
         }
     }
 
+    /// `(CLOCK_HZ - sample_phase).div_ceil(sample_rate)`, for `sample_phase < sample_rate`.
+    #[inline(always)]
+    fn cycles_to_sample(&self) -> u32 {
+        self.cycles_per_sample + (self.sample_phase < self.sample_remainder) as u32
+    }
+
+    #[inline(always)]
     fn advance_channels(&mut self, cycles: u32) {
         // Only heard through the samples: without them, the waveforms needn't move
         if self.sample_rate == 0 || !self.power {
@@ -418,35 +453,17 @@ impl Apu {
         }
     }
 
+    #[inline(always)]
     fn push_sample(&mut self) {
-        let nr50 = self.regs[0x14];
-        let nr51 = self.regs[0x15];
-        let outputs = [
-            (self.ch1.envelope.dac_on(), self.ch1.output()),
-            (self.ch2.envelope.dac_on(), self.ch2.output()),
-            (self.ch3.dac, self.ch3.output()),
-            (self.ch4.envelope.dac_on(), self.ch4.output()),
-        ];
-        let (mut left, mut right) = (0i32, 0i32);
-        if self.power {
-            for (channel, &(dac, output)) in outputs.iter().enumerate() {
-                if !dac {
-                    continue;
-                }
-                // The DAC maps 0..15 to an analog level around 0
-                let level = 2 * output as i32 - 15;
-                if nr51 & (0x10 << channel) != 0 {
-                    left += level;
-                }
-                if nr51 & (1 << channel) != 0 {
-                    right += level;
-                }
-            }
-        }
-        left *= (nr50 >> 4 & 7) as i32 + 1;
-        right *= (nr50 & 7) as i32 + 1;
+        // The DACs map 0..15 to an analog level around 0
+        let level = |output: u8| 2 * output as i32 - 15;
+        let [w1, w2, w3, w4] = self.weights;
+        let sum = w1 * level(self.ch1.output())
+            + w2 * level(self.ch2.output())
+            + w3 * level(self.ch3.output())
+            + w4 * level(self.ch4.output());
         // At most 4 channels x 15 x 8 on each side
-        let input = (left + right) as f32 / 960.0;
+        let input = sum as f32 * (1.0 / 960.0);
         let output = input - self.capacitor;
         self.capacitor = input - output * self.charge;
         if self.samples.len() >= MAX_BUFFERED {
@@ -475,6 +492,31 @@ impl Apu {
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
+        self.write_register(addr, value);
+        self.update_weights();
+    }
+
+    /// The channels' factors in the mix, from NR50, NR51 and whether their DACs are on.
+    fn update_weights(&mut self) {
+        let nr50 = self.regs[0x14] as i32;
+        let nr51 = self.regs[0x15];
+        let (left, right) = ((nr50 >> 4 & 7) + 1, (nr50 & 7) + 1);
+        let dacs = [
+            self.ch1.envelope.dac_on(),
+            self.ch2.envelope.dac_on(),
+            self.ch3.dac,
+            self.ch4.envelope.dac_on(),
+        ];
+        for (channel, dac) in dacs.into_iter().enumerate() {
+            self.weights[channel] = if self.power && dac {
+                (nr51 >> (4 + channel) & 1) as i32 * left + (nr51 >> channel & 1) as i32 * right
+            } else {
+                0
+            };
+        }
+    }
+
+    fn write_register(&mut self, addr: u16, value: u8) {
         if let 0xff30..=0xff3f = addr {
             self.wave_ram[(addr - 0xff30) as usize] = value;
             return;

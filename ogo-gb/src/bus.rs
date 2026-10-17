@@ -9,6 +9,11 @@ use crate::ppu::Ppu;
 use crate::timer::Timer;
 use crate::{Buttons, INT_JOYPAD, INT_SERIAL, INT_TIMER};
 
+/// The sound catches up in batches of this many cycles (and when its registers are accessed, or
+/// its samples taken): it raises no interrupts, so it may run behind. The batches are also events,
+/// so that it does catch up while nothing else happens (LCD and timer off).
+const SOUND_BATCH_CYCLES: u32 = 4096;
+
 /// Bits of the I/O registers 0xFF00-0xFF7F that read as 1 on the DMG: unused bits, write-only
 /// registers and addresses without a register. The registers with their own model (timer, IF,
 /// LCD) apply theirs themselves.
@@ -29,7 +34,7 @@ pub(crate) struct Bus {
     /// Cycles the timer, the LCD and the cartridge clock are behind the CPU. They catch up in
     /// `sync`: when `next_event` is reached, or before the CPU accesses their registers.
     pending: u32,
-    /// Cycles from the last sync until the next interrupt or LCD mode change can happen.
+    /// Cycles from the last sync until the next interrupt, LCD mode change or sound batch.
     next_event: u32,
     pub ie: u8,
     pub iflag: u8,
@@ -46,6 +51,8 @@ pub(crate) struct Bus {
     buttons: Buttons,
     /// Bytes sent over the serial port, collected when enabled (test ROMs report there).
     pub serial_log: Option<Vec<u8>>,
+    /// Cycles the sound is behind the last sync, see `SOUND_BATCH_CYCLES`.
+    sound_pending: u32,
 }
 
 impl Bus {
@@ -63,6 +70,7 @@ impl Bus {
             joypad_select: 0x30,
             buttons: Buttons::default(),
             serial_log: None,
+            sound_pending: 0,
             pending: 0,
             next_event: 0,
         }
@@ -85,6 +93,9 @@ impl Bus {
     fn read_slow(&mut self, addr: u16) -> u8 {
         if self.needs_sync(addr) {
             self.sync();
+            if is_sound(addr) {
+                self.catch_up_sound();
+            }
         }
         self.peek(addr)
     }
@@ -118,6 +129,9 @@ impl Bus {
         let synced = self.needs_sync(addr);
         if synced {
             self.sync();
+            if is_sound(addr) {
+                self.catch_up_sound();
+            }
         }
         match addr >> 12 {
             0x0..=0x7 => self.cart.write_rom(addr, value),
@@ -241,8 +255,18 @@ impl Bus {
         }
         self.iflag |= self.ppu.tick(cycles);
         self.cart.tick(cycles);
-        self.apu.tick(cycles);
+        self.sound_pending += cycles;
+        if self.sound_pending >= SOUND_BATCH_CYCLES {
+            self.catch_up_sound();
+        }
         self.next_event = self.cycles_to_event();
+    }
+
+    /// Brings the sound up to date with the last sync.
+    #[inline(always)]
+    pub fn catch_up_sound(&mut self) {
+        self.apu.tick(self.sound_pending);
+        self.sound_pending = 0;
     }
 
     /// Cycles from the last sync until the next event.
@@ -251,7 +275,7 @@ impl Bus {
         self.timer
             .cycles_to_overflow()
             .min(self.ppu.cycles_to_mode_change())
-            .min(self.apu.cycles_to_event())
+            .min(SOUND_BATCH_CYCLES - self.sound_pending)
     }
 
     fn read_joypad(&self) -> u8 {
@@ -295,4 +319,10 @@ impl Bus {
             self.ppu.oam[i as usize] = self.peek(source + i);
         }
     }
+}
+
+/// Whether `addr` is one of the sound's registers or its wave RAM.
+#[inline(always)]
+fn is_sound(addr: u16) -> bool {
+    (0xff10..=0xff3f).contains(&addr)
 }

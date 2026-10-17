@@ -87,11 +87,13 @@ impl GameBoy {
     /// Makes sound samples at `rate` per second, from now on; 0 (the default) makes none. Mono,
     /// signed 16-bit; take them with `take_samples`.
     pub fn set_sample_rate(&mut self, rate: u32) {
+        self.bus.catch_up_sound();
         self.bus.apu.set_sample_rate(rate);
     }
 
     /// Moves the sound samples made so far to the end of `out`.
     pub fn take_samples(&mut self, out: &mut Vec<i16>) {
+        self.bus.catch_up_sound();
         out.append(&mut self.bus.apu.samples);
     }
 
