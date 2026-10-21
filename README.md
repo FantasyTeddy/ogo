@@ -78,6 +78,12 @@ the same channels, so there's no switching off only the music). The pause menu a
 1.5x with the in-between pixels blended). Games with a battery-backed save keep it in
 `/ogo/saves/gb/`, saved when the pause menu opens and a few seconds after the game changed it.
 
+**Bluetooth** lists the Bluetooth LE devices nearby: phones, headphones, watches, trackers. Each row
+shows the name, or for the many devices that send none, what they are from what they send (e.g.
+"Apple: AirPlay", "Apple: Find My", "Google"), the maker when the device says, and the signal
+strength. The list keeps its order, new devices at the end; **SELECT** sorts it by signal once.
+Devices not heard for 15 seconds are dimmed, and after a minute they're gone.
+
 ## Web page
 
 Press **SELECT** in the app list. The device shows what to do, step by step:

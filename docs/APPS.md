@@ -28,6 +28,8 @@ name = "Pong"                     # shown in the launcher's list
 kind = "game"                     # "game" or "tool": the section of the list it's shown in
 # Optional: folders on the SD card the app reads files from, which the web page can fill
 # folders = [{ label = "Levels", path = "pong/levels", extensions = ["txt"] }]
+# Optional: Bluetooth (BLE), see Limits
+# bluetooth = true
 
 [[bin]]
 name = "pong"
@@ -254,6 +256,11 @@ release, as `.ogo` packages.
 - **No code from the SD card or PSRAM:** everything the app runs must be in its image. Data (levels,
   graphics) can be loaded from the SD card with `std::fs` under `/sd/`.
 - **WiFi** isn't set up for apps.
+- **Bluetooth** (BLE) needs `bluetooth = true` in `[package.metadata.ogo]`: the app is then built
+  with [sdkconfig.bluetooth](../sdkconfig.bluetooth) too, in an ESP-IDF build of its own, and uses
+  NimBLE through the [esp32-nimble](https://crates.io/crates/esp32-nimble) crate, as
+  [apps/ble](../apps/ble/src/main.rs) does. Build it with `cargo xtask pack`; a plain `cargo build`
+  leaves it out.
 
 ## Without the SDK
 

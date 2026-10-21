@@ -82,7 +82,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.espressif
-          key: espressif-${{ runner.os }}-${{ hashFiles('.cargo/config.toml', 'sdkconfig.defaults') }}
+          key: espressif-${{ runner.os }}-${{ hashFiles('.cargo/config.toml', 'sdkconfig.*') }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -96,8 +96,9 @@ jobs:
           cargo fmt --manifest-path ogo-format/Cargo.toml --all --check
           cargo fmt --manifest-path ogo-gb/Cargo.toml --all --check
           cargo fmt --manifest-path xtask/Cargo.toml --all --check
+      # Apps with add-ons to sdkconfig.defaults (e.g. Bluetooth) in their own builds
       - name: Clippy
-        run: cargo clippy --release --workspace -- -D warnings
+        run: cargo xtask clippy
       - name: Build release images (checks each image's kind and commit)
         run: cargo xtask release
       - uses: actions/upload-artifact@v7

@@ -1,0 +1,30 @@
+[package]
+name = "ble"
+version = "0.1.0"
+authors = ["ogo examples"]
+edition.workspace = true
+license.workspace = true
+description = "Lists the Bluetooth LE devices nearby"
+
+# Read by `cargo xtask pack` for app.toml
+[package.metadata.ogo]
+name = "Bluetooth"
+kind = "tool"
+# Built with sdkconfig.bluetooth too, in an ESP-IDF build of its own
+bluetooth = true
+
+[[bin]]
+name = "ble"
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+[dependencies]
+ogo-sdk.workspace = true
+embedded-graphics.workspace = true
+log.workspace = true
+anyhow.workspace = true
+esp32-nimble = "0.13"
+# Not used directly, but build.rs only gets ESP-IDF's linker arguments from a direct dependency.
+esp-idf-svc.workspace = true
+
+[build-dependencies]
+embuild.workspace = true

@@ -4,7 +4,8 @@
 //! - `release`: builds the launcher, the recovery app and all apps into `dist/`, plus a complete
 //!   flash image for installing over USB without building.
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
-//! - `test`: runs the tests on the PC (`ogo-format`).
+//! - `test`: runs the tests on the PC (`ogo-format`, `ogo-gb`).
+//! - `clippy`: runs Clippy on the firmware, apps with add-ons (`sdkconfig.bluetooth`) in their builds.
 //! - `samples <sd-root>`: writes fake apps to an SD card, to test the launcher's app list.
 //! - `icon <app> <image.png>`: converts a PNG into the app's `icon.rgb565`.
 //!
@@ -39,6 +40,24 @@ const LAUNCHER: &str = "ogo-launcher";
 const RECOVERY: &str = "ogo-recovery";
 /// The PC, for host builds; the workspace's default target is the ESP32.
 const HOST_TARGET: &str = "host-tuple";
+/// The ESP-IDF settings every image is built with.
+const SDKCONFIG: &str = "sdkconfig.defaults";
+
+/// Settings added to [`SDKCONFIG`] for apps that need a capability. Each combination of add-ons is
+/// an ESP-IDF build of its own, in a build folder of its own, shared by the apps that need it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Addon {
+    /// The settings file in the project folder.
+    file: &'static str,
+    /// Its part of the build folder's name: short, since esp-idf-sys refuses long paths on Windows.
+    dir: &'static str,
+}
+
+/// `bluetooth = true` in `[package.metadata.ogo]`: BLE with the NimBLE host.
+const BLUETOOTH: Addon = Addon {
+    file: "sdkconfig.bluetooth",
+    dir: "bt",
+};
 
 #[derive(Parser)]
 #[command(about = "Build tasks for ogo")]
@@ -83,6 +102,8 @@ enum Task {
     },
     /// Run the tests on the PC (ogo-format, ogo-gb).
     Test,
+    /// Run Clippy on the firmware, warnings as errors: apps with add-ons in their own builds.
+    Clippy,
     /// Convert a PNG into the app's icon.rgb565 (64x64, transparent parts black).
     Icon {
         /// The app's package name, e.g. snake.
@@ -146,6 +167,7 @@ fn main() -> anyhow::Result<()> {
                 HOST_TARGET,
             ])
         }
+        Task::Clippy => project.clippy(),
         Task::Icon { app, image } => {
             icon::convert(&image, &project.app(&app)?.dir.join("icon.rgb565"))
         }
@@ -167,6 +189,8 @@ struct App {
     version: String,
     author: String,
     folders: Vec<Folder>,
+    /// Settings it's built with on top of [`SDKCONFIG`].
+    addons: Vec<Addon>,
     dir: PathBuf,
 }
 
@@ -203,8 +227,24 @@ impl Project {
 
     /// `cargo <args>` in the project folder, with the commit for `image_desc!`.
     fn cargo(&self, args: &[&str]) -> anyhow::Result<()> {
+        self.cargo_with(args, &[])
+    }
+
+    /// [`Self::cargo`] with ESP-IDF built with `addons` too, in the build folder for them.
+    fn cargo_with(&self, args: &[&str], addons: &[Addon]) -> anyhow::Result<()> {
         let mut command = Command::new(cargo());
         command.args(args).current_dir(&self.root);
+        if !addons.is_empty() {
+            let dirs: Vec<&str> = addons.iter().map(|addon| addon.dir).collect();
+            let files: Vec<String> = [SDKCONFIG]
+                .into_iter()
+                .chain(addons.iter().map(|addon| addon.file))
+                .map(|file| self.root.join(file).to_string_lossy().into_owned())
+                .collect();
+            command
+                .env("CARGO_TARGET_DIR", self.target_dir()?.join(dirs.join("-")))
+                .env("ESP_IDF_SDKCONFIG_DEFAULTS", files.join(";"));
+        }
         match &self.commit {
             Some(commit) => command.env("OGO_COMMIT", commit),
             None => command.env_remove("OGO_COMMIT"),
@@ -214,13 +254,14 @@ impl Project {
         Ok(())
     }
 
-    /// Builds a package into an app image file and returns its bytes. Checks that the image
-    /// describes itself as `kind`, with this commit.
+    /// Builds a package, with ESP-IDF built with `addons`, into an app image file and returns its
+    /// bytes. Checks that the image describes itself as `kind`, with this commit.
     fn build_image(
         &self,
         package: &str,
         kind: ImageKind,
         features: Option<&str>,
+        addons: &[Addon],
         out: &Path,
     ) -> anyhow::Result<Vec<u8>> {
         println!("Building {package}...");
@@ -243,7 +284,7 @@ impl Project {
             args.extend(["--features", features]);
         }
         args.push(&out_arg);
-        self.cargo(&args)?;
+        self.cargo_with(&args, addons)?;
         let image = fs::read(out).with_context(|| format!("can't read {}", out.display()))?;
         ensure!(
             image.first() == Some(&IMAGE_MAGIC),
@@ -287,6 +328,8 @@ impl Project {
             kind: Option<Kind>,
             #[serde(default)]
             folders: Vec<Folder>,
+            #[serde(default)]
+            bluetooth: bool,
         }
 
         let metadata: Metadata = self.metadata()?;
@@ -307,6 +350,7 @@ impl Project {
                 kind,
                 author: package.authors.into_iter().next().unwrap_or_default(),
                 folders: ogo.folders,
+                addons: ogo.bluetooth.then_some(BLUETOOTH).into_iter().collect(),
                 dir: dir.to_owned(),
                 id: package.name,
                 version: package.version,
@@ -336,6 +380,7 @@ impl Project {
             &app.id,
             ImageKind::App,
             None,
+            &app.addons,
             &target_dir
                 .join("ogo-images")
                 .join(format!("{}.bin", app.id)),
@@ -368,18 +413,49 @@ impl Project {
         })
     }
 
+    /// Clippy on the workspace without the apps that need add-ons, then on those, once per
+    /// combination of add-ons.
+    fn clippy(&self) -> anyhow::Result<()> {
+        let apps = self.apps()?;
+        let mut combinations: Vec<&[Addon]> = apps
+            .iter()
+            .map(|app| app.addons.as_slice())
+            .filter(|addons| !addons.is_empty())
+            .collect();
+        combinations.sort();
+        combinations.dedup();
+
+        let mut args = vec!["clippy", "--release", "--workspace"];
+        for app in apps.iter().filter(|app| !app.addons.is_empty()) {
+            args.extend(["--exclude", &app.id]);
+        }
+        args.extend(["--", "-D", "warnings"]);
+        self.cargo(&args)?;
+        for addons in combinations {
+            let mut args = vec!["clippy", "--release"];
+            for app in apps.iter().filter(|app| app.addons == addons) {
+                args.extend(["--package", &app.id]);
+            }
+            args.extend(["--", "-D", "warnings"]);
+            self.cargo_with(&args, addons)?;
+        }
+        Ok(())
+    }
+
     fn release(&self, features: Option<&str>) -> anyhow::Result<()> {
         let dist = self.root.join(DIST_DIR);
         let launcher = self.build_image(
             LAUNCHER,
             ImageKind::Launcher,
             features,
+            &[],
             &dist.join("launcher.bin"),
         )?;
         let recovery = self.build_image(
             RECOVERY,
             ImageKind::Recovery,
             None,
+            &[],
             &dist.join("recovery.bin"),
         )?;
         let full_name = format!("ogo-{}-full.bin", self.version()?);

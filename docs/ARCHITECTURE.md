@@ -197,10 +197,22 @@ The steps are in [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites); this is wh
 2. **[sdkconfig.defaults](../sdkconfig.defaults)** enables 16 MB flash and PSRAM (with
    `CONFIG_SPIRAM_CACHE_WORKAROUND` for this ESP32 revision), the MENU recovery option, app rollback,
    1 kHz ticks and long FAT names. `CONFIG_SPIRAM_MEMTEST=n` saves ~0.9 s per boot.
+
+   **Add-ons.** An app that needs a capability the others don't builds with a settings file added
+   to it: `bluetooth = true` in `[package.metadata.ogo]` adds
+   [sdkconfig.bluetooth](../sdkconfig.bluetooth) (BLE with the NimBLE host). In the shared settings, Bluetooth would cost every image internal
+   RAM: the controller reserves ~45 KB, and releasing it at start gives most of it back, but in
+   pieces, so GB's largest free block would stay 45 KB smaller; it also switches off WiFi's IRAM
+   optimizations. Each combination of add-ons is an ESP-IDF build of its own (~170 MB, a few minutes
+   the first time) in a folder named after them under the build folder (`bt`), shared by the apps
+   that use it. xtask sets `CARGO_TARGET_DIR` and `ESP_IDF_SDKCONFIG_DEFAULTS` for it. These apps
+   don't build without their add-ons (esp32-nimble reads NimBLE's settings), so they aren't in the
+   workspace's `default-members`: a plain `cargo build` leaves them out.
 3. **Build folder (Windows).** esp-idf-sys refuses to build if its output folder is longer than 88
    characters, and enabling long paths doesn't help. That folder lies 67 characters below Cargo's
-   build folder, and Windows adds a 4-character `\\?\` prefix, so the build folder may have at most
-   17 characters. A good one depends on the machine, so the project's
+   build folder, and Windows adds a 4-character `\\?\` prefix, so a build folder may have at most
+   17 characters; with the add-on builds' `\bt` below it, the main one at most 14. A good one
+   depends on the machine, so the project's
    [.cargo/config.toml](../.cargo/config.toml) doesn't set `target-dir`: a clone at a short path uses
    its own `target`, otherwise a `.cargo/config.toml` in a parent folder sets one. Cargo reads config
    files from parent folders too, so that only affects projects below it; a user-wide
@@ -235,6 +247,8 @@ The steps are in [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites); this is wh
      slots, `0xFF` in between, so NVS and otadata end up erased). `espflash write-bin 0x0` installs it
      without the toolchain. `--features` applies to the launcher.
    - `test` runs the unit tests of `ogo-format` on the PC.
+   - `clippy` runs Clippy on the firmware, warnings as errors: the workspace without the apps that
+     need add-ons, then those in their builds.
    - `samples <sd-root> [--force]` writes fake apps (placeholder images, two broken on purpose) to
      an SD card, to test the app list.
    - `icon <app> <image.png>` converts a PNG into the app's `icon.rgb565`.

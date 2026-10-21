@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "apps/snake", "apps/brickfall", "apps/smash", "apps/gb"]
+members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "apps/snake", "apps/brickfall", "apps/smash", "apps/gb", "apps/ble"]
+# What a plain `cargo build` builds: apps with add-ons to sdkconfig.defaults (e.g. `bluetooth = true`)
+# only build with them, through `cargo xtask`
+default-members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "apps/snake", "apps/brickfall", "apps/smash", "apps/gb"]
 # Own workspaces: they also build for the PC (xtask runs there, ogo-format and ogo-gb are tested there)
 exclude = ["xtask", "ogo-format", "ogo-gb"]
 

@@ -1,0 +1,19 @@
+# Added to sdkconfig.defaults for apps with `bluetooth = true` in [package.metadata.ogo]; they get
+# an ESP-IDF build of their own (see docs/ARCHITECTURE.md, "Build and toolchain"). In the shared
+# build, Bluetooth would cost every image internal RAM (the controller's reserved memory, ~45 KB of
+# the largest block even when released) and switch off WiFi's IRAM optimizations.
+
+# BLE only, with the NimBLE host (smaller than Bluedroid; what esp32-nimble wraps)
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=n
+CONFIG_BTDM_CTRL_MODE_BTDM=n
+
+# The host's buffers in PSRAM; internal RAM is scarce
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+
+# NimBLE logs every scan it starts at INFO; only warnings and errors
+CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y
+CONFIG_BT_NIMBLE_LOG_LEVEL_INFO=n

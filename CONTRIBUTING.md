@@ -29,8 +29,9 @@ minutes; later builds are fast. The reasons behind these requirements are in
 
 ### Build folder
 
-On Windows, Cargo's build folder may have **at most 17 characters**, because esp-idf-sys refuses
-longer paths (`Too long output directory: …`).
+On Windows, Cargo's build folder may have **at most 14 characters**, because esp-idf-sys refuses
+longer paths (`Too long output directory: …`); apps with Bluetooth build in `<build folder>\bt`,
+which then has 17.
 
 - **Cloned to a short path**, e.g. `C:\ogo`: the default build folder `C:\ogo\target` fits; nothing
   to do.
@@ -54,6 +55,7 @@ cargo xtask flash --port COM7          # afterwards: launcher only
 cargo xtask flash --monitor            # launcher, then show the serial log
 cargo xtask release                    # everything a release contains, in dist\
 cargo xtask test                       # unit tests, on the PC
+cargo xtask clippy                     # Clippy on the firmware, as CI runs it
 ```
 
 `flash` uses this project's own bootloader (it starts recovery when MENU is held) and the partition
@@ -63,8 +65,11 @@ doesn't flash anything). Every image built by `cargo xtask` carries the git comm
 settings screen, the web page and in recovery.
 
 `release` writes `ogo-<version>-full.bin` (the complete flash image users install), `launcher.bin`,
-`recovery.bin` and every app's `.ogo` package. A plain `cargo build --release` also works; its
-firmware ends up in `<build folder>\xtensa-esp32-espidf\release\`, without a commit.
+`recovery.bin` and every app's `.ogo` package. A plain `cargo build --release` also works, for
+everything but the apps with Bluetooth, which need `cargo xtask` (see
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#build-and-toolchain)); its firmware ends up in
+`<build folder>\xtensa-esp32-espidf\release\`, without a commit. The first build of an app with
+Bluetooth builds ESP-IDF once more, with Bluetooth, which takes a few minutes.
 
 ## Apps
 
@@ -81,7 +86,7 @@ Writing an app is described in [docs/APPS.md](docs/APPS.md).
 
 **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
 the `ogo-format` and `ogo-gb` tests and Clippy on them and xtask with stable Rust, then, on Linux with the
-pinned Xtensa toolchain, the format check, Clippy on the firmware and `cargo xtask release`, whose
+pinned Xtensa toolchain, the format check, `cargo xtask clippy` and `cargo xtask release`, whose
 files are kept as an artifact of the run. Formatting differences and Clippy warnings fail the build. The
 pinned toolchain's Clippy is older than stable's, so for the PC crates lint them with stable, as CI
 does:
@@ -157,6 +162,7 @@ the workspace version fails before anything is published.
 | [apps/brickfall/](apps/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
 | [apps/smash/](apps/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
 | [apps/gb/](apps/gb/) | GB, plays Game Boy ROMs from the SD card with `ogo-gb` |
+| [apps/ble/](apps/ble/) | Bluetooth, lists the BLE devices nearby (built with [sdkconfig.bluetooth](sdkconfig.bluetooth)) |
 | [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples / icon`), run on the PC |
 | [docs/](docs/) | Architecture, contracts, app guide, hardware notes |
 | [.github/workflows/ci.yml](.github/workflows/ci.yml) | CI and releases |
@@ -164,4 +170,5 @@ the workspace version fails before anything is published.
 | [rust-toolchain.toml](rust-toolchain.toml) | The pinned Xtensa toolchain |
 | [.cargo/config.toml](.cargo/config.toml) | Target, linker, ESP-IDF version, Python version for the build, the xtask alias |
 | [sdkconfig.defaults](sdkconfig.defaults) | ESP-IDF settings: flash, PSRAM, bootloader (MENU for recovery, rollback), scheduler, FAT |
+| [sdkconfig.bluetooth](sdkconfig.bluetooth) | Added for apps with `bluetooth = true`: BLE with the NimBLE host |
 | [tools/make_logo.py](tools/make_logo.py) | Draws the boot logo (mascot and wordmark) |
