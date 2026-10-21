@@ -2,11 +2,13 @@
 //! strength.
 //!
 //! The list keeps its order, new devices at the end, so rows don't move while the signal varies;
-//! SELECT sorts it by signal strength once.
+//! SELECT sorts it by signal strength once. A shows a device in detail ([`detail`]).
 
 mod advert;
 mod companies;
+mod detail;
 mod scanner;
+mod uuids;
 
 use std::{
     cmp::Reverse,
@@ -47,6 +49,17 @@ struct Ble {
     /// The topmost visible row.
     first: usize,
     refreshed_at: Option<Instant>,
+    /// The device shown in detail, if one is.
+    detail: Option<Detail>,
+}
+
+struct Detail {
+    /// As of the last refresh; kept when the device is gone.
+    device: Device,
+    gone: bool,
+    /// Beeping faster the stronger the signal, to find the device.
+    beeping: bool,
+    next_beep: Instant,
 }
 
 impl App for Ble {
@@ -63,6 +76,7 @@ impl App for Ble {
             selected: None,
             first: 0,
             refreshed_at: None,
+            detail: None,
         }
     }
 
@@ -72,6 +86,12 @@ impl App for Ble {
             .is_none_or(|at| at.elapsed() >= REFRESH_EVERY)
         {
             self.refresh();
+        }
+        if let Some(detail) = &mut self.detail {
+            if !update_detail(detail, &self.devices, ctx) {
+                self.detail = None;
+            }
+            return;
         }
         if self.devices.is_empty() {
             self.selected = None;
@@ -89,6 +109,13 @@ impl App for Ble {
             index = index.saturating_sub(VISIBLE_ROWS);
         } else if input.pressed(Button::Right) {
             index = (index + VISIBLE_ROWS).min(len - 1);
+        } else if input.pressed(Button::A) {
+            self.detail = Some(Detail {
+                device: self.devices[index].clone(),
+                gone: false,
+                beeping: false,
+                next_beep: Instant::now(),
+            });
         } else if input.pressed(Button::Select) {
             // Strongest first; the selection stays on its device, wherever that is now
             self.devices.sort_by(|a, b| b.signal.total_cmp(&a.signal));
@@ -105,6 +132,9 @@ impl App for Ble {
     }
 
     fn draw(&self, fb: &mut Framebuffer) {
+        if let Some(detail) = &self.detail {
+            return detail::draw(fb, &detail.device, detail.beeping, detail.gone);
+        }
         fb.clear(ui::BACKGROUND).ok();
         let width = SCREEN_WIDTH as i32;
         let height = SCREEN_HEIGHT as i32;
@@ -142,7 +172,7 @@ impl App for Ble {
         );
         ui::text(
             fb,
-            "SELECT sort by signal",
+            "A details   SELECT sort by signal",
             Point::new(width / 2, height - FOOTER_HEIGHT / 2),
             &FONT_6X10,
             ui::DIM,
@@ -209,10 +239,9 @@ impl Ble {
 fn draw_row(fb: &mut Framebuffer, device: &Device, y: i32, selected: bool) {
     let stale = device.last_seen.elapsed() >= DIM_AFTER;
     let color = |normal| if selected { ui::TEXT } else { normal };
-    let (label, label_color) = match (&device.name, device.description) {
-        (Some(name), _) => (name.as_str(), if stale { ui::DIM } else { ui::TEXT }),
-        (None, Some(description)) => (description, if stale { ui::DIM } else { ui::TEXT }),
-        (None, None) => (device.address.as_str(), ui::DIM),
+    let (label, label_color) = match device.label() {
+        Some(label) => (label, if stale { ui::DIM } else { ui::TEXT }),
+        None => (device.address.clone(), ui::DIM),
     };
     let label: String = label.chars().take(NAME_CHARS).collect();
     ui::text(
@@ -224,7 +253,7 @@ fn draw_row(fb: &mut Framebuffer, device: &Device, y: i32, selected: bool) {
         Alignment::Left,
     );
 
-    if let Some(id) = device.company {
+    if let Some(id) = device.company() {
         let maker = companies::name(id).map_or_else(|| format!("{id:04X}"), str::to_owned);
         let maker: String = maker.chars().take(MAKER_CHARS).collect();
         ui::text(
@@ -269,6 +298,34 @@ fn draw_row(fb: &mut Framebuffer, device: &Device, y: i32, selected: bool) {
         color(ui::DIM),
         Alignment::Right,
     );
+}
+
+/// The detail screen's frame: the device's latest values, A switches beeping, B goes back.
+/// Returns whether it stays open.
+fn update_detail(detail: &mut Detail, devices: &[Device], ctx: &mut Ctx) -> bool {
+    match devices.iter().find(|d| d.address == detail.device.address) {
+        Some(device) => {
+            detail.device = device.clone();
+            detail.gone = false;
+        }
+        None => detail.gone = true,
+    }
+    let input = ctx.input();
+    if input.pressed(Button::B) {
+        return false;
+    }
+    if input.pressed(Button::A) {
+        detail.beeping = !detail.beeping;
+        detail.next_beep = Instant::now();
+    }
+    // Only while it's heard: an old signal would point the wrong way
+    let heard = detail.device.last_seen.elapsed() < Duration::from_secs(2);
+    if detail.beeping && heard && !detail.gone && Instant::now() >= detail.next_beep {
+        let rssi = detail.device.rssi();
+        ctx.sound().play(&[detail::beep(rssi)]);
+        detail.next_beep = Instant::now() + detail::beep_interval(rssi);
+    }
+    true
 }
 
 /// A line in the middle of the list area.
