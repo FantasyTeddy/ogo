@@ -1,7 +1,7 @@
 //! The description every ogo firmware image carries (docs/CONTRACTS.md, "Image description").
 //!
 //! It sits right after ESP-IDF's `esp_app_desc_t`, at [`OFFSET_IN_IMAGE`], and says what the image
-//! is (`ogo-launcher`, `ogo-recovery`, `ogo-game`), its crate version and the git commit it was
+//! is (`ogo-launcher`, `ogo-recovery`, `ogo-app`), its crate version and the git commit it was
 //! built from. Apps declare it with `ogo_board::image_desc!`.
 
 pub const MAGIC: [u8; 4] = *b"OGO2";
@@ -15,7 +15,7 @@ pub const SIZE: usize = core::mem::size_of::<ImageDesc>();
 pub enum ImageKind {
     Launcher,
     Recovery,
-    Game,
+    App,
 }
 
 impl ImageKind {
@@ -24,12 +24,12 @@ impl ImageKind {
         match self {
             ImageKind::Launcher => "ogo-launcher",
             ImageKind::Recovery => "ogo-recovery",
-            ImageKind::Game => "ogo-game",
+            ImageKind::App => "ogo-app",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        [ImageKind::Launcher, ImageKind::Recovery, ImageKind::Game]
+        [ImageKind::Launcher, ImageKind::Recovery, ImageKind::App]
             .into_iter()
             .find(|kind| kind.name() == name)
     }
@@ -148,10 +148,10 @@ mod tests {
     #[test]
     fn found_in_an_image() {
         let mut image = vec![0xE9; OFFSET_IN_IMAGE];
-        image.extend(bytes(&ImageDesc::new(ImageKind::Game, "1.0.0", "")));
+        image.extend(bytes(&ImageDesc::new(ImageKind::App, "1.0.0", "")));
         image.extend([0; 100]);
         let desc = ImageDesc::in_image(&image).unwrap();
-        assert_eq!(desc.kind(), Some(ImageKind::Game));
+        assert_eq!(desc.kind(), Some(ImageKind::App));
         assert_eq!(desc.commit(), None);
     }
 
@@ -161,7 +161,7 @@ mod tests {
         old[..4].copy_from_slice(b"OGO1");
         assert_eq!(ImageDesc::from_bytes(&old), None);
         assert_eq!(
-            ImageDesc::from_bytes(&bytes(&ImageDesc::new(ImageKind::Game, "b", "c"))[..79]),
+            ImageDesc::from_bytes(&bytes(&ImageDesc::new(ImageKind::App, "b", "c"))[..79]),
             None
         );
         assert_eq!(ImageDesc::in_image(&[0; 300]), None);
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn kind_names() {
-        for kind in [ImageKind::Launcher, ImageKind::Recovery, ImageKind::Game] {
+        for kind in [ImageKind::Launcher, ImageKind::Recovery, ImageKind::App] {
             assert_eq!(ImageKind::from_name(kind.name()), Some(kind));
         }
         assert_eq!(ImageKind::from_name("ogo-emulator"), None);
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn long_strings_are_cut() {
-        let desc = ImageDesc::new(ImageKind::Game, "1.0.0", "0123456789abcdef0123");
+        let desc = ImageDesc::new(ImageKind::App, "1.0.0", "0123456789abcdef0123");
         assert_eq!(desc.commit(), Some("0123456789abcde"));
     }
 }

@@ -8,15 +8,15 @@ device. The drivers are in [ogo-board](../ogo-board/src/).
 | Item | ODROID-GO | Consequence |
 |---|---|---|
 | SoC | ESP32 (dual Xtensa LX6, 240 MHz), revision v1.0 | Needs the Xtensa Rust toolchain from esp-rs (`espup`), and `CONFIG_SPIRAM_CACHE_WORKAROUND` |
-| Flash | 16 MB | Room for recovery, two launcher slots and one game slot (see [CONTRACTS.md](CONTRACTS.md#partition-table)) |
-| PSRAM | 4 MB | **Data only.** The ESP32 can't run code from PSRAM or the SD card, so games run from flash |
+| Flash | 16 MB | Room for recovery, two launcher slots and one app slot (see [CONTRACTS.md](CONTRACTS.md#partition-table)) |
+| PSRAM | 4 MB | **Data only.** The ESP32 can't run code from PSRAM or the SD card, so apps run from flash |
 | Display | 2.4" ILI9341, 320×240, SPI | `mipidsi` + `embedded-graphics` |
 | SD card | microSD, **on the same SPI bus as the LCD** | One SPI driver with two devices (separate chip selects) |
 | Input | D-pad (two analog axes), A, B, SELECT, START, MENU, VOL | MENU is the recovery button at power-on. VOL is on GPIO0, a strapping pin: holding it at reset enters serial download mode |
 | Audio | Speaker on DAC GPIO26 through an amplifier, enabled by GPIO25 | 8-bit samples through the DAC; the amplifier needs time to wake up |
 | Battery | Li-Po, voltage through a 1:2 divider on an ADC pin | Rough percentage only; no charge-status signal |
 
-Every ESP32 app slot is mapped through the MMU to the same virtual addresses. **So one game image
+Every ESP32 app slot is mapped through the MMU to the same virtual addresses. **So one app image
 runs from any app slot without being rebuilt.** That is what makes "copy from the SD card, then
 boot" work.
 
@@ -85,7 +85,7 @@ all are in [pins.rs](../ogo-board/src/pins.rs).
 - The amplifier hisses faintly while on, so the audio thread switches it off after 3 s of silence.
   It needs tens of milliseconds to wake up, so a sound that finds it off starts after 150 ms of idle
   level.
-- Writing flash stalls the audio DMA, which clicks. Code that writes flash (installing a game,
+- Writing flash stalls the audio DMA, which clicks. Code that writes flash (installing an app,
   saving settings) mutes the amplifier around the write.
 
 **LED**

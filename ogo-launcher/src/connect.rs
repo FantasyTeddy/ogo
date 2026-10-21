@@ -30,7 +30,7 @@ pub struct Session {
     state: Arc<WebState>,
     events: Receiver<WebEvent>,
     view: ConnectView,
-    /// The web page added or deleted games; rescan when leaving.
+    /// The web page added or deleted apps; rescan when leaving.
     library_changed: bool,
 }
 
@@ -150,7 +150,7 @@ impl Launcher {
         Ok(())
     }
 
-    /// Stops the web server and WiFi, and goes back to the game list.
+    /// Stops the web server and WiFi, and goes back to the app list.
     pub(crate) fn close_connect(&mut self) -> anyhow::Result<()> {
         let changed = self.end_session();
         self.draw_top_bar()?;
@@ -164,7 +164,7 @@ impl Launcher {
 
     /// Returns whether the library changed during the session.
     fn end_session(&mut self) -> bool {
-        let changed = match std::mem::replace(&mut self.screen, Screen::Games) {
+        let changed = match std::mem::replace(&mut self.screen, Screen::Apps) {
             Screen::Wifi(session) => session.library_changed,
             other => {
                 self.screen = other;

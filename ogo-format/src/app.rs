@@ -1,46 +1,67 @@
-//! A game's `game.toml`, its icon, and the folders on the SD card it reads files from.
+//! An app's `app.toml`, its icon, and the folders on the SD card it reads files from.
 
 use serde::{Deserialize, Serialize};
 
-/// The version of the contract between launcher and games (boot contract, partition table, NVS
-/// keys games rely on). The launcher only starts games with this `sdk_version`; packages get the
-/// version of the SDK they were built with. Bump it when a change breaks games built earlier.
-pub const SDK_VERSION: u32 = 1;
+/// The version of the contract between launcher and apps (boot contract, partition table, NVS
+/// keys apps rely on). The launcher only starts apps with this `sdk_version`; packages get the
+/// version of the SDK they were built with. Bump it when a change breaks apps built earlier.
+pub const SDK_VERSION: u32 = 2;
 
 /// Width and height of `icon.rgb565`.
 pub const ICON_SIZE: u32 = 64;
 /// `icon.rgb565`: 64x64 pixels, RGB565 little-endian, row by row.
 pub const ICON_BYTES: usize = (ICON_SIZE * ICON_SIZE * 2) as usize;
 
-/// Contents of `game.toml`.
+/// Contents of `app.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub id: String,
     pub name: String,
+    pub kind: Kind,
     pub version: String,
     #[serde(default)]
     pub author: String,
     pub sdk_version: u32,
-    /// SHA-256 of `game.bin`, hex.
+    /// SHA-256 of `app.bin`, hex.
     pub sha256: String,
-    /// Folders on the SD card the game reads files from, which the web page lets the user fill.
+    /// Folders on the SD card the app reads files from, which the web page lets the user fill.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folders: Vec<Folder>,
 }
 
-/// A folder on the SD card a game reads files from, e.g. ROMs for an emulator.
+/// What an app is, for grouping it in the launcher and on the web page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// Something to play, e.g. Snake, or an emulator.
+    Game,
+    /// Anything else, e.g. a scanner or a utility.
+    Tool,
+}
+
+impl Kind {
+    /// The heading of a group of them, e.g. "Games".
+    pub const fn plural(self) -> &'static str {
+        match self {
+            Kind::Game => "Games",
+            Kind::Tool => "Tools",
+        }
+    }
+}
+
+/// A folder on the SD card an app reads files from, e.g. ROMs for an emulator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Folder {
     /// What the files are, for the web page, e.g. "ROMs".
     pub label: String,
     /// Relative to the SD card root, e.g. "roms/gb"; see [`is_valid_folder_path`].
     pub path: String,
-    /// The file extensions the game reads, without the dot, e.g. ["gb"]; matched ignoring case.
+    /// The file extensions the app reads, without the dot, e.g. ["gb"]; matched ignoring case.
     pub extensions: Vec<String>,
 }
 
 impl Folder {
-    /// Whether `name` is a file the game reads from this folder: a valid file name with one of
+    /// Whether `name` is a file the app reads from this folder: a valid file name with one of
     /// the extensions.
     pub fn accepts(&self, name: &str) -> bool {
         is_valid_file_name(name)
@@ -73,7 +94,7 @@ impl Folder {
     }
 }
 
-/// Folder paths in `game.toml`: relative to the SD card root, parts of lowercase letters, digits,
+/// Folder paths in `app.toml`: relative to the SD card root, parts of lowercase letters, digits,
 /// `-` and `_` separated by `/`, and not under `ogo/`, which belongs to the launcher.
 pub fn is_valid_folder_path(path: &str) -> bool {
     let valid_part = |part: &str| {
@@ -85,7 +106,7 @@ pub fn is_valid_folder_path(path: &str) -> bool {
     path.split('/').all(valid_part) && path.split('/').next() != Some("ogo")
 }
 
-/// Names of files uploaded into a game's folder: at most 255 bytes, not starting with a dot, no
+/// Names of files uploaded into an app's folder: at most 255 bytes, not starting with a dot, no
 /// path separators or other characters FAT doesn't allow, and not ending in a dot or space (FAT
 /// would drop them).
 pub fn is_valid_file_name(name: &str) -> bool {
@@ -100,9 +121,9 @@ pub fn is_valid_file_name(name: &str) -> bool {
 }
 
 impl Manifest {
-    /// Parses `game.toml`; the error is a message for the user.
+    /// Parses `app.toml`; the error is a message for the user.
     pub fn parse(text: &str) -> Result<Self, String> {
-        toml::from_str(text).map_err(|e| format!("game.toml: {}", e.message()))
+        toml::from_str(text).map_err(|e| format!("app.toml: {}", e.message()))
     }
 
     pub fn to_toml(&self) -> String {
@@ -131,7 +152,7 @@ impl Manifest {
     }
 }
 
-/// Game ids: lowercase letters, digits and `-`. They are also folder names.
+/// App ids: lowercase letters, digits and `-`. They are also folder names.
 pub fn is_valid_id(id: &str) -> bool {
     !id.is_empty()
         && id
@@ -177,6 +198,7 @@ mod tests {
         Manifest {
             id: "snake".into(),
             name: "Snake \"classic\"".into(),
+            kind: Kind::Game,
             version: "1.0.0".into(),
             author: String::new(),
             sdk_version: 1,
@@ -208,7 +230,7 @@ mod tests {
         let text = with_folders.to_toml();
         assert!(text.contains("[[folders]]"), "{text}");
         assert_eq!(Manifest::parse(&text), Ok(with_folders));
-        // Without folders, game.toml looks as before
+        // Without folders, app.toml looks as before
         assert!(!manifest().to_toml().contains("folders"));
     }
 
@@ -233,7 +255,7 @@ mod tests {
         assert!(check(|f| f.extensions = vec![".gb".into()])
             .unwrap_err()
             .contains("extensions"));
-        assert!(check(|f| f.path = "ogo/games".into())
+        assert!(check(|f| f.path = "ogo/apps".into())
             .unwrap_err()
             .contains("folder path"));
     }
@@ -242,7 +264,7 @@ mod tests {
     fn folder_paths() {
         assert!(is_valid_folder_path("roms"));
         assert!(is_valid_folder_path("roms/gb"));
-        assert!(is_valid_folder_path("my_game/levels-2"));
+        assert!(is_valid_folder_path("my_app/levels-2"));
         assert!(is_valid_folder_path("ogo-roms"));
         assert!(!is_valid_folder_path(""));
         assert!(!is_valid_folder_path("/roms"));
@@ -285,14 +307,28 @@ mod tests {
 
     #[test]
     fn author_is_optional() {
-        let text = "id = \"a\"\nname = \"A\"\nversion = \"1\"\nsdk_version = 1\nsha256 = \"x\"\n";
+        let text =
+            "id = \"a\"\nname = \"A\"\nkind = \"game\"\nversion = \"1\"\nsdk_version = 1\nsha256 = \"x\"\n";
         assert_eq!(Manifest::parse(text).unwrap().author, "");
+    }
+
+    #[test]
+    fn kind_is_required_and_lowercase() {
+        let parse = |kind: &str| {
+            Manifest::parse(&format!(
+                "id = \"a\"\nname = \"A\"\n{kind}version = \"1\"\nsdk_version = 1\nsha256 = \"x\"\n"
+            ))
+        };
+        assert_eq!(parse("kind = \"tool\"\n").unwrap().kind, Kind::Tool);
+        assert!(manifest().to_toml().contains("kind = \"game\""));
+        assert!(parse("").unwrap_err().contains("kind"));
+        assert!(parse("kind = \"Game\"\n").unwrap_err().contains("Game"));
     }
 
     #[test]
     fn parse_errors_name_the_file() {
         let error = Manifest::parse("id = \"a\"\nname = \"Missing quote\n").unwrap_err();
-        assert!(error.starts_with("game.toml: "), "{error}");
+        assert!(error.starts_with("app.toml: "), "{error}");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "games/snake", "games/brickfall", "games/smash", "games/gb"]
+members = ["ogo-board", "ogo-sdk", "ogo-launcher", "ogo-recovery", "apps/snake", "apps/brickfall", "apps/smash", "apps/gb"]
 # Own workspaces: they also build for the PC (xtask runs there, ogo-format and ogo-gb are tested there)
 exclude = ["xtask", "ogo-format", "ogo-gb"]
 

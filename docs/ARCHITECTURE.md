@@ -1,46 +1,46 @@
 # Architecture
 
 How ogo is built and why. For the exact formats and rules between the parts see
-[CONTRACTS.md](CONTRACTS.md); for the board see [HARDWARE.md](HARDWARE.md); for writing games see
-[GAMES.md](GAMES.md).
+[CONTRACTS.md](CONTRACTS.md); for the board see [HARDWARE.md](HARDWARE.md); for writing apps see
+[APPS.md](APPS.md).
 
 ## Goals and decisions
 
-ogo is a launcher for the ODROID-GO. It installs native Rust games from the SD card into a flash
-slot and boots them. Games and the launcher itself are managed from a web page served by the device.
+ogo is a launcher for the ODROID-GO. It installs native Rust apps from the SD card into a flash
+slot and boots them. Apps and the launcher itself are managed from a web page served by the device.
 
 | Topic | Decision |
 |---|---|
-| Language | Rust, for the launcher and the games |
+| Language | Rust, for the launcher and the apps |
 | Framework | `esp-idf-svc` (Rust `std` on ESP-IDF v5.5) for WiFi, HTTP, OTA, partitions and the SD card |
-| Game format | Native firmware images, stored on the SD card and copied into a flash slot to run (the ESP32 can't run code from PSRAM or the SD card) |
-| Game updates | Each game is installed and updated on its own; replacing it on the SD card is enough |
-| Transfer | A web page on the device (games and the files they read, launcher update); no PC tool needed |
+| App format | Native firmware images, stored on the SD card and copied into a flash slot to run (the ESP32 can't run code from PSRAM or the SD card) |
+| App updates | Each app is installed and updated on its own; replacing it on the SD card is enough |
+| Transfer | A web page on the device (apps and the files they read, launcher update); no PC tool needed |
 | Launcher updates | A/B slots with rollback, uploaded through the same page |
 | Safety | A recovery app in the factory slot, entered with MENU at power-on |
 
-**Out of scope:** games in other languages, interpreted or WASM games, pulling updates from the
+**Out of scope:** apps in other languages, interpreted or WASM apps, pulling updates from the
 internet.
 
 ## Overview
 
 ```
  ┌───────────────────────────── PC (browser) ─────────────────────────────┐
- │  http://<device-ip>/   upload .ogo game · delete · upload launcher.bin │
+ │  http://<device-ip>/   upload .ogo app · delete · upload launcher.bin  │
  └──────────────────────────────────┬─────────────────────────────────────┘
                                     │ WiFi (HTTP), only while the WiFi screen is open
  ┌──────────────────────────────────▼─────────────────────────────────────┐
  │ LAUNCHER (launcher_a / launcher_b)                                     │
- │  game list · installer · WiFi + web server · settings · self-update    │
+ │  app list · installer · WiFi + web server · settings · self-update     │
  └───────┬──────────────────────────────┬───────────────────────────┬─────┘
          │ reads/writes                 │ writes image, boots it    │ uses
  ┌───────▼────────┐            ┌────────▼────────┐          ┌───────▼───────┐
- │ SD card        │            │ game_0          │          │ ogo-board     │
- │ /ogo/games/... │            │                 │          │ (shared crate)│
+ │ SD card        │            │ app_0           │          │ ogo-board     │
+ │ /ogo/apps/...  │            │                 │          │ (shared crate)│
  └────────────────┘            └────────┬────────┘          └───────▲───────┘
                                         │ boots into                │ uses
                                ┌────────▼────────┐                  │
-                               │ GAME            ├──── ogo-sdk ─────┘
+                               │ APP             ├──── ogo-sdk ─────┘
                                │ (Rust app)      │  restart → back to the launcher
                                └─────────────────┘
  RECOVERY (factory slot): start a launcher slot or install one from the SD card. MENU at power-on
@@ -50,21 +50,21 @@ internet.
 
 | Crate | Purpose |
 |---|---|
-| [ogo-format](../ogo-format/src/lib.rs) | Everything that doesn't need the ESP32: `game.toml`, the `.ogo` reader and writer, the image description layout, settings steps, text fitting, battery percentage. Own workspace, tested on the PC |
-| [ogo-board](../ogo-board/src/lib.rs) | Board support (display, backlight, buttons, speaker, SD card, battery, LED) and the contracts that touch the hardware: boot contract (`boot`), image description in flash (`image`), flash writing (`flash`), settings in NVS (`settings`). Also the shared look (`ui`: colours and drawing helpers for launcher, recovery, the SDK's overlays and games) |
+| [ogo-format](../ogo-format/src/lib.rs) | Everything that doesn't need the ESP32: `app.toml`, the `.ogo` reader and writer, the image description layout, settings steps, text fitting, battery percentage. Own workspace, tested on the PC |
+| [ogo-board](../ogo-board/src/lib.rs) | Board support (display, backlight, buttons, speaker, SD card, battery, LED) and the contracts that touch the hardware: boot contract (`boot`), image description in flash (`image`), flash writing (`flash`), settings in NVS (`settings`). Also the shared look (`ui`: colours and drawing helpers for launcher, recovery, the SDK's overlays and apps) |
 | [ogo-gb](../ogo-gb/src/lib.rs) | Game Boy (DMG) emulator core, `no_std` with `alloc`: the SM83 CPU, memory map, cartridges with MBC1, MBC3 (with clock) and MBC5, timer, joypad, the LCD (timing and drawing, a line at a time) and sound (four channels, mixed to mono samples). Starts in the state the boot ROM leaves, without one. On the ESP32 its hot path runs from IRAM. Own workspace, tested on the PC with public test ROMs, including screenshot comparisons |
-| [ogo-sdk](../ogo-sdk/src/lib.rs) | What games build on: the `Game` trait, frame loop, input, sound, saves, pause menu, VOL |
+| [ogo-sdk](../ogo-sdk/src/lib.rs) | What apps build on: the `App` trait, frame loop, input, sound, saves, pause menu, VOL |
 | [ogo-launcher](../ogo-launcher/src/main.rs) | The launcher firmware |
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |
-| [games/snake](../games/snake/src/main.rs) | Example game on the SDK |
-| [games/brickfall](../games/brickfall/src/main.rs) | Falling-bricks puzzle on the SDK |
-| [games/smash](../games/smash/src/main.rs) | Brick-breaker on the SDK |
-| [games/gb](../games/gb/src/main.rs) | Game Boy ROMs from the SD card on `ogo-gb`, at 1:1 and 240 MHz |
+| [apps/snake](../apps/snake/src/main.rs) | Example app on the SDK |
+| [apps/brickfall](../apps/brickfall/src/main.rs) | Falling-bricks puzzle on the SDK |
+| [apps/smash](../apps/smash/src/main.rs) | Brick-breaker on the SDK |
+| [apps/gb](../apps/gb/src/main.rs) | Game Boy ROMs from the SD card on `ogo-gb`, at 1:1 and 240 MHz |
 | [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash`, `test`, `samples`, `icon` |
 
-Launcher and recovery use `ogo-board` directly; games use `ogo-sdk`, which wraps it. Everything
+Launcher and recovery use `ogo-board` directly; apps use `ogo-sdk`, which wraps it. Everything
 about switching between slots goes through `ogo_board::boot`, so the rules are in one place. Formats
-that the PC side writes and the device reads (`game.toml`, `.ogo`, the image description) are
+that the PC side writes and the device reads (`app.toml`, `.ogo`, the image description) are
 defined once in `ogo-format`, which xtask uses too.
 
 `ogo-format` and `xtask` have their own workspaces, excluded from the main one: the main workspace
@@ -76,7 +76,7 @@ for the PC. The firmware crates still depend on `ogo-format` by path.
 [main.rs](../ogo-launcher/src/main.rs) owns the board and runs one loop: poll the buttons (turned into
 navigation events with key repeat by [input.rs](../ogo-launcher/src/input.rs)), handle them for the
 open screen, read the battery every 5 s, poll the web server's events. The open screen is one value
-of `enum Screen` (game list, notice, WiFi, settings); the WiFi and settings screens keep their state
+of `enum Screen` (app list, notice, WiFi, settings); the WiFi and settings screens keep their state
 in their variant and live in their own modules, so a new screen is a new variant and module.
 Drawing goes through [ui/mod.rs](../ogo-launcher/src/ui/mod.rs): each screen area is an off-screen
 `Canvas` sent to the LCD in one transfer, so redraws don't flicker.
@@ -85,20 +85,21 @@ Drawing goes through [ui/mod.rs](../ogo-launcher/src/ui/mod.rs): each screen are
 1.5 s. Meanwhile the launcher scans the SD card and confirms its slot (rollback, see below). Holding
 SELECT at power-on opens a hardware test screen instead.
 
-**Game list.** [library.rs](../ogo-launcher/src/library.rs) reads `/ogo/games/*/game.toml`. Folders
-that can't be used stay in the list, dimmed, with the reason. A starts the selected game, START
-rescans, SELECT opens the WiFi screen, MENU the settings.
+**App list.** [library.rs](../ogo-launcher/src/library.rs) reads `/ogo/apps/*/app.toml`. Folders
+that can't be used stay in the list, dimmed, with the reason. The list is sorted by `kind` (games,
+then tools, then what can't be used) and by name, with a heading per section when there's more than
+one. A starts the selected app, START rescans, SELECT opens the WiFi screen, MENU the settings.
 
-**Starting a game** ([install.rs](../ogo-launcher/src/install.rs)):
-1. If the hash stored for `game_0` equals the game's `sha256`, skip to step 3.
-2. Otherwise stream `game.bin` into `game_0` with a progress bar (raw `esp_ota_begin` / `write` /
+**Starting an app** ([install.rs](../ogo-launcher/src/install.rs)):
+1. If the hash stored for `app_0` equals the app's `sha256`, skip to step 3.
+2. Otherwise stream `app.bin` into `app_0` with a progress bar (raw `esp_ota_begin` / `write` /
    `end` on that slot, since the `EspOta` wrapper always picks the "next" slot), checking the hash
    while writing, then store it. The speaker is muted meanwhile, since flash writes stall its DMA.
-3. Boot the game (see the boot contract in [CONTRACTS.md](CONTRACTS.md#boot-contract)).
+3. Boot the app (see the boot contract in [CONTRACTS.md](CONTRACTS.md#boot-contract)).
 
 **WiFi screen** ([connect.rs](../ogo-launcher/src/connect.rs),
 [network.rs](../ogo-launcher/src/network.rs)). WiFi and the web server only run while it's open: the
-radio costs battery, games get the whole device, and the device is only reachable while someone is
+radio costs battery, apps get the whole device, and the device is only reachable while someone is
 looking at it. Opening it scans for networks (~2 s), then joins the saved network (NVS, or
 `/ogo/settings.toml` for a first setup). If there is none or joining fails (~15 s timeout), it opens
 an access point `ogo-XXXX` without password, named after the last two bytes of the MAC address. The
@@ -107,13 +108,13 @@ WiFi (access point only), open the address, enter the PIN. Leaving it switches W
 the library if the page changed it.
 
 **Web page** ([web.rs](../ogo-launcher/src/web.rs), [index.html](../ogo-launcher/src/web/index.html)).
-Plain HTML/JS embedded in the firmware, with two tabs (`#games`, `#settings`). Handlers run in the
+Plain HTML/JS embedded in the firmware, with two tabs (`#apps`, `#settings`). Handlers run in the
 HTTP server's task and never touch the display: they report to the main loop through `WebEvent`s over
 a channel, and the loop updates the screen, plays sounds, saves the WiFi network or restarts. A
 random 4-digit PIN shown on the device unlocks a session cookie (details in
-[CONTRACTS.md](CONTRACTS.md#web-api)). WiFi and lwIP buffers may go to PSRAM. Games can declare
-folders on the SD card in `game.toml`, such as GB's ROMs; the page lists the files in them and uploads
-into them, so the launcher needn't know what any game reads.
+[CONTRACTS.md](CONTRACTS.md#web-api)). WiFi and lwIP buffers may go to PSRAM. Apps can declare
+folders on the SD card in `app.toml`, such as GB's ROMs; the page lists the files in them and uploads
+into them, so the launcher needn't know what any app reads.
 
 **Settings screen** ([settings_screen.rs](../ogo-launcher/src/settings_screen.rs)). Info at the top
 (launcher version and slot, build ID and commit, SD card space, saved WiFi network), then
@@ -126,12 +127,12 @@ launcher confirms itself once the display and SD card work; if it crashes before
 bootloader goes back to the previous slot, and that launcher says "Update didn't start". Tested
 with `--features rollback-test`, a launcher that panics before confirming. Consequences of rollback
 being enabled:
-- Every switch of the boot slot marks the new slot "pending verify", including a game returning to
-  the launcher. So the launcher confirms itself on every start, and games confirm their slot first
+- Every switch of the boot slot marks the new slot "pending verify", including an app returning to
+  the launcher. So the launcher confirms itself on every start, and apps confirm their slot first
   thing.
 - Switching off in the ~1 s between the launcher starting and confirming makes the next start boot
-  the previously selected slot, usually the last game, which returns to the launcher right away.
-- A launcher that crashes on every start would ping-pong with the last game. Recovery gets out of
+  the previously selected slot, usually the last app, which returns to the launcher right away.
+- A launcher that crashes on every start would ping-pong with the last app. Recovery gets out of
   that.
 
 ## Recovery
@@ -150,16 +151,16 @@ anything the launcher or a web update does.
   bootloader lacks the MENU option. `cargo xtask flash` passes the right one.
 - The last resort is flashing over USB.
 
-## Game runtime
+## App runtime
 
-[ogo-sdk](../ogo-sdk/src/lib.rs) runs a game's `Game` implementation:
+[ogo-sdk](../ogo-sdk/src/lib.rs) runs an app's `App` implementation:
 - **Start.** First the boot-back step of the boot contract, so any reset returns to the launcher.
   Then it loads brightness and the sound settings (volume, music, muted) from NVS and sets up the board with them, before
   the backlight turns on.
-- **Frame loop.** `update` runs at `Game::FPS` (default 30), then `draw`. If the loop falls far
+- **Frame loop.** `update` runs at `App::FPS` (default 30), then `draw`. If the loop falls far
   behind, it skips ahead instead of catching up. FreeRTOS runs at 1 kHz ticks for steady timing.
 - **Display.** Two full-screen buffers (150 KB each, in PSRAM). A display thread sends one to the
-  LCD while the game draws the other ([presenter.rs](../ogo-sdk/src/presenter.rs)).
+  LCD while the app draws the other ([presenter.rs](../ogo-sdk/src/presenter.rs)).
 - **Input** is sampled once per frame, which also debounces.
 - **MENU** opens the pause menu (resume, volume, music on/off, exit to the launcher); `update` isn't
   called and the music pauses meanwhile. **VOL** switches between all sound, effects only and muted,
@@ -168,12 +169,12 @@ anything the launcher or a web update does.
   the pause menu or exiting saves at once.
 - **Sound.** The audio thread in `ogo-board` generates the samples as it plays: sound effects (sine
   tones with fades, from a short queue) mixed over a looping music track of up to two parts (square,
-  triangle or sine), plus a game's sample stream (`Stream`). Volume and music tempo apply at once.
+  triangle or sine), plus an app's sample stream (`Stream`). Volume and music tempo apply at once.
 - **Saves.** One text or binary file per name under `/ogo/saves/<id>/`, written via a temp file.
 
 ## Settings
 
-Brightness, volume, music on/off and muted are shared by the launcher and games through NVS
+Brightness, volume, music on/off and muted are shared by the launcher and apps through NVS
 ([ogo_board::settings](../ogo-board/src/settings.rs)). `Board::take_with` applies them before the
 backlight turns on, so nothing flashes at full brightness first. The WiFi network is the launcher's
 alone ([settings.rs](../ogo-launcher/src/settings.rs)).
@@ -226,21 +227,21 @@ The steps are in [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites); this is wh
      flash only writes `launcher_a`, and otherwise a web update that selected `launcher_b` would
      keep running. `--all` also flashes recovery. The project config has no `runner`, because
      `cargo run` with espflash would flash its default bootloader, without the MENU option.
-   - `pack <game> [--ogo <file> | --sd <root>]` builds a game into `dist/<id>.ogo`, another file,
-     or an SD card's `/ogo/games/<id>/`.
-   - `release [--features …]` builds `launcher.bin`, `recovery.bin` and every game's `.ogo` into
+   - `pack <app> [--ogo <file> | --sd <root>]` builds an app into `dist/<id>.ogo`, another file,
+     or an SD card's `/ogo/apps/<id>/`.
+   - `release [--features …]` builds `launcher.bin`, `recovery.bin` and every app's `.ogo` into
      `dist/`, plus `ogo-<version>-full.bin`: everything `flash --all` writes, as one image from
      address 0 (bootloader at `0x1000`, partition table at `0x8000`, recovery and launcher in their
      slots, `0xFF` in between, so NVS and otadata end up erased). `espflash write-bin 0x0` installs it
      without the toolchain. `--features` applies to the launcher.
    - `test` runs the unit tests of `ogo-format` on the PC.
-   - `samples <sd-root> [--force]` writes fake games (placeholder images, two broken on purpose) to
-     an SD card, to test the game list.
-   - `icon <game> <image.png>` converts a PNG into the game's `icon.rgb565`.
+   - `samples <sd-root> [--force]` writes fake apps (placeholder images, two broken on purpose) to
+     an SD card, to test the app list.
+   - `icon <app> <image.png>` converts a PNG into the app's `icon.rgb565`.
 
    Versions come from `Cargo.toml`: the workspace version for launcher, recovery and SDK, and each
-   game's own (written into its `game.toml`). Releases are tagged with the workspace version and
-   bundle every game as it is at that commit; games have no tags of their own.
+   app's own (written into its `app.toml`). Releases are tagged with the workspace version and
+   bundle every app as it is at that commit; apps have no tags of their own.
 
 The esp-rs crates (`esp-idf-svc`, `esp-idf-hal`, `esp-idf-sys`) come from git, as in the template
 (see `[patch.crates-io]` in [Cargo.toml](../Cargo.toml)). The ecosystem moves quickly: check versions
@@ -257,6 +258,6 @@ needs the ESP32 is tested on the device; the checklist is in
 
 - Joining a WiFi network blocks the launcher's screen for up to ~15 s while it waits.
 - The web server keeps every login session until the WiFi screen closes.
-- One game slot: switching to another game reinstalls it.
+- One app slot: switching to another app reinstalls it.
 - The battery percentage is a rough linear estimate, and there's no charging indicator (the board has
   no charge-status signal, see [HARDWARE.md](HARDWARE.md#findings)).

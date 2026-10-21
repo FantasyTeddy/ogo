@@ -9,7 +9,7 @@
 //! The audio thread generates the samples as it goes and mixes up to three things: sound effects
 //! (sine tones, played one after another from a short queue), music (a looping [`Track`] of up to
 //! [`MAX_PARTS`] parts), which plays quieter, under the effects, and a [`Stream`] of samples the
-//! game makes itself. Volume and tempo changes apply at once.
+//! app makes itself. Volume and tempo changes apply at once.
 //!
 //! The amplifier hisses faintly while on, so the audio thread switches it off after
 //! [`AMP_IDLE_OFF_MS`] of silence. It needs time to wake up (short beeps right after switching
@@ -54,7 +54,7 @@ const EFFECT_GAIN_WITH_MUSIC: f32 = 0.75;
 const MUSIC_GAIN: f32 = 0.25;
 /// Parts a [`Track`] can have.
 pub const MAX_PARTS: usize = 2;
-/// A [`Stream`] starts playing (again) once this much is buffered (75 ms), so that a game handing
+/// A [`Stream`] starts playing (again) once this much is buffered (75 ms), so that an app handing
 /// over samples once per frame doesn't run dry in between.
 const STREAM_START: usize = SAMPLE_RATE as usize * 75 / 1000;
 /// Beyond this (125 ms), the oldest samples of a [`Stream`] are dropped, down to [`STREAM_START`],
@@ -181,7 +181,7 @@ impl Amp {
     }
 }
 
-/// Samples a game makes itself, e.g. an emulator's sound: mono, signed 16-bit, at
+/// Samples an app makes itself, e.g. an emulator's sound: mono, signed 16-bit, at
 /// [`SAMPLE_RATE`]. Made by [`Speaker::open_stream`]; dropping it ends the stream.
 pub struct Stream {
     buffer: Arc<Mutex<StreamBuffer>>,
@@ -202,7 +202,7 @@ impl Stream {
         let mut buffer = self.buffer.lock().unwrap();
         buffer.samples.extend(samples);
         // Back to the start level at once: trimming to the limit would leave the level there,
-        // since a game makes samples as fast as they play, and then every push would cut a few,
+        // since an app makes samples as fast as they play, and then every push would cut a few,
         // which sounds like distortion
         if buffer.samples.len() > STREAM_MAX {
             let excess = buffer.samples.len() - STREAM_START;
@@ -354,7 +354,7 @@ impl Speaker {
         self.send(Command::MusicPaused(paused));
     }
 
-    /// Starts playing samples the game makes itself, mixed with the sound effects (and the music,
+    /// Starts playing samples the app makes itself, mixed with the sound effects (and the music,
     /// if any); replaces an earlier stream. Follows the volume, but not the music setting.
     pub fn open_stream(&mut self) -> Stream {
         let buffer = Arc::new(Mutex::new(StreamBuffer::default()));

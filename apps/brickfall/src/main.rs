@@ -502,7 +502,9 @@ impl Brickfall {
     }
 }
 
-impl Game for Brickfall {
+impl App for Brickfall {
+    const MUSIC: bool = true;
+
     fn new(ctx: &mut Ctx) -> Self {
         Brickfall {
             state: State::Title,

@@ -28,7 +28,11 @@ use ogo_board::{
     image::{self, ImageKind},
     BatteryLevel,
 };
-use ogo_format::{game::Folder, slots, url::percent_decode};
+use ogo_format::{
+    app::{Folder, Kind},
+    slots,
+    url::percent_decode,
+};
 use serde::Serialize;
 
 use crate::{
@@ -60,7 +64,7 @@ pub enum WebEvent {
     Deleted {
         id: String,
     },
-    /// A file was uploaded into a game's folder.
+    /// A file was uploaded into an app's folder.
     FileSaved {
         name: String,
     },
@@ -135,10 +139,10 @@ impl WebState {
         let _ = self.events.lock().unwrap().send(event);
     }
 
-    fn games_dir(&self) -> Option<PathBuf> {
+    fn apps_dir(&self) -> Option<PathBuf> {
         self.sd_root
             .as_ref()
-            .map(|root| root.join(library::GAMES_DIR))
+            .map(|root| root.join(library::APPS_DIR))
     }
 }
 
@@ -184,11 +188,11 @@ impl WebServer {
         type Handler = fn(Req, &WebState) -> anyhow::Result<()>;
         let routes: [(&str, Method, Handler); 11] = [
             ("/api/status", Method::Get, status),
-            ("/api/games", Method::Get, list_games),
-            ("/api/games", Method::Post, upload),
-            ("/api/games/*", Method::Get, game_get),
-            ("/api/games/*", Method::Post, game_post),
-            ("/api/games/*", Method::Delete, game_delete),
+            ("/api/apps", Method::Get, list_apps),
+            ("/api/apps", Method::Post, upload),
+            ("/api/apps/*", Method::Get, app_get),
+            ("/api/apps/*", Method::Post, app_post),
+            ("/api/apps/*", Method::Delete, app_delete),
             ("/api/wifi", Method::Post, set_wifi),
             ("/api/wifi/networks", Method::Get, networks),
             ("/api/wifi/scan", Method::Post, scan),
@@ -357,7 +361,7 @@ fn update_launcher(mut req: Req, state: &WebState) -> anyhow::Result<()> {
         },
     )
     .and_then(|()| {
-        // A valid image, but is it a launcher? A game in a launcher slot would never return.
+        // A valid image, but is it a launcher? An app in a launcher slot would never return.
         match image::in_slot(slot) {
             Some(desc) if desc.kind() == Some(ImageKind::Launcher) => Ok(()),
             Some(desc) => anyhow::bail!("that's an {} image, not a launcher", desc.kind_name()),
@@ -444,11 +448,13 @@ fn status(req: Req, state: &WebState) -> anyhow::Result<()> {
     )
 }
 
-fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
+fn list_apps(req: Req, state: &WebState) -> anyhow::Result<()> {
     #[derive(Serialize)]
-    struct GameJson {
+    struct AppJson {
         id: String,
         name: String,
+        /// `None` for broken entries.
+        kind: Option<Kind>,
         version: String,
         author: String,
         has_icon: bool,
@@ -457,24 +463,26 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
         error: Option<String>,
     }
     let entries = state
-        .games_dir()
+        .apps_dir()
         .and_then(|dir| library::scan_dir(&dir))
         .unwrap_or_default();
-    let games: Vec<GameJson> = entries
+    let apps: Vec<AppJson> = entries
         .into_iter()
         .map(|entry| match entry {
-            Entry::Game(game) => GameJson {
-                id: game.id,
-                name: game.name,
-                version: game.version,
-                author: game.author,
-                has_icon: game.has_icon,
-                folders: game.folders,
+            Entry::App(app) => AppJson {
+                id: app.id,
+                name: app.name,
+                kind: Some(app.kind),
+                version: app.version,
+                author: app.author,
+                has_icon: app.has_icon,
+                folders: app.folders,
                 error: None,
             },
-            Entry::Broken(broken) => GameJson {
+            Entry::Broken(broken) => AppJson {
                 id: broken.folder.clone(),
                 name: broken.folder,
+                kind: None,
                 version: String::new(),
                 author: String::new(),
                 has_icon: false,
@@ -483,22 +491,20 @@ fn list_games(req: Req, state: &WebState) -> anyhow::Result<()> {
             },
         })
         .collect();
-    json(req, 200, &games)
+    json(req, 200, &apps)
 }
 
-/// `/api/games/<id>/<rest>...`: the game id, if valid, and the rest of the path, percent-decoded.
-fn game_path(uri: &str) -> Option<(String, Vec<String>)> {
-    let path = uri.split('?').next()?.strip_prefix("/api/games/")?;
+/// `/api/apps/<id>/<rest>...`: the app id, if valid, and the rest of the path, percent-decoded.
+fn app_path(uri: &str) -> Option<(String, Vec<String>)> {
+    let path = uri.split('?').next()?.strip_prefix("/api/apps/")?;
     let mut parts = path.split('/');
-    let id = parts
-        .next()
-        .filter(|id| ogo_format::game::is_valid_id(id))?;
+    let id = parts.next().filter(|id| ogo_format::app::is_valid_id(id))?;
     let rest = parts.map(percent_decode).collect::<Option<Vec<_>>>()?;
     Some((id.to_owned(), rest))
 }
 
-fn game_get(req: Req, state: &WebState) -> anyhow::Result<()> {
-    let Some((id, rest)) = game_path(req.uri()) else {
+fn app_get(req: Req, state: &WebState) -> anyhow::Result<()> {
+    let Some((id, rest)) = app_path(req.uri()) else {
         return json(req, 404, &Message::new("Not found"));
     };
     match rest.iter().map(String::as_str).collect::<Vec<_>>()[..] {
@@ -508,8 +514,8 @@ fn game_get(req: Req, state: &WebState) -> anyhow::Result<()> {
     }
 }
 
-fn game_post(req: Req, state: &WebState) -> anyhow::Result<()> {
-    let Some((id, rest)) = game_path(req.uri()) else {
+fn app_post(req: Req, state: &WebState) -> anyhow::Result<()> {
+    let Some((id, rest)) = app_path(req.uri()) else {
         return json(req, 404, &Message::new("Not found"));
     };
     match rest.iter().map(String::as_str).collect::<Vec<_>>()[..] {
@@ -518,9 +524,9 @@ fn game_post(req: Req, state: &WebState) -> anyhow::Result<()> {
     }
 }
 
-fn game_delete(req: Req, state: &WebState) -> anyhow::Result<()> {
-    let Some((id, rest)) = game_path(req.uri()) else {
-        return json(req, 404, &Message::new("No such game"));
+fn app_delete(req: Req, state: &WebState) -> anyhow::Result<()> {
+    let Some((id, rest)) = app_path(req.uri()) else {
+        return json(req, 404, &Message::new("No such app"));
     };
     match rest.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         [] => delete(req, state, &id),
@@ -530,7 +536,7 @@ fn game_delete(req: Req, state: &WebState) -> anyhow::Result<()> {
 }
 
 fn upload(mut req: Req, state: &WebState) -> anyhow::Result<()> {
-    let (Some(games_dir), Some(root)) = (state.games_dir(), state.sd_root.clone()) else {
+    let (Some(apps_dir), Some(root)) = (state.apps_dir(), state.sd_root.clone()) else {
         return json(req, 409, &Message::new("No SD card in the device"));
     };
     let total = content_len(&req);
@@ -552,17 +558,17 @@ fn upload(mut req: Req, state: &WebState) -> anyhow::Result<()> {
         return json(req, 400, &Message::new(format!("Upload failed: {e:#}")));
     }
 
-    let result = package::install(&path, &games_dir);
+    let result = package::install(&path, &apps_dir);
     let _ = fs::remove_file(&path);
     match result {
-        Ok(game) => {
+        Ok(app) => {
             state.send(WebEvent::Installed {
-                name: game.name.clone(),
+                name: app.name.clone(),
             });
             json(
                 req,
                 200,
-                &Message::new(format!("Installed {} {}", game.name, game.version)),
+                &Message::new(format!("Installed {} {}", app.name, app.version)),
             )
         }
         Err(e) => {
@@ -601,42 +607,42 @@ fn receive(req: &mut Req, path: &Path, total: usize, state: &WebState) -> anyhow
 }
 
 fn delete(req: Req, state: &WebState, id: &str) -> anyhow::Result<()> {
-    let Some(games_dir) = state.games_dir() else {
-        return json(req, 404, &Message::new("No such game"));
+    let Some(apps_dir) = state.apps_dir() else {
+        return json(req, 404, &Message::new("No such app"));
     };
-    let dir = games_dir.join(id);
+    let dir = apps_dir.join(id);
     if !dir.is_dir() {
-        return json(req, 404, &Message::new("No such game"));
+        return json(req, 404, &Message::new("No such app"));
     }
     fs::remove_dir_all(&dir).with_context(|| format!("can't delete {id}"))?;
     state.send(WebEvent::Deleted { id: id.to_owned() });
     json(req, 200, &Message::new(format!("Deleted {id}")))
 }
 
-/// Game `id`'s folder number `index` (from `game.toml`) and where it is on the SD card.
-fn game_folder(state: &WebState, id: &str, index: &str) -> Result<(Folder, PathBuf), Message> {
-    let (Some(games_dir), Some(root)) = (state.games_dir(), state.sd_root.as_ref()) else {
+/// App `id`'s folder number `index` (from `app.toml`) and where it is on the SD card.
+fn app_folder(state: &WebState, id: &str, index: &str) -> Result<(Folder, PathBuf), Message> {
+    let (Some(apps_dir), Some(root)) = (state.apps_dir(), state.sd_root.as_ref()) else {
         return Err(Message::new("No SD card in the device"));
     };
-    let game = library::load_game(&games_dir.join(id), Some(id))
-        .map_err(|_| Message::new("No such game"))?;
+    let app =
+        library::load_app(&apps_dir.join(id), Some(id)).map_err(|_| Message::new("No such app"))?;
     let folder = index
         .parse::<usize>()
         .ok()
-        .and_then(|index| game.folders.into_iter().nth(index))
+        .and_then(|index| app.folders.into_iter().nth(index))
         .ok_or_else(|| Message::new("No such folder"))?;
     let dir = root.join(&folder.path);
     Ok((folder, dir))
 }
 
-/// `GET /api/games/<id>/folders/<n>`: the files in the folder the game reads, by name.
+/// `GET /api/apps/<id>/folders/<n>`: the files in the folder the app reads, by name.
 fn list_files(req: Req, state: &WebState, id: &str, index: &str) -> anyhow::Result<()> {
     #[derive(Serialize)]
     struct FileJson {
         name: String,
         size: u64,
     }
-    let (folder, dir) = match game_folder(state, id, index) {
+    let (folder, dir) = match app_folder(state, id, index) {
         Ok(found) => found,
         Err(message) => return json(req, 404, &message),
     };
@@ -658,7 +664,7 @@ fn list_files(req: Req, state: &WebState, id: &str, index: &str) -> anyhow::Resu
     json(req, 200, &files)
 }
 
-/// `POST /api/games/<id>/folders/<n>/<name>` with the file as the raw body. It's received under a
+/// `POST /api/apps/<id>/folders/<n>/<name>` with the file as the raw body. It's received under a
 /// temporary name, so a broken upload never replaces a file; one with the same name is replaced.
 fn upload_file(
     mut req: Req,
@@ -667,13 +673,13 @@ fn upload_file(
     index: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let (folder, dir) = match game_folder(state, id, index) {
+    let (folder, dir) = match app_folder(state, id, index) {
         Ok(found) => found,
         Err(message) => return json(req, 404, &message),
     };
     if !folder.accepts(name) {
         let extensions: Vec<String> = folder.extensions.iter().map(|e| format!(".{e}")).collect();
-        let reason = if ogo_format::game::is_valid_file_name(name) {
+        let reason = if ogo_format::app::is_valid_file_name(name) {
             format!("only {} files", extensions.join(", "))
         } else {
             "names can't start with \".\", end in \".\" or a space, or contain / \\ : * ? \" < > |"
@@ -713,7 +719,7 @@ fn upload_file(
     json(req, 200, &Message::new(format!("Saved {name}")))
 }
 
-/// `DELETE /api/games/<id>/folders/<n>/<name>`.
+/// `DELETE /api/apps/<id>/folders/<n>/<name>`.
 fn delete_file(
     req: Req,
     state: &WebState,
@@ -721,7 +727,7 @@ fn delete_file(
     index: &str,
     name: &str,
 ) -> anyhow::Result<()> {
-    let (folder, dir) = match game_folder(state, id, index) {
+    let (folder, dir) = match app_folder(state, id, index) {
         Ok(found) => found,
         Err(message) => return json(req, 404, &message),
     };
@@ -736,18 +742,16 @@ fn delete_file(
     json(req, 200, &Message::new(format!("Deleted {name}")))
 }
 
-/// `GET /api/games/<id>/icon.bmp`: the icon as a 16-bit BMP, which browsers show directly.
+/// `GET /api/apps/<id>/icon.bmp`: the icon as a 16-bit BMP, which browsers show directly.
 fn icon(req: Req, state: &WebState, id: &str) -> anyhow::Result<()> {
-    let path = state
-        .games_dir()
-        .map(|dir| dir.join(id).join("icon.rgb565"));
+    let path = state.apps_dir().map(|dir| dir.join(id).join("icon.rgb565"));
     let Some(pixels) = path.and_then(|path| fs::read(path).ok()) else {
         return json(req, 404, &Message::new("No icon"));
     };
     if pixels.len() != (ICON_SIZE * ICON_SIZE * 2) as usize {
         return json(req, 404, &Message::new("No icon"));
     }
-    let bmp = ogo_format::game::icon_bmp(&pixels, ICON_SIZE);
+    let bmp = ogo_format::app::icon_bmp(&pixels, ICON_SIZE);
     req.into_response(
         200,
         None,

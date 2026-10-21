@@ -1,8 +1,8 @@
-//! Settings shared by the launcher and games, stored in NVS (namespace `ogo`). The steps and
+//! Settings shared by the launcher and apps, stored in NVS (namespace `ogo`). The steps and
 //! defaults are in `ogo_format::settings`.
 //!
-//! The launcher's settings screen changes them; games read them at start ([`crate::Board::take_with`]
-//! applies them), and the SDK saves what VOL and the pause menu change in a game. VOL in the
+//! The launcher's settings screen changes them; apps read them at start ([`crate::Board::take_with`]
+//! applies them), and the SDK saves what VOL and the pause menu change in an app. VOL in the
 //! launcher switches muted on and off. Missing or unreadable keys fall back to the defaults, so an
 //! empty NVS is fine.
 
@@ -24,7 +24,7 @@ pub struct Settings {
     pub brightness: u8,
     /// The level shown, in percent, one of [`VOLUME_STEPS`]; the speaker gets [`Self::speaker_volume`].
     pub volume: u8,
-    /// Games play their music.
+    /// Apps play their music.
     pub music: bool,
     /// No sound at all; `volume` is kept for when it's switched off again.
     pub muted: bool,

@@ -393,7 +393,9 @@ impl Smash {
     }
 }
 
-impl Game for Smash {
+impl App for Smash {
+    const MUSIC: bool = true;
+
     fn new(ctx: &mut Ctx) -> Self {
         Smash {
             state: State::Title,

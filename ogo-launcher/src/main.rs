@@ -1,4 +1,4 @@
-//! ogo-launcher: lists the games on the SD card, installs the selected one into the game slot
+//! ogo-launcher: lists the apps on the SD card, installs the selected one into the app slot
 //! and boots it.
 //!
 //! SELECT opens the WiFi screen with the web page (see `web`), MENU the settings screen. Hold
@@ -28,7 +28,7 @@ use ogo_board::{
 };
 
 use input::{Nav, Navigator};
-use library::{Entry, Game, Library};
+use library::{App, Entry, Library};
 use ogo_board::flash::Progress;
 use ui::{ListState, Ui, VISIBLE_ROWS};
 
@@ -81,9 +81,9 @@ fn main() -> anyhow::Result<()> {
 
 /// What the launcher shows. Each screen handles its buttons in its own module.
 enum Screen {
-    /// The game list.
-    Games,
-    /// A message over the game list, until the next button press.
+    /// The app list.
+    Apps,
+    /// A message over the app list, until the next button press.
     Notice,
     /// WiFi and the web page (`connect`).
     Wifi(connect::Session),
@@ -117,7 +117,7 @@ impl Launcher {
         let library = library::scan(board.sd.as_ref());
         let battery = board.battery.read().ok();
         Self {
-            screen: Screen::Games,
+            screen: Screen::Apps,
             board,
             boot,
             ui: Ui::new(),
@@ -182,7 +182,7 @@ impl Launcher {
             if let Some(nav) = navigator.update(self.board.buttons.read()?, now) {
                 match self.screen {
                     _ if nav == Nav::Mute => self.toggle_mute()?,
-                    Screen::Games => self.handle_games(nav)?,
+                    Screen::Apps => self.handle_apps(nav)?,
                     Screen::Notice => self.dismiss_notice()?,
                     Screen::Wifi(_) => self.handle_connect(nav)?,
                     Screen::Settings(_) => self.handle_settings(nav)?,
@@ -208,22 +208,19 @@ impl Launcher {
     }
 
     fn dismiss_notice(&mut self) -> anyhow::Result<()> {
-        self.screen = Screen::Games;
+        self.screen = Screen::Apps;
         self.draw_library()
     }
 
-    fn handle_games(&mut self, nav: Nav) -> anyhow::Result<()> {
-        let len = match &self.library {
-            Library::Entries(entries) => entries.len(),
-            _ => 0,
-        };
+    fn handle_apps(&mut self, nav: Nav) -> anyhow::Result<()> {
+        let entries = self.library.entries();
         let page = VISIBLE_ROWS as isize;
         let before = self.list;
         match nav {
-            Nav::Up => self.list.move_by(-1, len, true),
-            Nav::Down => self.list.move_by(1, len, true),
-            Nav::Left => self.list.move_by(-page, len, false),
-            Nav::Right => self.list.move_by(page, len, false),
+            Nav::Up => self.list.move_by(-1, entries, true),
+            Nav::Down => self.list.move_by(1, entries, true),
+            Nav::Left => self.list.move_by(-page, entries, false),
+            Nav::Right => self.list.move_by(page, entries, false),
             Nav::Select => return self.select(),
             Nav::Rescan => return self.rescan(),
             Nav::Connect => return self.open_connect(),
@@ -243,25 +240,25 @@ impl Launcher {
         let Some(entry) = entries.get(self.list.selected) else {
             return Ok(());
         };
-        let game = match entry {
-            Entry::Game(game) => game.clone(),
+        let app = match entry {
+            Entry::App(app) => app.clone(),
             Entry::Broken(_) => {
                 self.board.speaker.play(SOUND_ERROR);
-                return self.show_message("This game can't be used");
+                return self.show_message("This app can't be used");
             }
         };
         // Writing flash stalls the audio DMA, which would click; launching restarts anyway.
         self.board.speaker.set_muted(true);
-        let result = self.launch(&game);
+        let result = self.launch(&app);
         self.board.speaker.set_muted(false);
         if let Err(e) = result {
-            log::error!("Launching {} failed: {e:?}", game.id);
+            log::error!("Launching {} failed: {e:?}", app.id);
             self.board.speaker.play(SOUND_ERROR);
             self.screen = Screen::Notice;
             let detail = format!("{e:#}");
             self.ui.draw_notice(
                 &mut self.board.display,
-                &format!("Can't start {}", game.name),
+                &format!("Can't start {}", app.name),
                 &detail,
                 ui::WARNING,
             )?;
@@ -270,14 +267,14 @@ impl Launcher {
         Ok(())
     }
 
-    /// Installs the game if the slot holds something else, then boots it.
+    /// Installs the app if the slot holds something else, then boots it.
     /// Only returns if that fails.
-    fn launch(&mut self, game: &Game) -> anyhow::Result<()> {
-        let title = format!("Installing {}", game.name);
+    fn launch(&mut self, app: &App) -> anyhow::Result<()> {
+        let title = format!("Installing {}", app.name);
         let (ui, display) = (&mut self.ui, &mut self.board.display);
         // Redraw only when the shown percentage changes.
         let mut shown = None;
-        let installed = install::install(game, &mut self.boot, |progress| {
+        let installed = install::install(app, &mut self.boot, |progress| {
             let (status, fraction) = match progress {
                 Progress::Erasing => ("Preparing...".to_owned(), None),
                 Progress::Writing { written, total } => {
@@ -297,32 +294,27 @@ impl Launcher {
         if !installed {
             self.ui.draw_progress(
                 &mut self.board.display,
-                &format!("Starting {}", game.name),
+                &format!("Starting {}", app.name),
                 "",
                 None,
             )?;
         }
-        self.boot.launch_game()
+        self.boot.launch_app()
     }
 
     fn rescan(&mut self) -> anyhow::Result<()> {
         self.library = library::scan(self.board.sd.as_ref());
         self.icons.clear();
-        let len = match &self.library {
-            Library::Entries(entries) => entries.len(),
-            _ => 0,
-        };
         // Keep the selection where it was, as far as the new list allows.
-        self.list.move_by(0, len, false);
+        self.list.move_by(0, self.library.entries(), false);
         self.draw_library()?;
-        let games = match &self.library {
-            Library::Entries(entries) => entries
-                .iter()
-                .filter(|e| matches!(e, Entry::Game(_)))
-                .count(),
-            _ => 0,
-        };
-        self.show_message(&format!("Found {games} games"))
+        let apps = self
+            .library
+            .entries()
+            .iter()
+            .filter(|e| matches!(e, Entry::App(_)))
+            .count();
+        self.show_message(&format!("Found {apps} apps"))
     }
 
     fn show_message(&mut self, message: &str) -> anyhow::Result<()> {
@@ -333,7 +325,7 @@ impl Launcher {
     /// The current screen's controls, or `message` in their place.
     fn draw_footer(&mut self, message: Option<&str>) -> anyhow::Result<()> {
         let controls = match &self.screen {
-            Screen::Games | Screen::Notice => ui::GAMES_CONTROLS,
+            Screen::Apps | Screen::Notice => ui::APPS_CONTROLS,
             Screen::Wifi(_) => connect::CONTROLS,
             Screen::Settings(state) => state.controls(),
         };
@@ -349,7 +341,7 @@ impl Launcher {
 
     fn title(&self) -> &'static str {
         match self.screen {
-            Screen::Games | Screen::Notice => "Games",
+            Screen::Apps | Screen::Notice => "Apps",
             Screen::Wifi(_) => "WiFi",
             Screen::Settings(_) => "Settings",
         }
@@ -358,10 +350,10 @@ impl Launcher {
     fn draw_library(&mut self) -> anyhow::Result<()> {
         let icon = match &self.library {
             Library::Entries(entries) => match entries.get(self.list.selected) {
-                Some(Entry::Game(game)) => self
+                Some(Entry::App(app)) => self
                     .icons
                     .entry(self.list.selected)
-                    .or_insert_with(|| game.load_icon())
+                    .or_insert_with(|| app.load_icon())
                     .as_deref(),
                 _ => None,
             },

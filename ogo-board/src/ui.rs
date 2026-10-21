@@ -1,5 +1,5 @@
 //! The shared look: colours and small drawing helpers used by the launcher, recovery and the SDK's
-//! overlays. Games get them as `ogo_sdk::ui`.
+//! overlays. Apps get them as `ogo_sdk::ui`.
 //!
 //! The helpers draw onto any embedded-graphics target in RGB565 (a [`crate::Canvas`] or the
 //! display) and ignore drawing errors, which a canvas can't have.
@@ -50,7 +50,7 @@ pub fn selection<D: DrawTarget<Color = Rgb565>>(target: &mut D, area: Rectangle)
         .ok();
 }
 
-/// A box with a thin border, e.g. for a menu over a game.
+/// A box with a thin border, e.g. for a menu over an app.
 pub fn panel<D: DrawTarget<Color = Rgb565>>(target: &mut D, area: Rectangle) {
     let style = PrimitiveStyleBuilder::new()
         .fill_color(BAR)

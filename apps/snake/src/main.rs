@@ -243,7 +243,9 @@ impl Snake {
     }
 }
 
-impl Game for Snake {
+impl App for Snake {
+    const MUSIC: bool = true;
+
     fn new(ctx: &mut Ctx) -> Self {
         Snake {
             state: State::Title,

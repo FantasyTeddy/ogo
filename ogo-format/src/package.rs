@@ -1,5 +1,5 @@
-//! `.ogo` game packages: an uncompressed ustar archive with flat names, holding `game.toml`,
-//! `game.bin` and optionally `icon.rgb565`.
+//! `.ogo` app packages: an uncompressed ustar archive with flat names, holding `app.toml`,
+//! `app.bin` and optionally `icon.rgb565`.
 //!
 //! Own reader and writer instead of the `tar` crate: on the ESP32 it pulls in `filetime`, which
 //! needs Unix calls ESP-IDF lacks. They handle exactly what packages need: regular files with
@@ -8,9 +8,9 @@
 use std::io::{self, Read, Write};
 
 /// Files a package may contain; anything else is skipped when reading.
-pub const FILES: [&str; 3] = ["game.toml", "game.bin", "icon.rgb565"];
+pub const FILES: [&str; 3] = ["app.toml", "app.bin", "icon.rgb565"];
 /// Files a package must contain.
-pub const REQUIRED: [&str; 2] = ["game.toml", "game.bin"];
+pub const REQUIRED: [&str; 2] = ["app.toml", "app.bin"];
 
 const BLOCK: usize = 512;
 
@@ -163,8 +163,8 @@ mod tests {
     fn round_trip() {
         let bin: Vec<u8> = (0..2000u32).map(|i| i as u8).collect();
         let files: [(&str, &[u8]); 3] = [
-            ("game.toml", b"id = \"x\"\n"),
-            ("game.bin", &bin),
+            ("app.toml", b"id = \"x\"\n"),
+            ("app.bin", &bin),
             ("icon.rgb565", &[7; 8192]),
         ];
         let package = package(&files);
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn headers_are_valid_ustar() {
-        let package = package(&[("game.toml", b"x"), ("game.bin", b"y")]);
+        let package = package(&[("app.toml", b"x"), ("app.bin", b"y")]);
         let header = &package[..BLOCK];
         assert_eq!(&header[257..265], b"ustar\x0000");
         let stored = octal(&header[148..156]).unwrap();
@@ -192,30 +192,30 @@ mod tests {
     fn skips_other_files_and_strips_folders() {
         let package = package(&[
             ("readme.txt", b"hello"),
-            ("./game.toml", b"t"),
-            ("dir/game.bin", b"b"),
+            ("./app.toml", b"t"),
+            ("dir/app.bin", b"b"),
         ]);
         let read = read_all(&package).unwrap();
         let names: Vec<&str> = read.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(names, ["game.toml", "game.bin"]);
+        assert_eq!(names, ["app.toml", "app.bin"]);
     }
 
     #[test]
     fn callback_may_leave_data_unread() {
-        let package = package(&[("game.bin", &[1; 1500]), ("game.toml", b"t")]);
+        let package = package(&[("app.bin", &[1; 1500]), ("app.toml", b"t")]);
         let found = read(&package[..], |_, _| Ok(())).unwrap();
-        assert_eq!(found, ["game.bin", "game.toml"]);
+        assert_eq!(found, ["app.bin", "app.toml"]);
     }
 
     #[test]
     fn missing_required_file() {
-        let error = read_all(&package(&[("game.toml", b"t")])).unwrap_err();
-        assert_eq!(error.to_string(), "the package has no game.bin");
+        let error = read_all(&package(&[("app.toml", b"t")])).unwrap_err();
+        assert_eq!(error.to_string(), "the package has no app.bin");
     }
 
     #[test]
     fn truncated_package() {
-        let package = package(&[("game.toml", b"t"), ("game.bin", &[1; 3000])]);
+        let package = package(&[("app.toml", b"t"), ("app.bin", &[1; 3000])]);
         for cut in [100, BLOCK + 10, 3 * BLOCK] {
             let error = read_all(&package[..cut]).unwrap_err();
             assert!(
@@ -235,7 +235,7 @@ mod tests {
     fn empty_input_has_no_files() {
         assert_eq!(
             read_all(&[]).unwrap_err().to_string(),
-            "the package has no game.toml"
+            "the package has no app.toml"
         );
     }
 }

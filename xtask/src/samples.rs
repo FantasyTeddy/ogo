@@ -1,12 +1,12 @@
-//! `cargo xtask samples`: fake games for testing the launcher's game list, written to an SD card.
+//! `cargo xtask samples`: fake apps for testing the launcher's app list, written to an SD card.
 //!
-//! They aren't runnable: `game.bin` is a placeholder. Two entries are broken on purpose, to show how
-//! the launcher reports problems: one needs a newer SDK, one has a `game.toml` that doesn't parse.
+//! They aren't runnable: `app.bin` is a placeholder. Two entries are broken on purpose, to show how
+//! the launcher reports problems: one needs a newer SDK, one has a `app.toml` that doesn't parse.
 
 use std::{fs, path::Path};
 
 use anyhow::{ensure, Context};
-use ogo_format::game::{rgb565_le, Manifest, ICON_SIZE, SDK_VERSION};
+use ogo_format::app::{rgb565_le, Kind, Manifest, ICON_SIZE, SDK_VERSION};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy)]
@@ -24,15 +24,17 @@ enum Pattern {
 struct Sample {
     id: &'static str,
     name: &'static str,
+    kind: Kind,
     author: &'static str,
     version: &'static str,
     icon: Option<(Pattern, [u8; 3])>,
 }
 
-const SAMPLES: [Sample; 13] = [
+const SAMPLES: [Sample; 15] = [
     Sample {
         id: "snake",
         name: "Snake",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "1.2.0",
         icon: Some((Pattern::Rings, [40, 200, 80])),
@@ -40,6 +42,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "breakout",
         name: "Breakout",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "0.9.1",
         icon: Some((Pattern::Bricks, [230, 90, 40])),
@@ -47,6 +50,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "blocks",
         name: "Falling Blocks",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "2.0.0",
         icon: Some((Pattern::Checker, [80, 120, 240])),
@@ -54,6 +58,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "pong",
         name: "Pong",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "1.0.0",
         icon: Some((Pattern::Stripes, [240, 240, 240])),
@@ -61,6 +66,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "rocks",
         name: "Space Rocks",
+        kind: Kind::Game,
         author: "Someone with a rather long name",
         version: "0.3.0",
         icon: Some((Pattern::Dots, [160, 160, 180])),
@@ -68,6 +74,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "mines",
         name: "Mines",
+        kind: Kind::Game,
         author: "",
         version: "1.1.0",
         icon: Some((Pattern::Grid, [200, 200, 60])),
@@ -75,6 +82,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "2048",
         name: "2048",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "1.0.0",
         icon: Some((Pattern::Diamond, [240, 180, 60])),
@@ -82,6 +90,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "sokoban",
         name: "Sokoban",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "1.4.2",
         icon: Some((Pattern::Bricks, [160, 110, 60])),
@@ -89,6 +98,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "flappy",
         name: "Flappy Bit",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "0.1.0",
         icon: Some((Pattern::Gradient, [90, 200, 240])),
@@ -96,6 +106,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "lander",
         name: "Lunar Lander",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "1.0.0",
         icon: Some((Pattern::Rings, [200, 200, 200])),
@@ -103,6 +114,7 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "solitaire",
         name: "Solitaire",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "3.1.0",
         icon: Some((Pattern::Diamond, [40, 140, 60])),
@@ -110,44 +122,63 @@ const SAMPLES: [Sample; 13] = [
     Sample {
         id: "long-name",
         name: "The Incredibly Long Named Adventure of Rusty the Crab",
+        kind: Kind::Game,
         author: "Ferris",
         version: "0.0.1",
         icon: Some((Pattern::Gradient, [230, 70, 30])),
     },
     Sample {
         id: "no-icon",
-        name: "No Icon Game",
+        name: "No Icon App",
+        kind: Kind::Tool,
         author: "ogo examples",
         version: "1.0.0",
         icon: None,
     },
+    Sample {
+        id: "clock",
+        name: "Clock",
+        kind: Kind::Tool,
+        author: "ogo examples",
+        version: "1.0.0",
+        icon: Some((Pattern::Rings, [60, 120, 220])),
+    },
+    Sample {
+        id: "notes",
+        name: "Notes",
+        kind: Kind::Tool,
+        author: "ogo examples",
+        version: "0.2.0",
+        icon: Some((Pattern::Bricks, [220, 200, 80])),
+    },
 ];
 
-/// Writes the samples into `<sd_root>/ogo/games/`, skipping folders that exist unless `force`.
+/// Writes the samples into `<sd_root>/ogo/apps/`, skipping folders that exist unless `force`.
 pub fn write(sd_root: &Path, force: bool) -> anyhow::Result<()> {
     ensure!(sd_root.is_dir(), "{} is not a folder", sd_root.display());
-    let games = sd_root.join("ogo").join("games");
+    let apps = sd_root.join("ogo").join("apps");
     let mut written = Vec::new();
 
     for sample in &SAMPLES {
-        written.push(write_folder(&games.join(sample.id), force, |dir| {
-            write_game(dir, sample, SDK_VERSION)
+        written.push(write_folder(&apps.join(sample.id), force, |dir| {
+            write_app(dir, sample, SDK_VERSION)
         })?);
     }
-    // Broken on purpose: needs a newer SDK, and a game.toml that doesn't parse.
+    // Broken on purpose: needs a newer SDK, and an app.toml that doesn't parse.
     let future = Sample {
-        id: "future-game",
+        id: "future-app",
         name: "From The Future",
+        kind: Kind::Game,
         author: "ogo examples",
         version: "9.0.0",
         icon: Some((Pattern::Rings, [180, 60, 220])),
     };
-    written.push(write_folder(&games.join(future.id), force, |dir| {
-        write_game(dir, &future, SDK_VERSION + 1)
+    written.push(write_folder(&apps.join(future.id), force, |dir| {
+        write_app(dir, &future, SDK_VERSION + 1)
     })?);
-    written.push(write_folder(&games.join("bad-toml"), force, |dir| {
+    written.push(write_folder(&apps.join("bad-toml"), force, |dir| {
         fs::write(
-            dir.join("game.toml"),
+            dir.join("app.toml"),
             "id = \"bad-toml\"\nname = \"Missing quote\n",
         )?;
         Ok(())
@@ -177,21 +208,22 @@ fn write_folder(
     Ok(true)
 }
 
-fn write_game(dir: &Path, sample: &Sample, sdk_version: u32) -> anyhow::Result<()> {
+fn write_app(dir: &Path, sample: &Sample, sdk_version: u32) -> anyhow::Result<()> {
     let bin = format!("placeholder for {}, not a real firmware image\n", sample.id)
         .repeat(64)
         .into_bytes();
     let manifest = Manifest {
         id: sample.id.to_owned(),
         name: sample.name.to_owned(),
+        kind: sample.kind,
         version: sample.version.to_owned(),
         author: sample.author.to_owned(),
         sdk_version,
         sha256: ogo_format::hex(&Sha256::digest(&bin)),
         folders: Vec::new(),
     };
-    fs::write(dir.join("game.bin"), &bin)?;
-    fs::write(dir.join("game.toml"), manifest.to_toml())?;
+    fs::write(dir.join("app.bin"), &bin)?;
+    fs::write(dir.join("app.toml"), manifest.to_toml())?;
     if let Some((pattern, base)) = sample.icon {
         fs::write(dir.join("icon.rgb565"), icon(pattern, base))?;
     }

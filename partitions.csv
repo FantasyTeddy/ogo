@@ -7,4 +7,4 @@ phy_init,    data, phy,     0xf000,   0x1000
 recovery,    app,  factory, 0x10000,  0x200000
 launcher_a,  app,  ota_0,   0x210000, 0x280000
 launcher_b,  app,  ota_1,   0x490000, 0x280000
-game_0,      app,  ota_2,   0x710000, 0x8f0000
+app_0,       app,  ota_2,   0x710000, 0x8f0000

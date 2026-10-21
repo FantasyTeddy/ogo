@@ -1,4 +1,4 @@
-//! Save files under `/ogo/saves/<game-id>/` on the SD card, one file per name.
+//! Save files under `/ogo/saves/<app-id>/` on the SD card, one file per name.
 //!
 //! Values are stored as text, so they're easy to inspect on a PC. For anything more complex than
 //! a number or a string, serialize it yourself and use [`Saves::read_bytes`] / [`Saves::write_bytes`].
@@ -14,9 +14,9 @@ pub struct Saves {
 }
 
 impl Saves {
-    pub(crate) fn new(sd: Option<&SdCard>, game_id: &str) -> Self {
+    pub(crate) fn new(sd: Option<&SdCard>, app_id: &str) -> Self {
         Self {
-            dir: sd.map(|sd| PathBuf::from(sd.path(&format!("ogo/saves/{game_id}")))),
+            dir: sd.map(|sd| PathBuf::from(sd.path(&format!("ogo/saves/{app_id}")))),
         }
     }
 

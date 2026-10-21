@@ -173,7 +173,7 @@ struct Playing {
     samples: Vec<i16>,
 }
 
-impl Game for Gb {
+impl App for Gb {
     const FPS: u32 = 30;
     /// Game Boy games play music and sound effects on the same channels, often on the same one
     /// in turn: they can't be told apart.

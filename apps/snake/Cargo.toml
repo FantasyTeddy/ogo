@@ -1,27 +1,24 @@
 [package]
-name = "gb"
-version = "0.1.0"
+name = "snake"
+version = "1.1.0"
 authors = ["ogo examples"]
 edition.workspace = true
 license.workspace = true
-description = "Plays Game Boy ROMs from the SD card, with ogo-gb"
+description = "Snake, the first game built on ogo-sdk"
 
-# Read by `cargo xtask pack` for game.toml
+# Read by `cargo xtask pack` for app.toml
 [package.metadata.ogo]
-name = "GB"
-# The web page lets the user upload ROMs here
-folders = [{ label = "ROMs", path = "roms/gb", extensions = ["gb"] }]
+name = "Snake"
+kind = "game"
 
 [[bin]]
-name = "gb"
+name = "snake"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
 [dependencies]
 ogo-sdk.workspace = true
-ogo-gb.workspace = true
 embedded-graphics.workspace = true
 log.workspace = true
-anyhow.workspace = true
 # Not used directly, but build.rs only gets ESP-IDF's linker arguments from a direct dependency.
 esp-idf-svc.workspace = true
 

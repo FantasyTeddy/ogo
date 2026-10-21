@@ -1,4 +1,4 @@
-//! Launcher screen: top bar with battery, game list, detail panel and footer. The WiFi and settings
+//! Launcher screen: top bar with battery, app list, detail panel and footer. The WiFi and settings
 //! screens replace the list and detail panel.
 //!
 //! Each area is drawn into its own [`Canvas`] and presented in one transfer.
@@ -20,15 +20,18 @@ use ogo_board::{
     ui::{progress_bar, selection, text, ACCENT, BACKGROUND, BAR, SELECTION},
     BatteryLevel, Canvas, Display, DisplayResultExt,
 };
-use ogo_format::text::{truncate, wrap};
+use ogo_format::{
+    app::Kind,
+    text::{truncate, wrap},
+};
 
-use crate::library::{Entry, Library, GAMES_DIR, ICON_SIZE};
+use crate::library::{Entry, Library, APPS_DIR, ICON_SIZE};
 
 /// Center of the step numbers on the WiFi screen.
 const STEP_X: i32 = 34;
 
-/// Footer controls of the game list.
-pub const GAMES_CONTROLS: &str = "A start  START rescan  SELECT WiFi  MENU settings";
+/// Footer controls of the app list.
+pub const APPS_CONTROLS: &str = "A start  START rescan  SELECT WiFi  MENU settings";
 
 /// What the settings screen shows.
 #[derive(Debug, Clone)]
@@ -91,15 +94,18 @@ const LIST_TEXT_X: i32 = 8;
 /// Which part of the library is on screen.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ListState {
+    /// Index of the selected entry.
     pub selected: usize,
-    /// Index of the topmost visible row.
+    /// Index of the topmost visible row (see [`rows`]).
     pub first: usize,
 }
 
 impl ListState {
-    /// Moves the selection by `delta`, clamped to the list, and scrolls it into view.
-    /// With `wrap`, moving past either end continues at the other end.
-    pub fn move_by(&mut self, delta: isize, len: usize, wrap: bool) {
+    /// Moves the selection by `delta` entries, clamped to the list, and scrolls it into view,
+    /// together with the heading right above it. With `wrap`, moving past either end continues at
+    /// the other end.
+    pub fn move_by(&mut self, delta: isize, entries: &[Entry], wrap: bool) {
+        let len = entries.len();
         if len == 0 {
             *self = Self::default();
             return;
@@ -112,12 +118,46 @@ impl ListState {
         } else {
             target.clamp(0, len as isize - 1) as usize
         };
-        if self.selected < self.first {
-            self.first = self.selected;
-        } else if self.selected >= self.first + VISIBLE_ROWS {
-            self.first = self.selected + 1 - VISIBLE_ROWS;
+        let rows = rows(entries);
+        let row = rows
+            .iter()
+            .position(|&r| r == Row::Entry(self.selected))
+            .unwrap_or_default();
+        let top = match row.checked_sub(1).map(|above| rows[above]) {
+            Some(Row::Heading(_)) => row - 1,
+            _ => row,
+        };
+        if top < self.first {
+            self.first = top;
+        } else if row >= self.first + VISIBLE_ROWS {
+            self.first = row + 1 - VISIBLE_ROWS;
         }
     }
+}
+
+/// A row of the list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Row {
+    /// The heading of a section: a kind of app, or `None` for the entries that can't be used.
+    Heading(Option<Kind>),
+    /// An entry, by index.
+    Entry(usize),
+}
+
+/// The rows of the list: the entries (sorted by section, see [`Entry::kind`]), with a heading
+/// before each section when there is more than one.
+pub fn rows(entries: &[Entry]) -> Vec<Row> {
+    let headings = entries.first().map(Entry::kind) != entries.last().map(Entry::kind);
+    let mut rows = Vec::with_capacity(entries.len() + 3);
+    let mut section = None;
+    for (index, entry) in entries.iter().enumerate() {
+        if headings && section != Some(entry.kind()) {
+            section = Some(entry.kind());
+            rows.push(Row::Heading(entry.kind()));
+        }
+        rows.push(Row::Entry(index));
+    }
+    rows
 }
 
 pub struct Ui {
@@ -229,7 +269,7 @@ impl Ui {
     }
 
     /// Draws the list and the detail panel, or a message if there is nothing to list.
-    /// `icon` is the selected game's icon, if it has one.
+    /// `icon` is the selected app's icon, if it has one.
     pub fn draw_library(
         &mut self,
         display: &mut Display,
@@ -241,8 +281,8 @@ impl Ui {
             Library::NoSdCard => {
                 return self.draw_message(display, "No SD card", &["Insert a card and restart."])
             }
-            Library::NoGamesDir => return self.draw_no_games(display),
-            Library::Entries(entries) if entries.is_empty() => return self.draw_no_games(display),
+            Library::NoAppsDir => return self.draw_no_apps(display),
+            Library::Entries(entries) if entries.is_empty() => return self.draw_no_apps(display),
             Library::Entries(entries) => entries,
         };
         self.draw_list(entries, state);
@@ -533,16 +573,12 @@ impl Ui {
         canvas.present(display)
     }
 
-    fn draw_no_games(&mut self, display: &mut Display) -> anyhow::Result<()> {
-        let folder = format!("/{GAMES_DIR}/<game-id>/");
+    fn draw_no_apps(&mut self, display: &mut Display) -> anyhow::Result<()> {
+        let folder = format!("/{APPS_DIR}/<app-id>/");
         self.draw_message(
             display,
-            "No games yet",
-            &[
-                "Copy games to",
-                &folder,
-                "on the SD card, then press START.",
-            ],
+            "No apps yet",
+            &["Copy apps to", &folder, "on the SD card, then press START."],
         )
     }
 
@@ -582,14 +618,41 @@ impl Ui {
         let max_chars = ((LIST_WIDTH - SCROLLBAR_WIDTH) as i32 - 2 * LIST_TEXT_X) as usize
             / FONT_8X13.character_size.width as usize;
 
-        for (row, (index, entry)) in entries
-            .iter()
-            .enumerate()
-            .skip(state.first)
-            .take(VISIBLE_ROWS)
-            .enumerate()
-        {
+        let rows = rows(entries);
+        for (row, &item) in rows.iter().skip(state.first).take(VISIBLE_ROWS).enumerate() {
             let top = row as i32 * ROW_HEIGHT as i32;
+            let index = match item {
+                Row::Entry(index) => index,
+                Row::Heading(kind) => {
+                    // Small and dim, low in the row so it sits with the entries below, then a
+                    // line to the right edge
+                    let heading = kind.map_or("Can't be used", Kind::plural);
+                    let y = top + ROW_HEIGHT as i32 - 8;
+                    text(
+                        canvas,
+                        heading,
+                        Point::new(LIST_TEXT_X, y),
+                        &FONT_6X10,
+                        DIM,
+                        Alignment::Left,
+                    );
+                    let line_x = LIST_TEXT_X
+                        + (heading.len() as u32 * FONT_6X10.character_size.width) as i32
+                        + 6;
+                    Rectangle::new(
+                        Point::new(line_x, y),
+                        Size::new(
+                            (LIST_WIDTH - SCROLLBAR_WIDTH) - line_x as u32 - LIST_TEXT_X as u32,
+                            1,
+                        ),
+                    )
+                    .into_styled(PrimitiveStyle::with_fill(BAR))
+                    .draw(canvas)
+                    .ok();
+                    continue;
+                }
+            };
+            let entry = &entries[index];
             if index == state.selected {
                 selection(
                     canvas,
@@ -600,7 +663,7 @@ impl Ui {
                 );
             }
             let (label, color) = match entry {
-                Entry::Game(game) => (truncate(&game.name, max_chars), TEXT),
+                Entry::App(app) => (truncate(&app.name, max_chars), TEXT),
                 Entry::Broken(broken) => {
                     (truncate(&format!("! {}", broken.folder), max_chars), DIM)
                 }
@@ -610,10 +673,10 @@ impl Ui {
         }
 
         // Scrollbar, only when the list doesn't fit.
-        if entries.len() > VISIBLE_ROWS {
+        if rows.len() > VISIBLE_ROWS {
             let track = BODY_HEIGHT;
-            let thumb = (track * VISIBLE_ROWS as u32 / entries.len() as u32).max(8);
-            let max_first = entries.len() - VISIBLE_ROWS;
+            let thumb = (track * VISIBLE_ROWS as u32 / rows.len() as u32).max(8);
+            let max_first = rows.len() - VISIBLE_ROWS;
             let offset = (track - thumb) * state.first as u32 / max_first as u32;
             Rectangle::new(
                 Point::new((LIST_WIDTH - SCROLLBAR_WIDTH) as i32, offset as i32),
@@ -636,12 +699,12 @@ impl Ui {
         let center_x = DETAIL_WIDTH as i32 / 2;
         let icon_top_left = Point::new(center_x - ICON_SIZE as i32 / 2, 10);
         match (entry, icon) {
-            (Entry::Game(_), Some(icon)) => {
+            (Entry::App(_), Some(icon)) => {
                 let raw = ImageRawLE::<Rgb565>::new(icon, ICON_SIZE);
                 Image::new(&raw, icon_top_left).draw(canvas).ok();
             }
-            (Entry::Game(game), None) => {
-                let initial = game
+            (Entry::App(app), None) => {
+                let initial = app
                     .name
                     .chars()
                     .next()
@@ -667,17 +730,17 @@ impl Ui {
         }
         y += 4;
         match entry {
-            Entry::Game(game) => {
+            Entry::App(app) => {
                 text(
                     canvas,
-                    &format!("v{}", game.version),
+                    &format!("v{}", app.version),
                     Point::new(center_x, y),
                     &FONT_6X10,
                     DIM,
                     Alignment::Center,
                 );
-                if !game.author.is_empty() {
-                    for line in wrap(&format!("by {}", game.author), 20, 2) {
+                if !app.author.is_empty() {
+                    for line in wrap(&format!("by {}", app.author), 20, 2) {
                         y += 12;
                         text(
                             canvas,
@@ -730,7 +793,7 @@ const LOGO: &[u8] = include_bytes!("../../assets/logo.rgb565");
 const LOGO_WIDTH: u32 = 200;
 const LOGO_HEIGHT: u32 = 184;
 
-/// Logo and version on black, shown from power-on until the game list is ready.
+/// Logo and version on black, shown from power-on until the app list is ready.
 pub fn draw_boot_screen(display: &mut Display) -> anyhow::Result<()> {
     let raw = ImageRawLE::<Rgb565>::new(LOGO, LOGO_WIDTH);
     let top_left = Point::new(
@@ -754,7 +817,7 @@ pub fn draw_boot_screen(display: &mut Display) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A frame with a big character, for games without an icon and for broken entries.
+/// A frame with a big character, for apps without an icon and for broken entries.
 fn placeholder_icon(canvas: &mut Canvas, top_left: Point, label: &str, color: Rgb565) {
     let style = PrimitiveStyleBuilder::new()
         .stroke_color(color)

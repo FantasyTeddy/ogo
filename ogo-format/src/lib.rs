@@ -3,9 +3,9 @@
 //! The firmware crates and xtask share these, and the tests run on the PC: `cargo xtask test`.
 //! The formats themselves are described in docs/CONTRACTS.md.
 
+pub mod app;
 pub mod battery;
 pub mod flash;
-pub mod game;
 pub mod image;
 pub mod package;
 pub mod scale;

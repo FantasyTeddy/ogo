@@ -56,13 +56,16 @@
   button.small { padding: 4px 10px; font-size: 13px; }
   button:disabled { opacity: .5; cursor: default; }
   ul.list { list-style: none; margin: 0; padding: 0; }
-  .games > li { padding: 8px 0; border-top: 1px solid var(--line); }
-  .games > li:first-child { border-top: 0; }
-  .game { display: flex; align-items: center; gap: 12px; }
-  .game .actions { display: flex; gap: 6px; flex: none; }
-  .games img, .games .noicon { width: 48px; height: 48px; border-radius: 6px; flex: none;
+  .apps > li { padding: 8px 0; border-top: 1px solid var(--line); }
+  .apps > li:first-child { border-top: 0; }
+  .apps > li.section { padding: 16px 0 2px; border-top: 0; color: var(--dim); font-size: 13px; font-weight: 600; }
+  .apps > li.section:first-child { padding-top: 0; }
+  .apps > li.section + li { border-top: 0; }
+  .entry { display: flex; align-items: center; gap: 12px; }
+  .entry .actions { display: flex; gap: 6px; flex: none; }
+  .apps img, .apps .noicon { width: 48px; height: 48px; border-radius: 6px; flex: none;
                                 background: var(--line); image-rendering: pixelated; }
-  .games .info { flex: 1; min-width: 0; }
+  .apps .info { flex: 1; min-width: 0; }
   .name { font-weight: 600; overflow-wrap: anywhere; }
   .meta { color: var(--dim); font-size: 13px; }
   .error { color: var(--bad); font-size: 13px; }
@@ -70,7 +73,7 @@
   .folder-toggle svg { transition: transform .15s; }
   .folder-toggle[aria-expanded=true] { color: var(--text); border-color: var(--dim); }
   .folder-toggle[aria-expanded=true] svg { transform: rotate(180deg); }
-  /* Below its game, lined up with the name (icon 48 px + gap 12 px) */
+  /* Below its app, lined up with the name (icon 48 px + gap 12 px) */
   .folder { margin: 10px 0 4px 60px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line);
             border-radius: 8px; }
   @media (max-width: 520px) { .folder { margin-left: 0; } }
@@ -107,7 +110,7 @@
 <main>
   <header>
     <img src="/logo.png" alt="">
-    <div><h1>ogo</h1><p>Games on your ODROID-GO</p></div>
+    <div><h1>ogo</h1><p>Apps on your ODROID-GO</p></div>
     <div class="chips" id="chips" hidden>
       <span class="chip" id="chip-battery" title="Battery">
         <!-- Drawn like the battery on the device: outline, tip and a fill level. -->
@@ -139,24 +142,24 @@
 
   <div id="app" hidden>
     <nav>
-      <a href="#games" data-tab="games">Games</a>
+      <a href="#apps" data-tab="apps">Apps</a>
       <a href="#settings" data-tab="settings">Settings</a>
     </nav>
     <div id="toast" class="toast" role="status"></div>
 
-    <div data-page="games">
+    <div data-page="apps">
       <section>
-        <h2>Add a game</h2>
+        <h2>Add an app</h2>
         <div class="row">
           <input type="file" id="file" accept=".ogo">
           <button id="upload">Upload</button>
         </div>
         <progress id="progress" value="0" max="1" hidden></progress>
-        <p class="hint">An .ogo package, e.g. from <code>cargo xtask pack snake</code>. A game with the same id is replaced.</p>
+        <p class="hint">An .ogo package, e.g. from <code>cargo xtask pack snake</code>. An app with the same id is replaced.</p>
       </section>
       <section>
-        <h2>Games</h2>
-        <ul class="list games" id="games"><li>Loading…</li></ul>
+        <h2>Apps</h2>
+        <ul class="list apps" id="apps"><li>Loading…</li></ul>
       </section>
     </div>
 
@@ -269,7 +272,7 @@ function showApp() {
   $("app").hidden = false;
   $("chips").hidden = false;
   showTab();
-  loadGames().catch((e) => toast(e.message, "bad"));
+  loadApps().catch((e) => toast(e.message, "bad"));
   // The network list marks the current network, which the status names.
   loadStatus().then(loadNetworks).catch((e) => toast(e.message, "bad"));
 }
@@ -289,7 +292,7 @@ $("login-form").onsubmit = async (event) => {
 // --- Tabs ---
 
 function showTab() {
-  const tab = location.hash === "#settings" ? "settings" : "games";
+  const tab = location.hash === "#settings" ? "settings" : "apps";
   for (const page of document.querySelectorAll("[data-page]")) page.hidden = page.dataset.page !== tab;
   for (const link of document.querySelectorAll("nav a")) link.classList.toggle("active", link.dataset.tab === tab);
   toast("");
@@ -364,36 +367,46 @@ function formatBuilt(built, short = false) {
     : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-// --- Games ---
+// --- Apps ---
 
-async function loadGames() {
-  const games = await api("GET", "/api/games");
-  const list = $("games");
+async function loadApps() {
+  const apps = await api("GET", "/api/apps");
+  const list = $("apps");
   list.replaceChildren();
-  if (!games.length) {
-    list.innerHTML = "<li>No games yet.</li>";
+  if (!apps.length) {
+    list.innerHTML = "<li>No apps yet.</li>";
     return;
   }
-  for (const game of games) {
+  // Sorted by kind, broken ones (kind null) last; a heading per kind when there's more than one
+  const headings = apps[0].kind !== apps[apps.length - 1].kind;
+  let section;
+  for (const app of apps) {
+    if (headings && app.kind !== section) {
+      section = app.kind;
+      const heading = document.createElement("li");
+      heading.className = "section";
+      heading.textContent = { game: "Games", tool: "Tools" }[app.kind] ?? "Can't be used";
+      list.append(heading);
+    }
     const li = document.createElement("li");
     const row = document.createElement("div");
-    row.className = "game";
-    const icon = game.has_icon ? document.createElement("img") : document.createElement("div");
-    if (game.has_icon) { icon.src = `/api/games/${game.id}/icon.bmp`; icon.alt = ""; }
+    row.className = "entry";
+    const icon = app.has_icon ? document.createElement("img") : document.createElement("div");
+    if (app.has_icon) { icon.src = `/api/apps/${app.id}/icon.bmp`; icon.alt = ""; }
     else icon.className = "noicon";
     const info = document.createElement("div");
     info.className = "info";
     const name = document.createElement("div");
     name.className = "name";
-    name.textContent = game.name;
+    name.textContent = app.name;
     const meta = document.createElement("div");
-    if (game.error) { meta.className = "error"; meta.textContent = game.error; }
-    else { meta.className = "meta"; meta.textContent = `v${game.version}${game.author ? " · " + game.author : ""} · ${game.id}`; }
+    if (app.error) { meta.className = "error"; meta.textContent = app.error; }
+    else { meta.className = "meta"; meta.textContent = `v${app.version}${app.author ? " · " + app.author : ""} · ${app.id}`; }
     info.append(name, meta);
     const actions = document.createElement("div");
     actions.className = "actions";
-    const panels = game.folders.map((folder, index) => {
-      const { toggle, panel } = folderView(game, folder, index);
+    const panels = app.folders.map((folder, index) => {
+      const { toggle, panel } = folderView(app, folder, index);
       actions.append(toggle);
       return panel;
     });
@@ -401,9 +414,9 @@ async function loadGames() {
     remove.className = "ghost small";
     remove.textContent = "Delete";
     remove.onclick = async () => {
-      const files = game.folders.length ? ` Its ${game.folders.map((f) => f.label).join(", ")} stay too.` : "";
-      if (!confirm(`Delete ${game.name} from the SD card? Its saves stay.${files}`)) return;
-      try { toast((await api("DELETE", `/api/games/${game.id}`)).message, "ok"); loadGames(); loadStatus(); }
+      const files = app.folders.length ? ` Its ${app.folders.map((f) => f.label).join(", ")} stay too.` : "";
+      if (!confirm(`Delete ${app.name} from the SD card? Its saves stay.${files}`)) return;
+      try { toast((await api("DELETE", `/api/apps/${app.id}`)).message, "ok"); loadApps(); loadStatus(); }
       catch (e) { toast(e.message, "bad"); }
     };
     actions.append(remove);
@@ -413,19 +426,19 @@ async function loadGames() {
   }
 }
 
-// Folders the user opened, by "<game id>/<index>", so they stay open when the list reloads.
+// Folders the user opened, by "<app id>/<index>", so they stay open when the list reloads.
 const openFolders = new Set();
 
 const CHEVRON = '<svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">' +
   '<path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 
 /**
- * A game's folder (from its game.toml): a toggle for the game's row, and a panel below the row with
+ * An app's folder (from its app.toml): a toggle for the app's row, and a panel below the row with
  * the files in it, delete buttons and an upload field.
  */
-function folderView(game, folder, index) {
-  const key = `${game.id}/${index}`;
-  const url = `/api/games/${game.id}/folders/${index}`;
+function folderView(app, folder, index) {
+  const key = `${app.id}/${index}`;
+  const url = `/api/apps/${app.id}/folders/${index}`;
   const extensions = folder.extensions.map((e) => "." + e);
 
   const toggle = document.createElement("button");
@@ -555,8 +568,8 @@ function uploadFile({ file, url, button, progress, done }) {
 needsFile($("file"), $("upload"));
 $("upload").onclick = () => {
   const file = $("file").files[0];
-  uploadFile({ file, url: "/api/games", button: $("upload"), progress: $("progress"), done: (ok) => {
-    if (ok) { $("file").value = ""; loadGames(); loadStatus(); }
+  uploadFile({ file, url: "/api/apps", button: $("upload"), progress: $("progress"), done: (ok) => {
+    if (ok) { $("file").value = ""; loadApps(); loadStatus(); }
     $("upload").disabled = !$("file").files.length;
   } });
 };

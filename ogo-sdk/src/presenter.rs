@@ -1,11 +1,11 @@
-//! Double buffering: the game draws into one buffer while a display thread sends another to the
+//! Double buffering: the app draws into one buffer while a display thread sends another to the
 //! LCD.
 //!
-//! Full-screen buffers are in PSRAM. A game that uses only part of the screen ([`Game::area`])
+//! Full-screen buffers are in PSRAM. An app that uses only part of the screen ([`App::area`])
 //! draws into buffers of just that size in internal RAM instead, which are much faster to write
 //! and to send.
 //!
-//! [`Game::area`]: crate::Game::area
+//! [`App::area`]: crate::App::area
 
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
@@ -27,7 +27,7 @@ pub struct Presenter {
     sent: Receiver<Canvas>,
     /// Free full-screen buffers.
     full: Vec<Canvas>,
-    /// The game's area and its free buffers.
+    /// The app's area and its free buffers.
     area: Option<Area>,
     area_buffers: Vec<Canvas>,
 }
@@ -44,7 +44,7 @@ impl Presenter {
         );
         let (to_display, frames) = mpsc::sync_channel::<Frame>(1);
         // Room for the small extra buffers too (the volume box, clearing where it was)
-        let (to_game, sent) = mpsc::sync_channel::<Canvas>(4 * BUFFERS);
+        let (to_app, sent) = mpsc::sync_channel::<Canvas>(4 * BUFFERS);
 
         let display = SendDisplay(display);
         ogo_board::thread::spawn_on_second_core("display", 8192, move || {
@@ -55,7 +55,7 @@ impl Presenter {
                         log::error!("Sending a frame to the display failed: {e:?}");
                     }
                 }
-                if to_game.send(frame).is_err() {
+                if to_app.send(frame).is_err() {
                     return;
                 }
             }
@@ -82,7 +82,7 @@ impl Presenter {
         }
     }
 
-    /// A buffer for the game's `area` of the screen, in internal RAM. Waits until the display
+    /// A buffer for the app's `area` of the screen, in internal RAM. Waits until the display
     /// thread has sent one. For a new area, both buffers are made at once, while internal RAM still
     /// has blocks large enough.
     pub fn take_area(&mut self, area: Area) -> anyhow::Result<Canvas> {
@@ -108,7 +108,7 @@ impl Presenter {
         } else if Some(area) == self.area {
             self.area_buffers.push(canvas);
         }
-        // Otherwise it's for an area the game no longer uses: dropped
+        // Otherwise it's for an area the app no longer uses: dropped
     }
 
     /// Hands a drawn buffer to the display thread, which sends `areas` of it (in the buffer's own

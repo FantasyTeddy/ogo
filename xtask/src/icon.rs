@@ -1,10 +1,10 @@
-//! `cargo xtask icon <game> <image.png>`: converts a PNG into the game's `icon.rgb565`.
+//! `cargo xtask icon <app> <image.png>`: converts a PNG into the app's `icon.rgb565`.
 
 use std::{fs, path::Path};
 
 use anyhow::Context;
 use image::imageops::{self, FilterType};
-use ogo_format::game::{rgb565_le, ICON_BYTES, ICON_SIZE};
+use ogo_format::app::{rgb565_le, ICON_BYTES, ICON_SIZE};
 
 /// Scales `input` to 64x64 and writes it to `output` as RGB565. Transparent parts become black,
 /// like the launcher's background.

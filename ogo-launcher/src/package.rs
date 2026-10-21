@@ -1,9 +1,9 @@
-//! `.ogo` game packages: an uncompressed tar with `game.toml`, `game.bin` and optionally
+//! `.ogo` app packages: an uncompressed tar with `app.toml`, `app.bin` and optionally
 //! `icon.rgb565` (docs/CONTRACTS.md).
 //!
-//! A package is unpacked into a hidden folder next to the games, checked like a library entry
-//! (plus the sha256 of `game.bin` and its size), and only then moved into place, so a broken
-//! upload never replaces a working game.
+//! A package is unpacked into a hidden folder next to the apps, checked like a library entry
+//! (plus the sha256 of `app.bin` and its size), and only then moved into place, so a broken
+//! upload never replaces a working app.
 
 use std::{
     fs::{self, File},
@@ -13,56 +13,56 @@ use std::{
 
 use anyhow::{anyhow, bail, Context};
 use ogo_board::{
-    boot::{find_app_partition, GAME_PARTITION},
+    boot::{find_app_partition, APP_PARTITION},
     flash::file_sha256,
 };
 
-use crate::library::{self, Game};
+use crate::library::{self, App};
 
-/// Unpacks and checks `package`, then installs it as `<games_dir>/<id>/`, replacing an older
-/// version. Returns the game.
-pub fn install(package: &Path, games_dir: &Path) -> anyhow::Result<Game> {
-    fs::create_dir_all(games_dir)?;
-    let staging = games_dir.join(".incoming");
+/// Unpacks and checks `package`, then installs it as `<apps_dir>/<id>/`, replacing an older
+/// version. Returns the app.
+pub fn install(package: &Path, apps_dir: &Path) -> anyhow::Result<App> {
+    fs::create_dir_all(apps_dir)?;
+    let staging = apps_dir.join(".incoming");
     if staging.exists() {
         fs::remove_dir_all(&staging)?;
     }
     fs::create_dir(&staging)?;
 
     let result = unpack(package, &staging).and_then(|()| check(&staging));
-    let game = match result {
-        Ok(game) => game,
+    let app = match result {
+        Ok(app) => app,
         Err(e) => {
             let _ = fs::remove_dir_all(&staging);
             return Err(e);
         }
     };
 
-    let target = games_dir.join(&game.id);
+    let target = apps_dir.join(&app.id);
     if target.exists() {
-        fs::remove_dir_all(&target).with_context(|| format!("can't remove the old {}", game.id))?;
+        fs::remove_dir_all(&target).with_context(|| format!("can't remove the old {}", app.id))?;
     }
-    fs::rename(&staging, &target).with_context(|| format!("can't move {} into place", game.id))?;
-    log::info!("Installed package {} {}", game.id, game.version);
-    library::load_game(&target, Some(&game.id)).map_err(|e| anyhow!(e))
+    fs::rename(&staging, &target).with_context(|| format!("can't move {} into place", app.id))?;
+    log::info!("Installed package {} {}", app.id, app.version);
+    library::load_app(&target, Some(&app.id)).map_err(|e| anyhow!(e))
 }
 
-fn check(dir: &Path) -> anyhow::Result<Game> {
-    let game = library::load_game(dir, None).map_err(|e| anyhow!(e))?;
-    let bin = dir.join("game.bin");
+fn check(dir: &Path) -> anyhow::Result<App> {
+    let app = library::load_app(dir, None).map_err(|e| anyhow!(e))?;
+    let bin = dir.join("app.bin");
     let size = fs::metadata(&bin)?.len();
-    let slot = find_app_partition(GAME_PARTITION)?.size;
+    let slot = find_app_partition(APP_PARTITION)?.size;
     if size > u64::from(slot) {
         bail!(
-            "game.bin is {} KB, the game slot holds {} KB",
+            "app.bin is {} KB, the app slot holds {} KB",
             size / 1024,
             slot / 1024
         );
     }
-    if file_sha256(&bin)? != game.sha256 {
-        bail!("game.bin doesn't match the sha256 in game.toml");
+    if file_sha256(&bin)? != app.sha256 {
+        bail!("app.bin doesn't match the sha256 in app.toml");
     }
-    Ok(game)
+    Ok(app)
 }
 
 /// Unpacks the package files into `into`.

@@ -2,8 +2,8 @@
 
 /// The factory slot with `ogo-recovery`.
 pub const RECOVERY: &str = "recovery";
-/// The slot games are installed into.
-pub const GAME: &str = "game_0";
+/// The slot apps are installed into.
+pub const APP: &str = "app_0";
 
 /// One of the two launcher slots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn names_and_other_slot() {
         assert_eq!(launcher_slot("launcher_b").map(|slot| slot.name), Some("B"));
-        assert_eq!(launcher_slot(GAME), None);
+        assert_eq!(launcher_slot(APP), None);
         assert_eq!(other_launcher_slot("launcher_a"), LAUNCHER_B);
         assert_eq!(other_launcher_slot("launcher_b"), LAUNCHER_A);
         assert_eq!(other_launcher_slot(RECOVERY), LAUNCHER_A);
@@ -66,7 +66,7 @@ mod tests {
             (RECOVERY, "factory"),
             (LAUNCHER_A.label, "ota_0"),
             (LAUNCHER_B.label, "ota_1"),
-            (GAME, "ota_2"),
+            (APP, "ota_2"),
         ];
         assert_eq!(apps, expected);
     }

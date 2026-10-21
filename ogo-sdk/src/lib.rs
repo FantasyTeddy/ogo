@@ -1,29 +1,29 @@
-//! ogo-sdk: everything a game needs to run under the ODROID-GO launcher.
+//! ogo-sdk: everything an app needs to run under the ODROID-GO launcher.
 //!
-//! Implement [`Game`] and hand it to [`main!`]:
+//! Implement [`App`] and hand it to [`main!`]:
 //!
 //! ```ignore
 //! use ogo_sdk::prelude::*;
 //!
-//! struct MyGame;
+//! struct MyApp;
 //!
-//! impl Game for MyGame {
-//!     fn new(ctx: &mut Ctx) -> Self { MyGame }
+//! impl App for MyApp {
+//!     fn new(ctx: &mut Ctx) -> Self { MyApp }
 //!     fn update(&mut self, ctx: &mut Ctx) {}
 //!     fn draw(&self, fb: &mut Framebuffer) { fb.clear(Rgb565::BLACK).ok(); }
 //! }
 //!
-//! ogo_sdk::main!(MyGame);
+//! ogo_sdk::main!(MyApp);
 //! ```
 //!
 //! The SDK makes sure any reset returns to the launcher, runs `update` at a fixed rate and `draw`
 //! once per update, and handles MENU (pause menu with volume, music on/off and "Exit to launcher")
 //! and VOL (all sound, effects only, muted). It applies the brightness and sound settings from the
-//! launcher's settings, and saves the changes made in the game.
+//! launcher's settings, and saves the changes made in the app.
 //!
-//! A game crate needs, besides `ogo-sdk`: a `build.rs` calling `embuild::espidf::sysenv::output()`,
+//! An app crate needs, besides `ogo-sdk`: a `build.rs` calling `embuild::espidf::sysenv::output()`,
 //! and a direct dependency on `esp-idf-svc` even if unused, because the build script only gets
-//! ESP-IDF's linker arguments from a direct dependency. See `games/snake` for a complete example.
+//! ESP-IDF's linker arguments from a direct dependency. See `apps/snake` for a complete example.
 
 mod area;
 mod ctx;
@@ -49,7 +49,7 @@ pub use ogo_board as __board;
 /// Samples per second of the speaker, for a [`Stream`].
 pub use ogo_board::speaker::SAMPLE_RATE;
 /// The launcher's colours and drawing helpers (`text`, `selection`, `panel`, `progress_bar`), for
-/// games that want to match its look.
+/// apps that want to match its look.
 pub use ogo_board::ui;
 pub use ogo_board::{in_internal_ram, BatteryLevel, Note, Part, Speaker, Stream, Track, Wave};
 pub use saves::Saves;
@@ -57,46 +57,47 @@ pub use saves::Saves;
 use overlay::{PauseAction, PauseMenu, SoundIndicator, INDICATOR_AREA, MENU_SOUND};
 use presenter::Presenter;
 
-/// The 320x240 frame a game draws into. Implements embedded-graphics' `DrawTarget`.
+/// The 320x240 frame an app draws into. Implements embedded-graphics' `DrawTarget`.
 pub type Framebuffer = ogo_board::Canvas;
 
 pub const SCREEN_WIDTH: u32 = ogo_board::display::WIDTH as u32;
 pub const SCREEN_HEIGHT: u32 = ogo_board::display::HEIGHT as u32;
 
-/// The version of the contract between launcher and games; `cargo xtask pack` writes it into
-/// `game.toml` as `sdk_version`.
-pub use ogo_format::game::SDK_VERSION;
+/// The version of the contract between launcher and apps; `cargo xtask pack` writes it into
+/// `app.toml` as `sdk_version`.
+pub use ogo_format::app::SDK_VERSION;
 
 pub mod prelude {
     pub use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
     pub use ogo_board::Button;
 
     pub use crate::{
-        Area, Ctx, Framebuffer, Game, MenuSetting, Note, Part, Track, Wave, SCREEN_HEIGHT,
+        App, Area, Ctx, Framebuffer, MenuSetting, Note, Part, Track, Wave, SCREEN_HEIGHT,
         SCREEN_WIDTH,
     };
 }
 
-pub trait Game: Sized {
+pub trait App: Sized {
     /// Updates (and frames) per second. The display manages about 22 full frames per second, or
-    /// more with a smaller [`Game::area`].
+    /// more with a smaller [`App::area`].
     const FPS: u32 = 30;
 
-    /// Whether the game has music of its own, apart from its sound effects. Without (e.g. an
-    /// emulator, whose sound can't be split like that), VOL only switches between sound on and
-    /// muted, and the pause menu has no music line.
-    const MUSIC: bool = true;
+    /// Whether the app has music of its own, apart from its sound effects, e.g. a game's tracks. With
+    /// it, VOL switches between all sound, effects only and muted, and the pause menu has a music
+    /// line; without (e.g. a tool, or an emulator, whose sound can't be split like that), VOL only
+    /// switches between sound on and muted.
+    const MUSIC: bool = false;
 
     fn new(ctx: &mut Ctx) -> Self;
 
-    /// Advances the game by one step. Not called while the pause menu is open.
+    /// Advances the app by one step. Not called while the pause menu is open.
     fn update(&mut self, ctx: &mut Ctx);
 
-    /// Draws the whole frame, or all of [`Game::area`]; the buffer still holds an older frame, so
+    /// Draws the whole frame, or all of [`App::area`]; the buffer still holds an older frame, so
     /// clear or overwrite all of it.
     fn draw(&self, fb: &mut Framebuffer);
 
-    /// The part of the screen the game draws, if not all of it; asked before each `draw`. `draw`
+    /// The part of the screen the app draws, if not all of it; asked before each `draw`. `draw`
     /// then gets a framebuffer of just the area's size in internal RAM, with (0, 0) at its
     /// top-left corner; a scaled area is scaled up on the way to the display. The SDK keeps the
     /// rest of the screen black and sends only this part to the display. Both are much faster: a
@@ -106,12 +107,12 @@ pub trait Game: Sized {
         None
     }
 
-    /// The game's own settings for the pause menu, e.g. a colour scheme; asked while it's open.
+    /// The app's own settings for the pause menu, e.g. a colour scheme; asked while it's open.
     fn menu_settings(&self) -> Vec<MenuSetting> {
         Vec::new()
     }
 
-    /// Changes setting `index` of [`Game::menu_settings`] by one step: `delta` is -1 (Left) or 1
+    /// Changes setting `index` of [`App::menu_settings`] by one step: `delta` is -1 (Left) or 1
     /// (Right or A).
     fn change_menu_setting(&mut self, _ctx: &mut Ctx, _index: usize, _delta: isize) {}
 
@@ -120,20 +121,20 @@ pub trait Game: Sized {
     fn paused(&mut self, _ctx: &mut Ctx) {}
 }
 
-/// Defines `main` for a game type, and the image description that marks it as a game.
+/// Defines `main` for an app type, and the image description that marks it as an app.
 #[macro_export]
 macro_rules! main {
-    ($game:ty) => {
-        $crate::__board::image_desc!(Game);
+    ($app:ty) => {
+        $crate::__board::image_desc!(App);
 
         fn main() {
-            $crate::run::<$game>(env!("CARGO_PKG_NAME"))
+            $crate::run::<$app>(env!("CARGO_PKG_NAME"))
         }
     };
 }
 
-/// Runs a game. Use [`main!`] instead of calling this directly.
-pub fn run<G: Game>(game_id: &str) -> ! {
+/// Runs an app. Use [`main!`] instead of calling this directly.
+pub fn run<A: App>(app_id: &str) -> ! {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
@@ -141,7 +142,7 @@ pub fn run<G: Game>(game_id: &str) -> ! {
     let nvs =
         match Boot::take().and_then(|mut boot| boot.return_to_launcher_on_reset().map(|()| boot)) {
             Ok(boot) => {
-                log::info!("{game_id} running from {}", boot::running_partition_label());
+                log::info!("{app_id} running from {}", boot::running_partition_label());
                 Settings::open_nvs(boot.nvs_partition())
                     .inspect_err(|e| log::warn!("Can't open the settings: {e:?}"))
                     .ok()
@@ -152,13 +153,13 @@ pub fn run<G: Game>(game_id: &str) -> ! {
             }
         };
 
-    if let Err(e) = run_game::<G>(game_id, nvs) {
-        log::error!("{game_id} stopped: {e:?}");
+    if let Err(e) = run_app::<A>(app_id, nvs) {
+        log::error!("{app_id} stopped: {e:?}");
     }
     boot::restart()
 }
 
-fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Result<()> {
+fn run_app<A: App>(app_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Result<()> {
     let settings = nvs.as_ref().map(Settings::load).unwrap_or_default();
     let Board {
         display,
@@ -171,16 +172,16 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
         modem: _,
     } = Board::take_with(&settings, |_| Ok(()))?;
     let mut presenter = Presenter::new(display)?;
-    let mut ctx = Ctx::new(game_id, buttons, speaker, battery, led, sd, nvs, settings);
-    let mut game = G::new(&mut ctx);
+    let mut ctx = Ctx::new(app_id, buttons, speaker, battery, led, sd, nvs, settings);
+    let mut app = A::new(&mut ctx);
 
-    let frame_time = Duration::from_micros(1_000_000 / u64::from(G::FPS.max(1)));
+    let frame_time = Duration::from_micros(1_000_000 / u64::from(A::FPS.max(1)));
     let mut next_frame = Instant::now();
     let mut pause: Option<PauseMenu> = None;
-    let mut indicator = SoundIndicator::new(G::MUSIC);
+    let mut indicator = SoundIndicator::new(A::MUSIC);
     let screen = Rectangle::new(Point::zero(), Size::new(SCREEN_WIDTH, SCREEN_HEIGHT));
     let mut area = None;
-    // Where the screen still shows something outside the game's area (an overlay, an earlier
+    // Where the screen still shows something outside the app's area (an overlay, an earlier
     // area): cleared with the next frame.
     let mut stale: Option<Rectangle> = None;
 
@@ -188,10 +189,10 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
         ctx.poll()?;
 
         if ctx.input().pressed(Button::Volume) {
-            if G::MUSIC {
+            if A::MUSIC {
                 ctx.change_settings(|s| s.set_sound_mode(s.sound_mode().next()));
             } else {
-                // Only on and muted; the music setting stays as it is for other games
+                // Only on and muted; the music setting stays as it is for other apps
                 ctx.change_settings(|s| s.muted = !s.muted);
             }
             ctx.sound().play(MENU_SOUND);
@@ -213,8 +214,8 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
                     });
                     ctx.sound().play(MENU_SOUND);
                 }
-                Some(PauseAction::GameSetting(index, delta)) => {
-                    game.change_menu_setting(&mut ctx, index, delta);
+                Some(PauseAction::AppSetting(index, delta)) => {
+                    app.change_menu_setting(&mut ctx, index, delta);
                     ctx.sound().play(MENU_SOUND);
                 }
                 Some(PauseAction::ToggleMusic) => {
@@ -227,23 +228,23 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
             None if ctx.input().pressed(Button::Menu) => {
                 ctx.sound().set_music_paused(true);
                 ctx.sound().play(MENU_SOUND);
-                pause = Some(PauseMenu::new(G::MUSIC, game.menu_settings().len()));
-                game.paused(&mut ctx);
+                pause = Some(PauseMenu::new(A::MUSIC, app.menu_settings().len()));
+                app.paused(&mut ctx);
             }
             None => {
-                game.update(&mut ctx);
+                app.update(&mut ctx);
                 ctx.advance_frame();
             }
         }
 
-        let new_area = game.area().filter(|a| *a != Area::at(screen));
+        let new_area = app.area().filter(|a| *a != Area::at(screen));
         if new_area != area {
             area = new_area;
             stale = Some(screen);
         }
         let overlays = |fb: &mut Framebuffer, indicator: &mut SoundIndicator| {
             let mut drawn = pause.as_ref().map(|menu| {
-                menu.draw(fb, ctx.settings(), &game.menu_settings());
+                menu.draw(fb, ctx.settings(), &app.menu_settings());
                 screen
             });
             if let Some(rect) = indicator.draw(fb, ctx.settings()) {
@@ -254,14 +255,14 @@ fn run_game<G: Game>(game_id: &str, nvs: Option<EspDefaultNvs>) -> anyhow::Resul
         match area {
             None => {
                 let mut fb = presenter.take_full()?;
-                game.draw(&mut fb);
+                app.draw(&mut fb);
                 overlays(&mut fb, &mut indicator);
                 stale = None;
                 presenter.present(fb, vec![screen])?;
             }
             Some(area) => {
                 let mut canvas = presenter.take_area(area)?;
-                game.draw(&mut canvas);
+                app.draw(&mut canvas);
                 let indicator_shown = indicator.visible();
                 let indicator_overlaps =
                     indicator_shown && !INDICATOR_AREA.intersection(&area.screen).is_zero_sized();

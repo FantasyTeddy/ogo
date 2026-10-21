@@ -1,4 +1,4 @@
-//! [`Ctx`]: what a game can use while it runs.
+//! [`Ctx`]: what an app can use while it runs.
 
 use std::{
     ops::Range,
@@ -52,7 +52,7 @@ impl Input {
     }
 
     /// The buttons held now count as released until they are let go, e.g. the A that closed the
-    /// pause menu: the game shouldn't see it.
+    /// pause menu: the app shouldn't see it.
     pub(crate) fn ignore_held(&mut self) {
         self.ignored = self.held;
         self.held = ButtonState::default();
@@ -82,7 +82,7 @@ pub struct Ctx {
 impl Ctx {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        game_id: &str,
+        app_id: &str,
         buttons: Buttons,
         speaker: Speaker,
         mut battery_sensor: Battery,
@@ -100,7 +100,7 @@ impl Ctx {
             battery,
             next_battery_read: Instant::now() + BATTERY_INTERVAL,
             led,
-            saves: Saves::new(sd.as_ref(), game_id),
+            saves: Saves::new(sd.as_ref(), app_id),
             nvs,
             settings,
             settings_save_at: None,
@@ -191,7 +191,7 @@ impl Ctx {
         self.frame
     }
 
-    /// Sets the CPU clock: 80, 160 (what games start with) or 240 MHz. Faster uses more battery.
+    /// Sets the CPU clock: 80, 160 (what apps start with) or 240 MHz. Faster uses more battery.
     pub fn set_cpu_mhz(&mut self, mhz: u32) -> anyhow::Result<()> {
         let config = sys::esp_pm_config_t {
             max_freq_mhz: mhz as i32,

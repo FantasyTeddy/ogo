@@ -1,7 +1,7 @@
 name: CI
 
 # Builds and checks every push to main and every pull request. A tag `v<version>` also publishes a
-# GitHub release with the images and game packages, once everything passed.
+# GitHub release with the images and app packages, once everything passed.
 on:
   push:
     branches: [main]

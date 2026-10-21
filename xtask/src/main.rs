@@ -1,12 +1,12 @@
 //! Build tasks for ogo, run on the PC: `cargo xtask <command>` (alias in .cargo/config.toml).
 //!
-//! - `pack <game>`: builds a game and writes an `.ogo` package, or copies it to an SD card.
-//! - `release`: builds the launcher, the recovery app and all games into `dist/`, plus a complete
+//! - `pack <app>`: builds an app and writes an `.ogo` package, or copies it to an SD card.
+//! - `release`: builds the launcher, the recovery app and all apps into `dist/`, plus a complete
 //!   flash image for installing over USB without building.
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
 //! - `test`: runs the tests on the PC (`ogo-format`).
-//! - `samples <sd-root>`: writes fake games to an SD card, to test the launcher's game list.
-//! - `icon <game> <image.png>`: converts a PNG into the game's `icon.rgb565`.
+//! - `samples <sd-root>`: writes fake apps to an SD card, to test the launcher's app list.
+//! - `icon <app> <image.png>`: converts a PNG into the app's `icon.rgb565`.
 //!
 //! Every firmware image built here carries the git commit (`OGO_COMMIT`, see
 //! `ogo_board::image_desc!`).
@@ -24,8 +24,8 @@ use std::{
 use anyhow::{bail, ensure, Context};
 use clap::{Parser, Subcommand};
 use ogo_format::{
+    app::{Folder, Kind, Manifest, SDK_VERSION},
     flash,
-    game::{Folder, Manifest, SDK_VERSION},
     image::{ImageDesc, ImageKind},
     slots,
 };
@@ -49,18 +49,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Task {
-    /// Build a game and write an .ogo package (default: dist/<id>.ogo), or copy it to an SD card.
+    /// Build an app and write an .ogo package (default: dist/<id>.ogo), or copy it to an SD card.
     Pack {
-        /// The game's package name, e.g. snake.
-        game: String,
+        /// The app's package name, e.g. snake.
+        app: String,
         /// Write the package to this file.
         #[arg(long, conflicts_with = "sd")]
         ogo: Option<PathBuf>,
-        /// Copy the game to this SD card root (e.g. E:\) as /ogo/games/<id>/.
+        /// Copy the app to this SD card root (e.g. E:\) as /ogo/apps/<id>/.
         #[arg(long)]
         sd: Option<PathBuf>,
     },
-    /// Build launcher.bin, recovery.bin and an .ogo for every game into dist/.
+    /// Build launcher.bin, recovery.bin and an .ogo for every app into dist/.
     Release {
         /// Cargo features for the launcher, e.g. rollback-test.
         #[arg(long)]
@@ -83,14 +83,14 @@ enum Task {
     },
     /// Run the tests on the PC (ogo-format, ogo-gb).
     Test,
-    /// Convert a PNG into the game's icon.rgb565 (64x64, transparent parts black).
+    /// Convert a PNG into the app's icon.rgb565 (64x64, transparent parts black).
     Icon {
-        /// The game's package name, e.g. snake.
-        game: String,
+        /// The app's package name, e.g. snake.
+        app: String,
         /// A PNG, ideally square.
         image: PathBuf,
     },
-    /// Write fake games (not runnable, two broken on purpose) to an SD card, to test the game list.
+    /// Write fake apps (not runnable, two broken on purpose) to an SD card, to test the app list.
     Samples {
         /// The SD card root, e.g. E:\.
         sd: PathBuf,
@@ -108,14 +108,14 @@ fn main() -> anyhow::Result<()> {
     }
     let project = Project::new()?;
     match cli.command {
-        Task::Pack { game, ogo, sd } => {
-            let game = project.game(&game)?;
-            let files = project.build_game(&game)?;
+        Task::Pack { app, ogo, sd } => {
+            let app = project.app(&app)?;
+            let files = project.build_app(&app)?;
             match sd {
                 Some(sd) => install_to_sd(&files, &sd),
                 None => {
                     let path = ogo.unwrap_or_else(|| {
-                        project.root.join(DIST_DIR).join(format!("{}.ogo", game.id))
+                        project.root.join(DIST_DIR).join(format!("{}.ogo", app.id))
                     });
                     write_ogo(&files, &path)
                 }
@@ -146,8 +146,8 @@ fn main() -> anyhow::Result<()> {
                 HOST_TARGET,
             ])
         }
-        Task::Icon { game, image } => {
-            icon::convert(&image, &project.game(&game)?.dir.join("icon.rgb565"))
+        Task::Icon { app, image } => {
+            icon::convert(&image, &project.app(&app)?.dir.join("icon.rgb565"))
         }
         Task::Samples { .. } => unreachable!("handled before the project is set up"),
     }
@@ -159,18 +159,19 @@ struct Project {
     commit: Option<String>,
 }
 
-/// A game crate: a workspace package with `[package.metadata.ogo]`.
-struct Game {
+/// An app crate: a workspace package with `[package.metadata.ogo]`.
+struct App {
     id: String,
     name: String,
+    kind: Kind,
     version: String,
     author: String,
     folders: Vec<Folder>,
     dir: PathBuf,
 }
 
-/// What goes into a game's folder on the SD card, or into its .ogo package.
-struct GameFiles {
+/// What goes into an app's folder on the SD card, or into its .ogo package.
+struct AppFiles {
     id: String,
     files: Vec<(&'static str, Vec<u8>)>,
 }
@@ -263,7 +264,7 @@ impl Project {
         Ok(image)
     }
 
-    fn games(&self) -> anyhow::Result<Vec<Game>> {
+    fn apps(&self) -> anyhow::Result<Vec<App>> {
         #[derive(Deserialize)]
         struct Metadata {
             packages: Vec<Package>,
@@ -283,78 +284,86 @@ impl Project {
         #[derive(Deserialize)]
         struct OgoMetadata {
             name: Option<String>,
+            kind: Option<Kind>,
             #[serde(default)]
             folders: Vec<Folder>,
         }
 
         let metadata: Metadata = self.metadata()?;
-        let mut games: Vec<Game> = metadata
-            .packages
-            .into_iter()
-            .filter_map(|package| {
-                let ogo = package.metadata?.ogo?;
-                Some(Game {
-                    name: ogo.name.unwrap_or_else(|| package.name.clone()),
-                    author: package.authors.into_iter().next().unwrap_or_default(),
-                    folders: ogo.folders,
-                    dir: package.manifest_path.parent()?.to_owned(),
-                    id: package.name,
-                    version: package.version,
-                })
-            })
-            .collect();
-        games.sort_by(|a, b| a.id.cmp(&b.id));
-        Ok(games)
+        let mut apps = Vec::new();
+        for package in metadata.packages {
+            let Some(ogo) = package.metadata.and_then(|metadata| metadata.ogo) else {
+                continue;
+            };
+            let kind = ogo.kind.with_context(|| {
+                format!(
+                    "{}: set kind = \"game\" or \"tool\" in [package.metadata.ogo]",
+                    package.name
+                )
+            })?;
+            let dir = package.manifest_path.parent().context("no crate folder")?;
+            apps.push(App {
+                name: ogo.name.unwrap_or_else(|| package.name.clone()),
+                kind,
+                author: package.authors.into_iter().next().unwrap_or_default(),
+                folders: ogo.folders,
+                dir: dir.to_owned(),
+                id: package.name,
+                version: package.version,
+            });
+        }
+        apps.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(apps)
     }
 
-    fn game(&self, id: &str) -> anyhow::Result<Game> {
-        let games = self.games()?;
-        let names: Vec<&str> = games.iter().map(|game| game.id.as_str()).collect();
+    fn app(&self, id: &str) -> anyhow::Result<App> {
+        let apps = self.apps()?;
+        let names: Vec<&str> = apps.iter().map(|app| app.id.as_str()).collect();
         let names = names.join(", ");
-        games
-            .into_iter()
-            .find(|game| game.id == id)
-            .with_context(|| format!("no game named {id}; games are: {names}"))
+        apps.into_iter()
+            .find(|app| app.id == id)
+            .with_context(|| format!("no app named {id}; apps are: {names}"))
     }
 
-    fn build_game(&self, game: &Game) -> anyhow::Result<GameFiles> {
+    fn build_app(&self, app: &App) -> anyhow::Result<AppFiles> {
         ensure!(
-            ogo_format::game::is_valid_id(&game.id),
-            "package name {:?} is not a valid game id (use a-z, 0-9 and -)",
-            game.id
+            ogo_format::app::is_valid_id(&app.id),
+            "package name {:?} is not a valid app id (use a-z, 0-9 and -)",
+            app.id
         );
         let target_dir = self.target_dir()?;
         let image = self.build_image(
-            &game.id,
-            ImageKind::Game,
+            &app.id,
+            ImageKind::App,
             None,
             &target_dir
                 .join("ogo-images")
-                .join(format!("{}.bin", game.id)),
+                .join(format!("{}.bin", app.id)),
         )?;
         let manifest = Manifest {
-            id: game.id.clone(),
-            name: game.name.clone(),
-            version: game.version.clone(),
-            author: game.author.clone(),
+            id: app.id.clone(),
+            name: app.name.clone(),
+            kind: app.kind,
+            version: app.version.clone(),
+            author: app.author.clone(),
             // Built against this tree's SDK.
             sdk_version: SDK_VERSION,
             sha256: ogo_format::hex(&Sha256::digest(&image)),
-            folders: game.folders.clone(),
+            folders: app.folders.clone(),
         };
         manifest
             .check(None, SDK_VERSION)
-            .map_err(|e| anyhow::anyhow!("{}: {e}", game.id))?;
+            .map_err(|e| anyhow::anyhow!("{}: {e}", app.id))?;
         let mut files = vec![
-            ("game.toml", manifest.to_toml().into_bytes()),
-            ("game.bin", image),
+            ("app.toml", manifest.to_toml().into_bytes()),
+            ("app.bin", image),
         ];
-        let icon = game.dir.join("icon.rgb565");
+        let icon = app.dir.join("icon.rgb565");
         if icon.is_file() {
             files.push(("icon.rgb565", fs::read(&icon)?));
         }
-        Ok(GameFiles {
-            id: game.id.clone(),
+        Ok(AppFiles {
+            id: app.id.clone(),
             files,
         })
     }
@@ -381,12 +390,12 @@ impl Project {
             ("launcher.bin".to_owned(), launcher.len()),
             ("recovery.bin".to_owned(), recovery.len()),
         ];
-        for game in self.games()? {
-            let files = self.build_game(&game)?;
-            let path = dist.join(format!("{}.ogo", game.id));
+        for app in self.apps()? {
+            let files = self.build_app(&app)?;
+            let path = dist.join(format!("{}.ogo", app.id));
             write_ogo(&files, &path)?;
             summary.push((
-                format!("{}.ogo", game.id),
+                format!("{}.ogo", app.id),
                 fs::metadata(&path)?.len() as usize,
             ));
         }
@@ -576,7 +585,7 @@ impl Project {
     }
 }
 
-fn write_ogo(game: &GameFiles, path: &Path) -> anyhow::Result<()> {
+fn write_ogo(app: &AppFiles, path: &Path) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -585,24 +594,24 @@ fn write_ogo(game: &GameFiles, path: &Path) -> anyhow::Result<()> {
         .map_or(0, |d| d.as_secs());
     let file =
         fs::File::create(path).with_context(|| format!("can't create {}", path.display()))?;
-    let files: Vec<(&str, &[u8])> = game
+    let files: Vec<(&str, &[u8])> = app
         .files
         .iter()
         .map(|(name, content)| (*name, content.as_slice()))
         .collect();
     ogo_format::package::write(io::BufWriter::new(file), &files, now)?;
-    println!("Packed {} into {}", game.id, path.display());
+    println!("Packed {} into {}", app.id, path.display());
     Ok(())
 }
 
-fn install_to_sd(game: &GameFiles, sd_root: &Path) -> anyhow::Result<()> {
+fn install_to_sd(app: &AppFiles, sd_root: &Path) -> anyhow::Result<()> {
     ensure!(sd_root.is_dir(), "{} is not a folder", sd_root.display());
-    let target = sd_root.join("ogo").join("games").join(&game.id);
+    let target = sd_root.join("ogo").join("apps").join(&app.id);
     fs::create_dir_all(&target)?;
-    for (name, content) in &game.files {
+    for (name, content) in &app.files {
         fs::write(target.join(name), content)?;
     }
-    println!("Installed {} to {}", game.id, target.display());
+    println!("Installed {} to {}", app.id, target.display());
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-//! What the SDK draws over the game: the pause menu (MENU) and the sound indicator (VOL).
+//! What the SDK draws over the app: the pause menu (MENU) and the sound indicator (VOL).
 
 use std::time::{Duration, Instant};
 
@@ -34,8 +34,8 @@ pub enum PauseAction {
     /// Steps down (-1) or up (1); unmutes.
     Volume(isize),
     ToggleMusic,
-    /// One of the game's own settings, by index, changed by -1 or 1.
-    GameSetting(usize, isize),
+    /// One of the app's own settings, by index, changed by -1 or 1.
+    AppSetting(usize, isize),
     Exit,
 }
 
@@ -44,8 +44,8 @@ enum Item {
     Resume,
     Volume,
     Music,
-    /// One of the game's own settings, by index.
-    Game(usize),
+    /// One of the app's own settings, by index.
+    App(usize),
     Exit,
 }
 const ROW_HEIGHT: i32 = 28;
@@ -57,14 +57,14 @@ pub struct PauseMenu {
 }
 
 impl PauseMenu {
-    /// `music`: the game has music of its own, so the menu has a line to switch it.
-    /// `game_settings`: how many settings of its own the game has.
-    pub fn new(music: bool, game_settings: usize) -> Self {
+    /// `music`: the app has music of its own, so the menu has a line to switch it.
+    /// `app_settings`: how many settings of its own the app has.
+    pub fn new(music: bool, app_settings: usize) -> Self {
         let mut items = vec![Item::Resume, Item::Volume];
         if music {
             items.push(Item::Music);
         }
-        items.extend((0..game_settings).map(Item::Game));
+        items.extend((0..app_settings).map(Item::App));
         items.push(Item::Exit);
         Self { items, selected: 0 }
     }
@@ -87,8 +87,8 @@ impl PauseMenu {
             Item::Volume if left => return Some(PauseAction::Volume(-1)),
             Item::Volume if right => return Some(PauseAction::Volume(1)),
             Item::Music if a || left || right => return Some(PauseAction::ToggleMusic),
-            Item::Game(index) if left => return Some(PauseAction::GameSetting(index, -1)),
-            Item::Game(index) if a || right => return Some(PauseAction::GameSetting(index, 1)),
+            Item::App(index) if left => return Some(PauseAction::AppSetting(index, -1)),
+            Item::App(index) if a || right => return Some(PauseAction::AppSetting(index, 1)),
             Item::Exit if a => return Some(PauseAction::Exit),
             _ => {}
         }
@@ -98,8 +98,8 @@ impl PauseMenu {
         None
     }
 
-    /// Dims the game's frame and draws the menu on top, with the game's own settings.
-    pub fn draw(&self, fb: &mut Canvas, settings: &Settings, game_settings: &[MenuSetting]) {
+    /// Dims the app's frame and draws the menu on top, with the app's own settings.
+    pub fn draw(&self, fb: &mut Canvas, settings: &Settings, app_settings: &[MenuSetting]) {
         fb.dim();
         let height = 54 + self.items.len() as i32 * ROW_HEIGHT;
         let area =
@@ -118,7 +118,7 @@ impl PauseMenu {
                 Item::Resume => "Resume".to_owned(),
                 Item::Volume => format!("Volume: {}", volume_text(settings)),
                 Item::Music => format!("Music: {}", if settings.music { "On" } else { "Off" }),
-                Item::Game(index) => game_settings
+                Item::App(index) => app_settings
                     .get(index)
                     .map_or_else(String::new, |s| format!("{}: {}", s.label, s.value)),
                 Item::Exit => "Exit to launcher".to_owned(),
@@ -136,7 +136,7 @@ impl PauseMenu {
             }
             text(fb, &label, row.center(), &FONT_8X13);
             // Left/Right change these.
-            if selected && matches!(item, Item::Volume | Item::Music | Item::Game(_)) {
+            if selected && matches!(item, Item::Volume | Item::Music | Item::App(_)) {
                 let middle = row.center().y;
                 text(fb, "<", Point::new(row.top_left.x + 10, middle), &FONT_8X13);
                 let right = row.top_left.x + row.size.width as i32 - 10;
@@ -150,7 +150,7 @@ impl PauseMenu {
 #[derive(Debug)]
 pub struct SoundIndicator {
     until: Option<Instant>,
-    /// The game has music of its own; without, the music setting doesn't show.
+    /// The app has music of its own; without, the music setting doesn't show.
     music: bool,
 }
 

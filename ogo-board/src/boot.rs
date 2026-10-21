@@ -1,19 +1,19 @@
-//! The boot contract between the launcher and games (docs/CONTRACTS.md).
+//! The boot contract between the launcher and apps (docs/CONTRACTS.md).
 //!
-//! - The launcher installs a game into the `game_0` slot, records which launcher slot it runs
-//!   from, makes `game_0` the boot slot and restarts.
-//! - The first thing a game does is [`Boot::return_to_launcher_on_reset`]: it makes the launcher
+//! - The launcher installs an app into the `app_0` slot, records which launcher slot it runs
+//!   from, makes `app_0` the boot slot and restarts.
+//! - The first thing an app does is [`Boot::return_to_launcher_on_reset`]: it makes the launcher
 //!   the boot slot again, so any reset, crash or power-off lands back in the launcher.
 //! - With app rollback enabled (sdkconfig), every newly selected slot starts "pending verify". It
 //!   must call [`mark_running_valid`] once it's sure it works, or the next reset rolls back to the
-//!   slot selected before. The launcher does that after its self-check on every start (a game's
-//!   return makes the launcher "new" again), games do it in `return_to_launcher_on_reset`.
+//!   slot selected before. The launcher does that after its self-check on every start (an app's
+//!   return makes the launcher "new" again), apps do it in `return_to_launcher_on_reset`.
 //! - Launcher updates go into the launcher slot that isn't running ([`inactive_launcher_slot`]).
 //!   [`Boot::set_pending_update`] remembers the target across the restart, so the next start can
 //!   tell an update that worked from one that was rolled back ([`Boot::take_update_result`]).
 //!
-//! Games and launchers that disagree about this contract must not be mixed; `sdk_version` in
-//! `game.toml` guards against that.
+//! Apps and launchers that disagree about this contract must not be mixed; `sdk_version` in
+//! `app.toml` guards against that.
 
 use std::ffi::{CStr, CString};
 
@@ -27,15 +27,15 @@ use ogo_format::slots::{self, LauncherSlot};
 
 use crate::settings::NVS_NAMESPACE;
 
-/// The flash slot games are installed into.
-pub const GAME_PARTITION: &str = slots::GAME;
+/// The flash slot apps are installed into.
+pub const APP_PARTITION: &str = slots::APP;
 
-/// Label of the launcher slot that started the game.
+/// Label of the launcher slot that started the app.
 const KEY_LAUNCHER: &str = "launcher";
-/// SHA-256 (hex) of the image in `game_0`. NVS keys are limited to 15 characters.
-const KEY_GAME_HASH: &str = "game0_sha256";
-/// Flash address of `game_0` when the hash was stored; a changed partition table invalidates it.
-const KEY_GAME_ADDRESS: &str = "game0_addr";
+/// SHA-256 (hex) of the image in `app_0`. NVS keys are limited to 15 characters.
+const KEY_APP_HASH: &str = "app0_sha256";
+/// Flash address of `app_0` when the hash was stored; a changed partition table invalidates it.
+const KEY_APP_ADDRESS: &str = "app0_addr";
 /// Launcher slot an update was written to, until the next start has checked it.
 const KEY_UPDATE_TARGET: &str = "update_target";
 
@@ -66,51 +66,46 @@ impl Boot {
         self.partition.clone()
     }
 
-    /// Hash of the game image in `game_0`, if one was installed completely.
-    pub fn installed_game_hash(&self) -> anyhow::Result<Option<String>> {
-        let address = find_app_partition(GAME_PARTITION)?.address;
-        if self.nvs.get_u32(KEY_GAME_ADDRESS)? != Some(address) {
+    /// Hash of the app image in `app_0`, if one was installed completely.
+    pub fn installed_app_hash(&self) -> anyhow::Result<Option<String>> {
+        let address = find_app_partition(APP_PARTITION)?.address;
+        if self.nvs.get_u32(KEY_APP_ADDRESS)? != Some(address) {
             return Ok(None);
         }
         let mut buf = [0u8; 65];
-        Ok(self
-            .nvs
-            .get_str(KEY_GAME_HASH, &mut buf)?
-            .map(str::to_owned))
+        Ok(self.nvs.get_str(KEY_APP_HASH, &mut buf)?.map(str::to_owned))
     }
 
-    /// Records the hash of the image in `game_0`; `None` while it's being replaced.
-    pub fn set_installed_game_hash(&mut self, hash: Option<&str>) -> anyhow::Result<()> {
+    /// Records the hash of the image in `app_0`; `None` while it's being replaced.
+    pub fn set_installed_app_hash(&mut self, hash: Option<&str>) -> anyhow::Result<()> {
         match hash {
             Some(hash) => {
-                self.nvs.set_str(KEY_GAME_HASH, hash)?;
-                self.nvs.set_u32(
-                    KEY_GAME_ADDRESS,
-                    find_app_partition(GAME_PARTITION)?.address,
-                )?;
+                self.nvs.set_str(KEY_APP_HASH, hash)?;
+                self.nvs
+                    .set_u32(KEY_APP_ADDRESS, find_app_partition(APP_PARTITION)?.address)?;
             }
             None => {
-                self.nvs.remove(KEY_GAME_HASH)?;
+                self.nvs.remove(KEY_APP_HASH)?;
             }
         }
         Ok(())
     }
 
-    /// Launcher side: boots the game in `game_0`. Doesn't return unless switching fails.
-    pub fn launch_game(&mut self) -> anyhow::Result<()> {
+    /// Launcher side: boots the app in `app_0`. Doesn't return unless switching fails.
+    pub fn launch_app(&mut self) -> anyhow::Result<()> {
         let launcher = running_partition_label();
         self.nvs.set_str(KEY_LAUNCHER, &launcher)?;
-        set_boot_partition(GAME_PARTITION)?;
-        log::info!("Booting {GAME_PARTITION}; it returns to {launcher}");
+        set_boot_partition(APP_PARTITION)?;
+        log::info!("Booting {APP_PARTITION}; it returns to {launcher}");
         restart()
     }
 
-    /// Game side, call first thing: confirms the game slot (see the module docs) and makes the
+    /// App side, call first thing: confirms the app slot (see the module docs) and makes the
     /// launcher the boot slot again.
     pub fn return_to_launcher_on_reset(&mut self) -> anyhow::Result<()> {
         mark_running_valid();
         let mut buf = [0u8; 17];
-        // Slot A if NVS doesn't say which launcher slot started the game.
+        // Slot A if NVS doesn't say which launcher slot started the app.
         let launcher = self
             .nvs
             .get_str(KEY_LAUNCHER, &mut buf)?

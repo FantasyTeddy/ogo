@@ -1,7 +1,7 @@
 # Contributing
 
 How to build, test and release ogo. For how it works inside, see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); for writing games, [docs/GAMES.md](docs/GAMES.md).
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); for writing apps, [docs/APPS.md](docs/APPS.md).
 Bugs and ideas go into [GitHub issues](https://github.com/FantasyTeddy/ogo/issues).
 
 ## Prerequisites
@@ -63,19 +63,19 @@ doesn't flash anything). Every image built by `cargo xtask` carries the git comm
 settings screen, the web page and in recovery.
 
 `release` writes `ogo-<version>-full.bin` (the complete flash image users install), `launcher.bin`,
-`recovery.bin` and every game's `.ogo` package. A plain `cargo build --release` also works; its
+`recovery.bin` and every app's `.ogo` package. A plain `cargo build --release` also works; its
 firmware ends up in `<build folder>\xtensa-esp32-espidf\release\`, without a commit.
 
-## Games
+## Apps
 
 ```powershell
-cargo xtask pack snake --sd E:\        # build a game and copy it to an SD card
+cargo xtask pack snake --sd E:\        # build an app and copy it to an SD card
 cargo xtask pack snake                 # or write dist\snake.ogo, for the web page
-cargo xtask icon snake snake.png       # make games/snake/icon.rgb565 from a PNG
-cargo xtask samples E:\                # fake games on an SD card, to test the game list
+cargo xtask icon snake snake.png       # make apps/snake/icon.rgb565 from a PNG
+cargo xtask samples E:\                # fake apps on an SD card, to test the app list
 ```
 
-Writing a game is described in [docs/GAMES.md](docs/GAMES.md).
+Writing an app is described in [docs/APPS.md](docs/APPS.md).
 
 ## Testing
 
@@ -100,7 +100,7 @@ project folder, and with `--manifest-path` `ogo-format/Cargo.toml`, `ogo-gb/Carg
 `git config blame.ignoreRevsFile .git-blame-ignore-revs` once, so `git blame` skips the commit that
 introduced the formatting.
 
-**On the PC:** `cargo xtask test` runs the unit tests of `ogo-format`: `game.toml`, the `.ogo` reader
+**On the PC:** `cargo xtask test` runs the unit tests of `ogo-format`: `app.toml`, the `.ogo` reader
 and writer, the image description, the partition table and slot labels (checked against
 `partitions.csv`), merging the flash image, settings steps, text fitting. Then those of `ogo-gb`, the
 Game Boy core, which also run public test ROMs (Blargg's CPU, timing and sound tests, Mooneye's
@@ -115,10 +115,10 @@ records its sound to listen to. Everything that needs the ESP32 is tested on the
 **On the device**, after `cargo xtask flash --all` (recovery too, when the shared crates changed):
 1. The launcher starts; the settings screen shows the expected version, commit and slot; VOL mutes
    and unmutes.
-2. A game starts (installing it first if it changed), its music plays under the sound effects, its
+2. An app starts (installing it first if it changed), its music plays under the sound effects, its
    pause menu (volume and music too) and VOL's three sound modes work, and "Exit to launcher" returns.
-3. The WiFi screen: the web page logs in with the PIN, uploads and deletes a game and a ROM under
-   GB, and the game list is rescanned when the screen closes.
+3. The WiFi screen: the web page logs in with the PIN, uploads and deletes an app and a ROM under
+   GB, and the app list is rescanned when the screen closes.
 4. A launcher update from the web page restarts into the other slot and says "Launcher updated".
 5. Recovery (MENU at power-on) lists both launcher slots and can install `/ogo/updates/launcher.bin`.
 
@@ -129,7 +129,7 @@ start". Before a release, also install the full image once with `espflash write-
 ## Versions and releases
 
 Versions live in `Cargo.toml`. Launcher, recovery and SDK share the workspace version in the root
-[Cargo.toml](Cargo.toml); each game has its own version in its crate's Cargo.toml. Builds of the
+[Cargo.toml](Cargo.toml); each app has its own version in its crate's Cargo.toml. Builds of the
 same version still differ by their commit.
 
 To publish a release, raise the workspace version, commit, and push a tag with that version:
@@ -140,25 +140,25 @@ git push origin v0.2.0
 ```
 
 CI then builds and checks everything and publishes a GitHub release "ogo 0.2.0" with the full flash
-image, `launcher.bin`, `recovery.bin` and the `.ogo` package of every game. A tag that doesn't match
+image, `launcher.bin`, `recovery.bin` and the `.ogo` package of every app. A tag that doesn't match
 the workspace version fails before anything is published.
 
 ## Project layout
 
 | Path | Contents |
 |---|---|
-| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing, shared settings and look (`ui`), the image description and the launcher/game boot contract |
-| [ogo-launcher/](ogo-launcher/) | Launcher firmware: game list, installer, WiFi and web page, settings screen, boot screen, hardware test screen |
+| [ogo-board/](ogo-board/) | Board support (display, buttons, speaker, battery, LED, SD card), flash writing, shared settings and look (`ui`), the image description and the launcher/app boot contract |
+| [ogo-launcher/](ogo-launcher/) | Launcher firmware: app list, installer, WiFi and web page, settings screen, boot screen, hardware test screen |
 | [ogo-recovery/](ogo-recovery/) | Recovery app in the factory slot |
-| [ogo-sdk/](ogo-sdk/) | Game SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
+| [ogo-sdk/](ogo-sdk/) | App SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
 | [ogo-gb/](ogo-gb/) | Game Boy emulator core (`no_std`): CPU, memory map, cartridges, timer, LCD, sound; tested on the PC |
-| [games/snake/](games/snake/) | Snake, built on `ogo-sdk` |
-| [games/brickfall/](games/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
-| [games/smash/](games/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
-| [games/gb/](games/gb/) | GB, plays Game Boy ROMs from the SD card with `ogo-gb` |
+| [apps/snake/](apps/snake/) | Snake, built on `ogo-sdk` |
+| [apps/brickfall/](apps/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
+| [apps/smash/](apps/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
+| [apps/gb/](apps/gb/) | GB, plays Game Boy ROMs from the SD card with `ogo-gb` |
 | [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples / icon`), run on the PC |
-| [docs/](docs/) | Architecture, contracts, game guide, hardware notes |
+| [docs/](docs/) | Architecture, contracts, app guide, hardware notes |
 | [.github/workflows/ci.yml](.github/workflows/ci.yml) | CI and releases |
 | [partitions.csv](partitions.csv) | Flash layout |
 | [rust-toolchain.toml](rust-toolchain.toml) | The pinned Xtensa toolchain |

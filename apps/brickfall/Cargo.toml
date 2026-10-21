@@ -1,17 +1,18 @@
 [package]
-name = "smash"
+name = "brickfall"
 version = "1.0.0"
 authors = ["ogo examples"]
 edition.workspace = true
 license.workspace = true
-description = "Smash: bounce the ball off the paddle and clear every brick"
+description = "Brickfall: steer falling bricks and fill rows to clear them"
 
-# Read by `cargo xtask pack` for game.toml
+# Read by `cargo xtask pack` for app.toml
 [package.metadata.ogo]
-name = "Smash"
+name = "Brickfall"
+kind = "game"
 
 [[bin]]
-name = "smash"
+name = "brickfall"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 
 [dependencies]

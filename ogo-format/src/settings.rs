@@ -23,7 +23,7 @@ pub fn step(steps: &[u8], current: u8, delta: isize) -> u8 {
     steps[(index as isize + delta).clamp(0, steps.len() as isize - 1) as usize]
 }
 
-/// What VOL switches between in games; in the launcher it only switches muted on and off.
+/// What VOL switches between in apps; in the launcher it only switches muted on and off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundMode {
     All,

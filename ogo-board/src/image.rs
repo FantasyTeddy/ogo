@@ -4,7 +4,7 @@
 //!
 //! ESP-IDF's description can't tell our apps apart: with esp-idf-sys, every app's project name is
 //! `libespidf` and all share one version setting. This one says `ogo-launcher`, `ogo-recovery` or
-//! `ogo-game`, the crate version, and the git commit it was built from (only for builds made with
+//! `ogo-app`, the crate version, and the git commit it was built from (only for builds made with
 //! `cargo xtask`, which sets `OGO_COMMIT`).
 //!
 //! Every app declares it with [`image_desc!`]. [`crate::Board::take`] reads it, which keeps the

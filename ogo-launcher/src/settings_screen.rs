@@ -53,9 +53,9 @@ impl Launcher {
         self.draw_settings()
     }
 
-    /// Saves changed settings and goes back to the game list.
+    /// Saves changed settings and goes back to the app list.
     fn close_settings(&mut self) -> anyhow::Result<()> {
-        if let Screen::Settings(state) = std::mem::replace(&mut self.screen, Screen::Games) {
+        if let Screen::Settings(state) = std::mem::replace(&mut self.screen, Screen::Apps) {
             if self.settings != state.saved {
                 // Writing flash stalls the audio DMA, which would click.
                 self.board.speaker.set_muted(true);
