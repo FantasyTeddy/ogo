@@ -8,12 +8,15 @@ use std::{
 };
 
 use esp32_nimble::{
-    enums::AdvType, utilities::BleUuid, BLEAddressType, BLEAdvertisedData, BLEAdvertisedDevice,
-    BLEDevice, BLEScan,
+    enums::AdvType, utilities::BleUuid, BLEAddress, BLEAddressType, BLEAdvertisedData,
+    BLEAdvertisedDevice, BLEDevice, BLEScan,
 };
 use esp_idf_svc::hal::task::block_on;
 
-use crate::advert;
+use crate::{
+    advert,
+    gatt::{self, Info, Step},
+};
 
 /// How long one scan runs before the next starts; NimBLE scans for a limited time.
 const SCAN_MS: i32 = 10_000;
@@ -33,6 +36,8 @@ pub const HISTORY_SECONDS: usize = 60;
 pub struct Device {
     /// E.g. "c4:7c:8d:6a:12:3b".
     pub address: String,
+    /// The same, to connect to.
+    pub addr: BLEAddress,
     /// E.g. "public" or "random, changes".
     pub address_kind: &'static str,
     pub name: Option<String>,
@@ -105,32 +110,69 @@ impl Device {
     }
 }
 
-/// The devices heard so far, filled by the scan thread.
+/// A device being read, or read last.
+#[derive(Debug, Clone)]
+pub struct Reading {
+    pub address: String,
+    pub status: Status,
+}
+
+#[derive(Debug, Clone)]
+pub enum Status {
+    Busy(Step),
+    Done(Info),
+    Failed(String),
+}
+
+/// What the app and the scan thread share.
+#[derive(Default)]
+struct Shared {
+    devices: Mutex<HashMap<[u8; 6], Device>>,
+    /// A device to read next: the scan stops for it.
+    request: Mutex<Option<BLEAddress>>,
+    reading: Mutex<Option<Reading>>,
+}
+
+/// The devices heard so far, filled by the scan thread, which also reads a device on request.
 pub struct Scanner {
-    devices: Arc<Mutex<HashMap<[u8; 6], Device>>>,
+    shared: Arc<Shared>,
 }
 
 impl Scanner {
     /// Starts Bluetooth and scans until the app ends.
     pub fn start() -> anyhow::Result<Self> {
-        let devices = Arc::new(Mutex::new(HashMap::new()));
-        let found = Arc::clone(&devices);
+        let shared = Arc::new(Shared::default());
+        let thread_shared = Arc::clone(&shared);
         thread::Builder::new()
             .name("ble-scan".into())
             .stack_size(STACK_BYTES)
-            .spawn(move || scan_forever(&found))?;
-        Ok(Self { devices })
+            .spawn(move || scan_forever(&thread_shared))?;
+        Ok(Self { shared })
     }
 
     /// The devices heard in the last [`FORGET_AFTER`], in no particular order.
     pub fn devices(&self) -> Vec<Device> {
-        let mut devices = self.devices.lock().unwrap();
+        let mut devices = self.shared.devices.lock().unwrap();
         devices.retain(|_, device| device.last_seen.elapsed() < FORGET_AFTER);
         devices.values().cloned().collect()
     }
+
+    /// Connects to `device` and reads it (see [`gatt`]), pausing the scan meanwhile.
+    pub fn read(&self, device: &Device) {
+        *self.shared.reading.lock().unwrap() = Some(Reading {
+            address: device.address.clone(),
+            status: Status::Busy("Waiting for the scan..."),
+        });
+        *self.shared.request.lock().unwrap() = Some(device.addr);
+    }
+
+    /// The device being read, or read last.
+    pub fn reading(&self) -> Option<Reading> {
+        self.shared.reading.lock().unwrap().clone()
+    }
 }
 
-fn scan_forever(devices: &Mutex<HashMap<[u8; 6], Device>>) {
+fn scan_forever(shared: &Shared) {
     let ble = BLEDevice::take();
     let mut scan = BLEScan::new();
     // Active: ask for scan responses, which often carry the name. Every packet, not only the
@@ -140,9 +182,24 @@ fn scan_forever(devices: &Mutex<HashMap<[u8; 6], Device>>) {
         .interval(100)
         .window(90);
     loop {
+        // The radio can't scan while it connects: a request waits for the scan to stop
+        let request = shared.request.lock().unwrap().take();
+        if let Some(address) = request {
+            let set = |status| {
+                if let Some(reading) = shared.reading.lock().unwrap().as_mut() {
+                    reading.status = status;
+                }
+            };
+            let result = block_on(gatt::read(ble, address, |step| set(Status::Busy(step))));
+            set(match result {
+                Ok(info) => Status::Done(info),
+                Err(message) => Status::Failed(message),
+            });
+            continue;
+        }
         let result = block_on(scan.start(ble, SCAN_MS, |device, data| {
-            heard(devices, device, data);
-            None::<()>
+            heard(&shared.devices, device, data);
+            shared.request.lock().unwrap().is_some().then_some(())
         }));
         if let Err(e) = result {
             log::warn!("Scan failed: {e:?}");
@@ -187,6 +244,7 @@ fn heard(
         .entry(address.as_le_bytes())
         .or_insert_with(|| Device {
             address: address.to_string(),
+            addr: address,
             address_kind: address_kind(address.addr_type(), address.as_be_bytes()[0]),
             name: None,
             description: None,

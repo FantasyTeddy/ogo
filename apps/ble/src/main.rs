@@ -2,11 +2,14 @@
 //! strength.
 //!
 //! The list keeps its order, new devices at the end, so rows don't move while the signal varies;
-//! SELECT sorts it by signal strength once. A shows a device in detail ([`detail`]).
+//! SELECT sorts it by signal strength once. A shows a device in detail ([`detail`]), where START
+//! connects to it and reads what it says about itself ([`gatt`]).
 
 mod advert;
+mod appearance;
 mod companies;
 mod detail;
+mod gatt;
 mod scanner;
 mod uuids;
 
@@ -18,7 +21,7 @@ use std::{
 
 use embedded_graphics::{
     mono_font::ascii::{FONT_6X10, FONT_8X13},
-    primitives::{PrimitiveStyle, Rectangle},
+    primitives::{Circle, PrimitiveStyle, Rectangle},
     text::Alignment,
 };
 use ogo_sdk::{prelude::*, ui};
@@ -29,8 +32,10 @@ const FOOTER_HEIGHT: i32 = 16;
 const ROW_HEIGHT: i32 = 26;
 const VISIBLE_ROWS: usize =
     ((SCREEN_HEIGHT as i32 - TITLE_HEIGHT - FOOTER_HEIGHT - 4) / ROW_HEIGHT) as usize;
-/// Columns: name (FONT_8X13) from 12 to 172, maker (FONT_6X10) to 230, bars to 254, then the dBm
-/// right-aligned (up to "-100 dBm", from 260).
+/// Columns: a dot for connectable devices at 8, name (FONT_8X13) from 14 to 174, maker (FONT_6X10)
+/// from 176 to 230, bars to 254, then the dBm right-aligned (up to "-100 dBm", from 260).
+const CONNECTABLE_X: i32 = 8;
+const NAME_X: i32 = 14;
 const NAME_CHARS: usize = 20;
 const MAKER_CHARS: usize = 9;
 const MAKER_X: i32 = 176;
@@ -60,6 +65,10 @@ struct Detail {
     /// Beeping faster the stronger the signal, to find the device.
     beeping: bool,
     next_beep: Instant,
+    /// The read screen is shown: what the device said when connected.
+    reading: bool,
+    /// Lines the read screen is scrolled down.
+    scroll: usize,
 }
 
 impl App for Ble {
@@ -87,8 +96,8 @@ impl App for Ble {
         {
             self.refresh();
         }
-        if let Some(detail) = &mut self.detail {
-            if !update_detail(detail, &self.devices, ctx) {
+        if let (Some(detail), Ok(scanner)) = (&mut self.detail, &self.scanner) {
+            if !update_detail(detail, &self.devices, scanner, ctx) {
                 self.detail = None;
             }
             return;
@@ -115,6 +124,8 @@ impl App for Ble {
                 gone: false,
                 beeping: false,
                 next_beep: Instant::now(),
+                reading: false,
+                scroll: 0,
             });
         } else if input.pressed(Button::Select) {
             // Strongest first; the selection stays on its device, wherever that is now
@@ -133,6 +144,21 @@ impl App for Ble {
 
     fn draw(&self, fb: &mut Framebuffer) {
         if let Some(detail) = &self.detail {
+            if detail.reading {
+                let reading = self
+                    .scanner
+                    .as_ref()
+                    .ok()
+                    .and_then(Scanner::reading)
+                    .filter(|reading| reading.address == detail.device.address);
+                return detail::draw_read(
+                    fb,
+                    &detail.device,
+                    reading.as_ref(),
+                    detail.gone,
+                    detail.scroll,
+                );
+            }
             return detail::draw(fb, &detail.device, detail.beeping, detail.gone);
         }
         fb.clear(ui::BACKGROUND).ok();
@@ -170,13 +196,24 @@ impl App for Ble {
             ui::DIM,
             Alignment::Right,
         );
+        let footer_y = height - FOOTER_HEIGHT / 2;
+        // What the dot in front of a name means, below the dots; the controls on the right
+        connectable_dot(fb, Point::new(CONNECTABLE_X, footer_y), ui::ACCENT);
         ui::text(
             fb,
-            "A details   SELECT sort by signal",
-            Point::new(width / 2, height - FOOTER_HEIGHT / 2),
+            "connectable",
+            Point::new(NAME_X, footer_y),
             &FONT_6X10,
             ui::DIM,
-            Alignment::Center,
+            Alignment::Left,
+        );
+        ui::text(
+            fb,
+            "A details  SELECT sort by signal",
+            Point::new(width - 12, footer_y),
+            &FONT_6X10,
+            ui::DIM,
+            Alignment::Right,
         );
 
         let selected = self.selected_index();
@@ -243,11 +280,14 @@ fn draw_row(fb: &mut Framebuffer, device: &Device, y: i32, selected: bool) {
         Some(label) => (label, if stale { ui::DIM } else { ui::TEXT }),
         None => (device.address.clone(), ui::DIM),
     };
+    if device.connectable == Some(true) {
+        connectable_dot(fb, Point::new(CONNECTABLE_X, y), color(ui::ACCENT));
+    }
     let label: String = label.chars().take(NAME_CHARS).collect();
     ui::text(
         fb,
         &label,
-        Point::new(12, y),
+        Point::new(NAME_X, y),
         &FONT_8X13,
         color(label_color),
         Alignment::Left,
@@ -300,9 +340,14 @@ fn draw_row(fb: &mut Framebuffer, device: &Device, y: i32, selected: bool) {
     );
 }
 
-/// The detail screen's frame: the device's latest values, A switches beeping, B goes back.
-/// Returns whether it stays open.
-fn update_detail(detail: &mut Detail, devices: &[Device], ctx: &mut Ctx) -> bool {
+/// The detail screen's frame: the device's latest values, A switches beeping, START reads the
+/// device (connectable ones), B goes back. Returns whether it stays open.
+fn update_detail(
+    detail: &mut Detail,
+    devices: &[Device],
+    scanner: &Scanner,
+    ctx: &mut Ctx,
+) -> bool {
     match devices.iter().find(|d| d.address == detail.device.address) {
         Some(device) => {
             detail.device = device.clone();
@@ -311,8 +356,39 @@ fn update_detail(detail: &mut Detail, devices: &[Device], ctx: &mut Ctx) -> bool
         None => detail.gone = true,
     }
     let input = ctx.input();
+    let busy = scanner
+        .reading()
+        .is_some_and(|reading| matches!(reading.status, scanner::Status::Busy(_)));
+    if detail.reading {
+        // The read screen: Up/Down scroll, B back to the details, START reads again
+        let reading = scanner
+            .reading()
+            .filter(|reading| reading.address == detail.device.address);
+        let max = detail::read_scroll_max(reading.as_ref());
+        if input.pressed(Button::Up) {
+            detail.scroll = detail.scroll.saturating_sub(1);
+        } else if input.pressed(Button::Down) {
+            detail.scroll = (detail.scroll + 1).min(max);
+        } else if input.pressed(Button::B) {
+            detail.reading = false;
+        } else if input.pressed(Button::Start) && !busy {
+            detail.scroll = 0;
+            scanner.read(&detail.device);
+        }
+        return true;
+    }
     if input.pressed(Button::B) {
         return false;
+    }
+    if input.pressed(Button::Start) && detail.device.connectable == Some(true) {
+        // The scan pauses while reading, so there's no signal to beep by
+        detail.beeping = false;
+        detail.reading = true;
+        detail.scroll = 0;
+        if !busy {
+            scanner.read(&detail.device);
+        }
+        return true;
     }
     if input.pressed(Button::A) {
         detail.beeping = !detail.beeping;
@@ -326,6 +402,14 @@ fn update_detail(detail: &mut Detail, devices: &[Device], ctx: &mut Ctx) -> bool
         detail.next_beep = Instant::now() + detail::beep_interval(rssi);
     }
     true
+}
+
+/// The mark of a device that accepts connections, centred on `center`.
+fn connectable_dot(fb: &mut Framebuffer, center: Point, color: Rgb565) {
+    Circle::with_center(center, 5)
+        .into_styled(PrimitiveStyle::with_fill(color))
+        .draw(fb)
+        .ok();
 }
 
 /// A line in the middle of the list area.

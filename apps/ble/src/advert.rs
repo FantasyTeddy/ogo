@@ -30,19 +30,33 @@ pub fn describe(data: &BLEAdvertisedData<&[u8]>) -> Option<&'static str> {
             BleUuid::Uuid16(FAST_PAIR) => Some("Fast Pair"),
             BleUuid::Uuid16(EDDYSTONE) => Some("Eddystone"),
             BleUuid::Uuid16(EXPOSURE_NOTIFICATION) => Some("Exposure Notification"),
-            BleUuid::Uuid16(uuid) => member_uuid_owner(uuid),
+            BleUuid::Uuid16(uuid) => member_uuid(uuid).map(|(_, label)| label),
             _ => None,
         })
 }
 
-/// The company the Bluetooth SIG assigned a member service UUID to, for those seen often.
+/// Member service UUIDs seen often: the company the Bluetooth SIG assigned it to, and what the
+/// list calls a device using it. That's the service's owner, not necessarily the device's maker:
+/// e.g. Android phones of any maker use Google's.
+const MEMBER_UUIDS: [(u16, &str, &str); 6] = [
+    (0xFCF1, "Google", "Google service"),
+    (0xFE9F, "Google", "Google service"),
+    (0xFEF3, "Google", "Google service"),
+    (0xFD5A, "Samsung", "Samsung service"),
+    (0xFE61, "Logitech", "Logitech service"),
+    (0xFEED, "Tile", "Tile service"),
+];
+
+/// The owner of a member service UUID, for those seen often.
 pub fn member_uuid_owner(uuid: u16) -> Option<&'static str> {
-    Some(match uuid {
-        0xFCF1 | 0xFE9F | 0xFEF3 => "Google",
-        0xFD5A => "Samsung",
-        0xFEED => "Tile",
-        _ => return None,
-    })
+    member_uuid(uuid).map(|(owner, _)| owner)
+}
+
+fn member_uuid(uuid: u16) -> Option<(&'static str, &'static str)> {
+    MEMBER_UUIDS
+        .iter()
+        .find(|(id, _, _)| *id == uuid)
+        .map(|&(_, owner, label)| (owner, label))
 }
 
 /// What the manufacturer data and service data say, one entry per message, for the published

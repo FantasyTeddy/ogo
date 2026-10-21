@@ -1,4 +1,5 @@
-//! One device in detail: everything it advertised, and its signal over the last minute.
+//! One device in detail: everything it advertised, and its signal over the last minute; and what
+//! it says about itself when connected (the read screen).
 
 use std::time::Duration;
 
@@ -11,7 +12,8 @@ use ogo_sdk::{prelude::*, ui};
 
 use crate::{
     advert, companies,
-    scanner::{Device, HISTORY_SECONDS},
+    gatt::Info,
+    scanner::{Device, Reading, Status, HISTORY_SECONDS},
     uuids,
 };
 
@@ -24,6 +26,9 @@ const VALUE_X: i32 = 68;
 const VALUE_CHARS: usize = ((SCREEN_WIDTH as i32 - VALUE_X - 8) / 6) as usize;
 /// Lines of values above the graph.
 const MAX_LINES: usize = 10;
+/// Lines of the read screen, which has no graph.
+const READ_LINES: usize =
+    ((SCREEN_HEIGHT as i32 - TITLE_HEIGHT - FOOTER_HEIGHT - 10) / LINE_HEIGHT) as usize;
 /// The graph: one bar per second, from `GRAPH_FLOOR` to `GRAPH_CEILING` dBm.
 const GRAPH_TOP: i32 = 166;
 const GRAPH_HEIGHT: i32 = 50;
@@ -47,9 +52,100 @@ pub fn beep(rssi: i32) -> Note {
 }
 
 pub fn draw(fb: &mut Framebuffer, device: &Device, beeping: bool, gone: bool) {
+    draw_frame(fb, device, gone);
+    draw_lines(fb, &lines(device), MAX_LINES);
+    draw_graph(fb, device);
+    let beep = if beeping {
+        "A stop beeping"
+    } else {
+        "A beep by signal"
+    };
+    let controls = if device.connectable == Some(true) {
+        format!("{beep}  START read  B back")
+    } else {
+        format!("{beep}   B back")
+    };
+    draw_footer(fb, &controls);
+}
+
+/// The device's own answers (see [`crate::gatt`]): while connecting and reading, what it does; then
+/// the values and services, or why it didn't work.
+/// `scroll`: lines scrolled down, up to [`read_scroll_max`].
+pub fn draw_read(
+    fb: &mut Framebuffer,
+    device: &Device,
+    reading: Option<&Reading>,
+    gone: bool,
+    scroll: usize,
+) {
+    draw_frame(fb, device, gone);
+    let center = Point::new(SCREEN_WIDTH as i32 / 2, SCREEN_HEIGHT as i32 / 2);
+    match reading.map(|reading| &reading.status) {
+        None | Some(Status::Busy(_)) => {
+            let step = match reading.map(|reading| &reading.status) {
+                Some(Status::Busy(step)) => step,
+                _ => "Waiting...",
+            };
+            ui::text(fb, step, center, &FONT_8X13, ui::DIM, Alignment::Center);
+            draw_footer(fb, "B back");
+        }
+        Some(Status::Failed(message)) => {
+            ui::text(
+                fb,
+                message,
+                center,
+                &FONT_8X13,
+                ui::WARNING,
+                Alignment::Center,
+            );
+            draw_footer(fb, "START try again   B back");
+        }
+        Some(Status::Done(info)) => {
+            let lines = read_lines(info);
+            let scroll = scroll.min(lines.len().saturating_sub(READ_LINES));
+            draw_lines(fb, &lines[scroll..], READ_LINES);
+            draw_footer(
+                fb,
+                if lines.len() > READ_LINES {
+                    "Up/Down scroll  START read again  B back"
+                } else {
+                    "START read again   B back"
+                },
+            );
+        }
+    }
+}
+
+/// How far the read screen scrolls: the lines that don't fit.
+pub fn read_scroll_max(reading: Option<&Reading>) -> usize {
+    match reading.map(|reading| &reading.status) {
+        Some(Status::Done(info)) => read_lines(info).len().saturating_sub(READ_LINES),
+        _ => 0,
+    }
+}
+
+/// The read screen's lines: the values, then the services, one per line.
+fn read_lines(info: &Info) -> Vec<(&'static str, String)> {
+    let mut lines: Vec<(&'static str, String)> = Vec::new();
+    if info.values.is_empty() {
+        lines.push(("", "No standard values to read.".to_owned()));
+    }
+    lines.extend(info.values.iter().cloned());
+    let services = info
+        .services
+        .iter()
+        .map(|uuid| match uuids::service_name(uuid) {
+            Some(name) => name.to_owned(),
+            None => uuid.to_string(),
+        })
+        .collect();
+    list_into(&mut lines, "Services", services, None);
+    lines
+}
+
+/// Title bar with the device's label and its signal, or "gone".
+fn draw_frame(fb: &mut Framebuffer, device: &Device, gone: bool) {
     fb.clear(ui::BACKGROUND).ok();
-    let width = SCREEN_WIDTH as i32;
-    let height = SCREEN_HEIGHT as i32;
     Rectangle::new(Point::zero(), Size::new(SCREEN_WIDTH, TITLE_HEIGHT as u32))
         .into_styled(PrimitiveStyle::with_fill(ui::BAR))
         .draw(fb)
@@ -72,14 +168,17 @@ pub fn draw(fb: &mut Framebuffer, device: &Device, beeping: bool, gone: bool) {
     ui::text(
         fb,
         &signal,
-        Point::new(width - 12, TITLE_HEIGHT / 2),
+        Point::new(SCREEN_WIDTH as i32 - 12, TITLE_HEIGHT / 2),
         &FONT_8X13,
         if gone { ui::WARNING } else { ui::TEXT },
         Alignment::Right,
     );
+}
 
+/// Label and value lines below the title bar, at most `max`.
+fn draw_lines(fb: &mut Framebuffer, lines: &[(&'static str, String)], max: usize) {
     let mut y = TITLE_HEIGHT + 10;
-    for (label, value) in lines(device).into_iter().take(MAX_LINES) {
+    for (label, value) in lines.iter().take(max) {
         if !label.is_empty() {
             ui::text(
                 fb,
@@ -90,6 +189,7 @@ pub fn draw(fb: &mut Framebuffer, device: &Device, beeping: bool, gone: bool) {
                 Alignment::Left,
             );
         }
+        let value: String = value.chars().take(VALUE_CHARS).collect();
         ui::text(
             fb,
             &value,
@@ -100,21 +200,42 @@ pub fn draw(fb: &mut Framebuffer, device: &Device, beeping: bool, gone: bool) {
         );
         y += LINE_HEIGHT;
     }
+}
 
-    draw_graph(fb, device);
-    let controls = if beeping {
-        "A stop beeping   B back"
-    } else {
-        "A beep by signal   B back"
-    };
+fn draw_footer(fb: &mut Framebuffer, controls: &str) {
     ui::text(
         fb,
         controls,
-        Point::new(width / 2, height - FOOTER_HEIGHT / 2),
+        Point::new(
+            SCREEN_WIDTH as i32 / 2,
+            SCREEN_HEIGHT as i32 - FOOTER_HEIGHT / 2,
+        ),
         &FONT_6X10,
         ui::DIM,
         Alignment::Center,
     );
+}
+
+/// Adds `items` under `label`, one per line (the label on the first). With `max`, at most that
+/// many lines: the last says how many more there are.
+fn list_into(
+    lines: &mut Vec<(&'static str, String)>,
+    label: &'static str,
+    items: Vec<String>,
+    max: Option<usize>,
+) {
+    let shown = match max {
+        Some(max) if items.len() > max => max - 1,
+        _ => items.len(),
+    };
+    let more = items.len() - shown;
+    let mut items: Vec<String> = items.into_iter().take(shown).collect();
+    if more > 0 {
+        items.push(format!("and {more} more"));
+    }
+    for (i, item) in items.into_iter().enumerate() {
+        lines.push((if i == 0 { label } else { "" }, item));
+    }
 }
 
 /// Label and value per line; a value too long for one line continues on the next, without label.
@@ -166,20 +287,21 @@ fn lines(device: &Device) -> Vec<(&'static str, String)> {
         ),
         1,
     );
-    if !device.services.is_empty() {
-        let services: Vec<String> = device
-            .services
-            .iter()
-            .map(|uuid| match uuids::service_name(uuid) {
-                Some(name) => format!("{name} ({uuid})"),
-                None => uuid.to_string(),
-            })
-            .collect();
-        add("Services", services.join(", "), 2);
-    }
     let messages = advert::messages(device.manufacturer.as_ref(), device.service_data.as_ref());
     if !messages.is_empty() {
         add("Says", messages.join(", "), 3);
+    }
+    let services: Vec<String> = device
+        .services
+        .iter()
+        .map(|uuid| match uuids::service_name(uuid) {
+            Some(name) => format!("{name} ({uuid})"),
+            None => uuid.to_string(),
+        })
+        .collect();
+    if !services.is_empty() {
+        // Below the rest: what doesn't fit above the graph is cut off
+        list_into(&mut lines, "Services", services, Some(3));
     }
     lines
 }

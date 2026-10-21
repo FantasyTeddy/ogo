@@ -80,13 +80,19 @@ the same channels, so there's no switching off only the music). The pause menu a
 
 **Bluetooth** lists the Bluetooth LE devices nearby: phones, headphones, watches, trackers. Each row
 shows the name, or for the many devices that send none, what they are where a published format says
-so (e.g. "iBeacon", "Windows laptop", "Fast Pair"), else the address; then the maker and the signal
-strength. The list keeps its order, new devices at the end; **SELECT** sorts it by
-signal once. Devices not heard for 15 seconds are dimmed, and after a minute they're gone. **A** shows
-a device in detail: its address and whether it changes, maker, whether it accepts connections, packets
-per second, its services, what its messages say, and its signal over the last minute; there **A**
-beeps faster the stronger the signal, to find the device. The app only decodes formats that are
-published (by the Bluetooth SIG, Microsoft, Google, or Apple's iBeacon), nothing reverse-engineered.
+so (e.g. "iBeacon", "Windows laptop", "Fast Pair", or "Google service" for a phone using Google's
+services), else the address; then the maker and the signal strength. A dot marks devices that accept
+connections. The list keeps its order, new devices at the end; **SELECT** sorts it by signal once.
+Devices not heard for 15 seconds are dimmed, and after a minute they're gone.
+
+**A** shows a device in detail: its address and whether it changes, maker, whether it accepts
+connections, packets per second, its services, what its messages say, and its signal over the last
+minute; there **A** beeps faster the stronger the signal, to find the device. For a device that
+accepts connections, **START** connects and reads what it says about itself through the standard
+services: name, kind (e.g. "Watch: Smartwatch"), maker, model, hardware, firmware and software
+version, battery level, and all services it offers; values that need pairing say so, as the app never
+pairs. The app only decodes formats that are published (by the Bluetooth SIG, Microsoft, Google, or
+Apple's iBeacon), nothing reverse-engineered.
 
 ## Web page
 

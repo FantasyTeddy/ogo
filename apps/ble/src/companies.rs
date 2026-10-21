@@ -1,4 +1,5 @@
-//! Names for the Bluetooth SIG company identifiers seen most often in manufacturer data.
+//! Names for the Bluetooth SIG company identifiers (Assigned Numbers, company_identifiers.yaml)
+//! seen most often in manufacturer data.
 
 /// The company's short name, if it's one of the common ones.
 pub fn name(id: u16) -> Option<&'static str> {
@@ -14,6 +15,7 @@ pub fn name(id: u16) -> Option<&'static str> {
         0x00E0 => "Google",
         0x012D => "Sony",
         0x0171 => "Amazon",
+        0x01DA => "Logitech",
         0x027D => "Huawei",
         0x02E5 => "Espressif",
         0x038F => "Xiaomi",
