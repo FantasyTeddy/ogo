@@ -491,10 +491,10 @@ impl Project {
     /// erased, as after `flash --all` on a new device.
     fn full_image(&self, launcher: &[u8], recovery: &[u8]) -> anyhow::Result<Vec<u8>> {
         let bootloader = fs::read(self.bootloader()?)?;
-        let table_bin = self
-            .target_dir()?
-            .join("ogo-images")
-            .join("partition-table.bin");
+        let images = self.target_dir()?.join("ogo-images");
+        // espflash doesn't create it, and in a fresh build folder no app image has yet
+        fs::create_dir_all(&images)?;
+        let table_bin = images.join("partition-table.bin");
         self.cargo(&[
             "espflash",
             "partition-table",
