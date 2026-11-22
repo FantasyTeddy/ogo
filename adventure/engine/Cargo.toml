@@ -1,0 +1,13 @@
+[package]
+name = "adventure-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plays Adventure worlds: walking, the things' rules, drawing into a 160x120 picture"
+
+[dependencies]
+adventure-format.workspace = true
+
+[dev-dependencies]
+# The walk example's window
+minifb = "0.29"

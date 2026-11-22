@@ -4,7 +4,7 @@
 //! - `release`: builds the launcher, the recovery app and all apps into `dist/`, plus a complete
 //!   flash image for installing over USB without building.
 //! - `flash`: builds and flashes the launcher (and with `--all` the recovery app) over USB.
-//! - `test`: runs the tests on the PC (`ogo-format`, `ogo-gb`).
+//! - `test`: runs the tests on the PC (`ogo-format`, `ogo-gb`, `adventure`).
 //! - `clippy`: runs Clippy on the firmware, apps with add-ons (`sdkconfig.bluetooth`) in their builds.
 //! - `samples <sd-root>`: writes fake apps to an SD card, to test the launcher's app list.
 //! - `icon <app> <image.png>`: converts a PNG into the app's `icon.rgb565`.
@@ -100,7 +100,7 @@ enum Task {
         #[arg(long)]
         features: Option<String>,
     },
-    /// Run the tests on the PC (ogo-format, ogo-gb).
+    /// Run the tests on the PC (ogo-format, ogo-gb, adventure).
     Test,
     /// Run Clippy on the firmware, warnings as errors: apps with add-ons in their own builds.
     Clippy,
@@ -163,6 +163,14 @@ fn main() -> anyhow::Result<()> {
                 "--release",
                 "--manifest-path",
                 "ogo-gb/Cargo.toml",
+                "--target",
+                HOST_TARGET,
+            ])?;
+            project.cargo(&[
+                "test",
+                "--manifest-path",
+                "adventure/Cargo.toml",
+                "--workspace",
                 "--target",
                 HOST_TARGET,
             ])

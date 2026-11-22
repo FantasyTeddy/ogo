@@ -53,6 +53,8 @@ internet.
 | [ogo-format](../ogo-format/src/lib.rs) | Everything that doesn't need the ESP32: `app.toml`, the `.ogo` reader and writer, the image description layout, settings steps, text fitting, battery percentage. Own workspace, tested on the PC |
 | [ogo-board](../ogo-board/src/lib.rs) | Board support (display, backlight, buttons, speaker, SD card, battery, LED) and the contracts that touch the hardware: boot contract (`boot`), image description in flash (`image`), flash writing (`flash`), settings in NVS (`settings`). Also the shared look (`ui`: colours and drawing helpers for launcher, recovery, the SDK's overlays and apps) |
 | [ogo-gb](../ogo-gb/src/lib.rs) | Game Boy (DMG) emulator core, `no_std` with `alloc`: the SM83 CPU, memory map, cartridges with MBC1, MBC3 (with clock) and MBC5, timer, joypad, the LCD (timing and drawing, a line at a time) and sound (four channels, mixed to mono samples). Starts in the state the boot ROM leaves, without one. On the ESP32 its hot path runs from IRAM. Own workspace, tested on the PC with public test ROMs, including screenshot comparisons |
+| [adventure-format](../adventure/format/src/lib.rs) | Adventure's `.adv` world file: tiles, sprites, maps with three layers, things with rules (conditions and actions), items, flags, sounds and music as notes. Reading, writing and checking a world, so a world that passes can be played without panicking. Own workspace with the engine, tested on the PC |
+| [adventure-engine](../adventure/engine/src/lib.rs) | Plays an `.adv` world: walking tile by tile, walls, the things' rules (bumping and stepping on), doors with a fade, a pet that follows, bubbles, item icons; draws into a 160×120 picture and returns sounds to play. Knows nothing about the hardware. Includes a hand-built sample world and a window to walk around in on the PC |
 | [ogo-sdk](../ogo-sdk/src/lib.rs) | What apps build on: the `App` trait, frame loop, input, sound, saves, pause menu, VOL |
 | [ogo-launcher](../ogo-launcher/src/main.rs) | The launcher firmware |
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |
@@ -67,9 +69,9 @@ about switching between slots goes through `ogo_board::boot`, so the rules are i
 that the PC side writes and the device reads (`app.toml`, `.ogo`, the image description) are
 defined once in `ogo-format`, which xtask uses too.
 
-`ogo-format` and `xtask` have their own workspaces, excluded from the main one: the main workspace
-builds everything for the ESP32 (`build.target` in `.cargo/config.toml`), while these two also build
-for the PC. The firmware crates still depend on `ogo-format` by path.
+`ogo-format`, `ogo-gb`, `adventure` and `xtask` have their own workspaces, excluded from the main
+one: the main workspace builds everything for the ESP32 (`build.target` in `.cargo/config.toml`),
+while these also build for the PC. The firmware crates still depend on `ogo-format` by path.
 
 ## Launcher
 
@@ -246,7 +248,7 @@ The steps are in [CONTRIBUTING.md](../CONTRIBUTING.md#prerequisites); this is wh
      address 0 (bootloader at `0x1000`, partition table at `0x8000`, recovery and launcher in their
      slots, `0xFF` in between, so NVS and otadata end up erased). `espflash write-bin 0x0` installs it
      without the toolchain. `--features` applies to the launcher.
-   - `test` runs the unit tests of `ogo-format` on the PC.
+   - `test` runs the unit tests of `ogo-format`, `ogo-gb` and `adventure` on the PC.
    - `clippy` runs Clippy on the firmware, warnings as errors: the workspace without the apps that
      need add-ons, then those in their builds.
    - `samples <sd-root> [--force]` writes fake apps (placeholder images, two broken on purpose) to
@@ -263,7 +265,7 @@ before upgrading.
 
 ## Testing
 
-CI ([ci.yml](../.github/workflows/ci.yml)) runs the `ogo-format` tests on the PC, checks formatting
+CI ([ci.yml](../.github/workflows/ci.yml)) runs the `ogo-format`, `ogo-gb` and `adventure` tests on the PC, checks formatting
 and runs Clippy on everything, and builds a complete release on Linux, so the build doesn't depend on Windows. What
 needs the ESP32 is tested on the device; the checklist is in
 [CONTRIBUTING.md](../CONTRIBUTING.md#testing).

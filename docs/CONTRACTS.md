@@ -12,6 +12,7 @@ any of these can break a launcher, recovery or app built earlier, so check this 
 | [Boot contract](#boot-contract) | [boot.rs](../ogo-board/src/boot.rs) |
 | [Image description](#image-description) | [ogo-format image.rs](../ogo-format/src/image.rs), [ogo-board image.rs](../ogo-board/src/image.rs) |
 | [`app.toml` and `.ogo` packages](#apptoml-and-ogo-packages) | [app.rs](../ogo-format/src/app.rs), [package.rs](../ogo-format/src/package.rs) |
+| [`.adv` worlds](#adv-worlds) | [adventure-format](../adventure/format/src/lib.rs) |
 | [Web API](#web-api) | [web.rs](../ogo-launcher/src/web.rs) |
 | [Compatibility](#compatibility) | [app.rs](../ogo-format/src/app.rs) (`SDK_VERSION`) |
 
@@ -176,6 +177,28 @@ The launcher accepts an app folder or package when:
 An upload (max 10 MB) is unpacked into `apps/.incoming/`, checked, and only then moved to
 `apps/<id>/`, replacing an older version. A broken upload never replaces a working app. The image
 itself is checked when it's written into `app_0`.
+
+## `.adv` worlds
+
+An Adventure world in one file, read and written by `adventure-format`:
+
+```
+"ADV"          3 bytes
+version        u16, little-endian: VERSION (currently 1)
+world          the World, encoded with postcard 1.x
+```
+
+The Rust types in [adventure-format](../adventure/format/src/lib.rs) are the layout; postcard
+encodes them field by field in declaration order, so reordering fields or enum variants changes the
+format. Pixels are RGB565, row by row, stored as a postcard byte array (length, then two
+little-endian bytes per pixel). Tiles and sprite pictures are 16×16; `0xF81F` (magenta) is
+transparent. Only files of the current version are read: any change to the types raises `VERSION`.
+
+Maps, things, items and flags have stable IDs (`Id`), handed out once and never reused within a
+world; tiles, sprites, sounds and music are referred to by their position in the world's lists.
+`World::validate`, run on every read, checks that every reference points somewhere, that sizes
+match (layers `width × height`, pictures 256 pixels, music parts equally long) and that IDs are
+unique.
 
 ## Web API
 

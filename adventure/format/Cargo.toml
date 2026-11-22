@@ -1,0 +1,11 @@
+[package]
+name = "adventure-format"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Adventure's .adv world file: what a world is, reading, writing and checking it"
+
+[dependencies]
+serde.workspace = true
+serde_bytes.workspace = true
+postcard.workspace = true

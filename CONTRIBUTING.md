@@ -85,7 +85,7 @@ Writing an app is described in [docs/APPS.md](docs/APPS.md).
 ## Testing
 
 **CI** ([ci.yml](.github/workflows/ci.yml)) runs on every push to `main` and every pull request:
-the `ogo-format` and `ogo-gb` tests and Clippy on them and xtask with stable Rust, then, on Linux with the
+the `ogo-format`, `ogo-gb` and `adventure` tests and Clippy on them and xtask with stable Rust, then, on Linux with the
 pinned Xtensa toolchain, the format check, `cargo xtask clippy` and `cargo xtask release`, whose
 files are kept as an artifact of the run. Formatting differences and Clippy warnings fail the build. The
 pinned toolchain's Clippy is older than stable's, so for the PC crates lint them with stable, as CI
@@ -95,13 +95,14 @@ does:
 $env:RUSTUP_TOOLCHAIN = "stable"
 cargo clippy --manifest-path ogo-gb/Cargo.toml --target host-tuple --all-targets -- -D warnings
 cargo clippy --manifest-path ogo-format/Cargo.toml --target host-tuple --all-targets -- -D warnings
+cargo clippy --manifest-path adventure/Cargo.toml --workspace --target host-tuple --all-targets -- -D warnings
 cargo clippy --manifest-path xtask/Cargo.toml --target host-tuple -- -D warnings
 Remove-Item Env:RUSTUP_TOOLCHAIN
 ```
 
 **Formatting:** the code uses rustfmt's default style. Before committing, run `cargo fmt` in the
-project folder, and with `--manifest-path` `ogo-format/Cargo.toml`, `ogo-gb/Cargo.toml` and
-`xtask/Cargo.toml` for the three crates with their own workspace. Run
+project folder, and with `--manifest-path` `ogo-format/Cargo.toml`, `ogo-gb/Cargo.toml`,
+`adventure/Cargo.toml` and `xtask/Cargo.toml` for the four workspaces of their own. Run
 `git config blame.ignoreRevsFile .git-blame-ignore-revs` once, so `git blame` skips the commit that
 introduced the formatting.
 
@@ -115,7 +116,12 @@ build folder's `tmp`). Unpack the
 `ogo-gb\test-roms\` (ignored by git), or point `OGO_GB_TEST_ROMS` at it; without them those tests are
 skipped. `cargo run --release --manifest-path ogo-gb/Cargo.toml --target host-tuple --example bench
 -- <rom>` measures the core's speed on the PC, and `--example record -- <rom> <seconds> <out.wav>`
-records its sound to listen to. Everything that needs the ESP32 is tested on the device.
+records its sound to listen to. Last come the tests of `adventure-format` (reading, writing and
+checking `.adv` worlds) and `adventure-engine` (walking, walls, doors, items, the rules, drawing,
+played through the hand-built sample world). `cargo run --manifest-path adventure/Cargo.toml
+--target host-tuple --example walk` walks around the sample world (or `-- <file.adv>`) in a window,
+and `--example export -- <file.adv>` writes it as a file. Everything that needs the ESP32 is tested
+on the device.
 
 **On the device**, after `cargo xtask flash --all` (recovery too, when the shared crates changed):
 1. The launcher starts; the settings screen shows the expected version, commit and slot; VOL mutes
@@ -158,6 +164,7 @@ the workspace version fails before anything is published.
 | [ogo-sdk/](ogo-sdk/) | App SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
 | [ogo-gb/](ogo-gb/) | Game Boy emulator core (`no_std`): CPU, memory map, cartridges, timer, LCD, sound; tested on the PC |
+| [adventure/](adventure/) | Adventure, tile worlds to walk around in: the `.adv` world format (`format/`) and the engine that plays it (`engine/`); tested on the PC |
 | [apps/snake/](apps/snake/) | Snake, built on `ogo-sdk` |
 | [apps/brickfall/](apps/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
 | [apps/smash/](apps/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
