@@ -14,3 +14,4 @@ png = "0.18"
 eframe = { version = "0.37", features = ["persistence"] }
 rfd = "0.18"
 ureq = "3"
+cpal = "0.18"

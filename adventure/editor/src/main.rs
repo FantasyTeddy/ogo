@@ -10,6 +10,7 @@ mod handheld;
 mod images;
 mod project;
 mod send;
+mod sound;
 mod theme;
 mod things;
 
@@ -19,8 +20,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
-use adventure_engine::{Buttons, Game, FPS, HEIGHT, WIDTH};
-use adventure_format::{Dir, LayerKind, MusicRef, Place, Pos, SoundRef, TILE, TRANSPARENT};
+use adventure_engine::{Buttons, Event, Game, FPS, HEIGHT, WIDTH};
+use adventure_format::{Dir, LayerKind, MusicRef, Note, Place, Pos, SoundRef, TILE, TRANSPARENT};
 use eframe::egui::{
     self, load::SizedTexture, pos2, vec2, Align, Align2, Color32, ColorImage, CornerRadius, Frame,
     Id, Key, KeyboardShortcut, Layout, Margin, Modifiers, Popup, PopupCloseBehavior, Rect,
@@ -220,6 +221,8 @@ struct Play {
     last: Instant,
     /// Time not stepped yet, in seconds
     behind: f64,
+    /// None when the PC has no sound output: the game plays silently
+    speaker: Option<sound::Speaker>,
 }
 
 struct Toast {
@@ -295,6 +298,8 @@ struct Editor {
 }
 
 const UNDO_STEPS: usize = 200;
+/// Walking into something that doesn't react, as on the device.
+const BUMP: [Note; 1] = [Note::new(150, 40)];
 const CHECK_PICTURES: Duration = Duration::from_secs(1);
 
 impl Editor {
@@ -815,6 +820,9 @@ impl Editor {
                     texture: None,
                     last: Instant::now(),
                     behind: 0.0,
+                    speaker: sound::Speaker::open()
+                        .inspect_err(|e| eprintln!("no sound: {e}"))
+                        .ok(),
                 });
             }
             Err(error) => self.fail(error.to_string()),
@@ -2556,7 +2564,22 @@ impl Editor {
                     let step = 1.0 / FPS as f64;
                     let mut steps = 0;
                     while play.behind >= step && steps < 5 {
-                        play.game.step(buttons);
+                        let events = play.game.step(buttons);
+                        if let Some(speaker) = &play.speaker {
+                            let world = play.game.world();
+                            for event in events {
+                                match event {
+                                    Event::Sound(sound) => {
+                                        if let Some(melody) = world.sounds.get(sound.0 as usize) {
+                                            speaker.play(&melody.0);
+                                        }
+                                    }
+                                    Event::Music(music) => speaker
+                                        .music(music.and_then(|m| world.music.get(m.0 as usize))),
+                                    Event::Bump => speaker.play(&BUMP),
+                                }
+                            }
+                        }
                         play.behind -= step;
                         steps += 1;
                     }
