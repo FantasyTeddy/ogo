@@ -78,6 +78,14 @@ the same channels, so there's no switching off only the music). The pause menu a
 1.5x with the in-between pixels blended). Games with a battery-backed save keep it in
 `/ogo/saves/gb/`, saved when the pause menu opens and a few seconds after the game changed it.
 
+**Adventure** is for children who can't read yet: walk around in a little tile world, meet animals
+and people, find things. Everything answers with pictures and sounds, there's no text and no
+fighting. Worlds are `.adv` files: upload them on the web page (under Adventure, "Worlds"), or copy
+them into `/adventure/` on the SD card; without any, it has a sample village. The start screen shows
+each world's picture (**Left**/**Right**, **A**); some worlds then let you choose who to be. The
+arrows walk, **A** looks at or talks to what's in front, **B** runs. Each world remembers where you
+were and what you found, in `/ogo/saves/adventure/`.
+
 **Bluetooth** lists the Bluetooth LE devices nearby: phones, headphones, watches, trackers. Each row
 shows the name, or for the many devices that send none, what they are where a published format says
 so (e.g. "iBeacon", "Windows laptop", "Fast Pair", or "Google service" for a phone using Google's

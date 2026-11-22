@@ -12,7 +12,7 @@ any of these can break a launcher, recovery or app built earlier, so check this 
 | [Boot contract](#boot-contract) | [boot.rs](../ogo-board/src/boot.rs) |
 | [Image description](#image-description) | [ogo-format image.rs](../ogo-format/src/image.rs), [ogo-board image.rs](../ogo-board/src/image.rs) |
 | [`app.toml` and `.ogo` packages](#apptoml-and-ogo-packages) | [app.rs](../ogo-format/src/app.rs), [package.rs](../ogo-format/src/package.rs) |
-| [`.adv` worlds](#adv-worlds) | [adventure-format](../adventure/format/src/lib.rs) |
+| [`.adv` worlds](#adv-worlds) | [adventure-format](../adventure/format/src/lib.rs), [save.rs](../adventure/engine/src/save.rs) (saved games) |
 | [Web API](#web-api) | [web.rs](../ogo-launcher/src/web.rs) |
 | [Compatibility](#compatibility) | [app.rs](../ogo-format/src/app.rs) (`SDK_VERSION`) |
 
@@ -53,7 +53,7 @@ Image sizes: launcher 1.6 MB (WiFi and the HTTP server make up most of it), reco
 
 Apps can also read files from folders outside `/ogo/` they declare in `app.toml` (see below),
 which the web page lets the user fill. The GB app declares `/roms/gb/`, the folder other emulators
-for the device use too. An upload into such a folder is received as `.upload.part` in it and renamed
+for the device use too, and Adventure `/adventure/` for its `.adv` worlds. An upload into such a folder is received as `.upload.part` in it and renamed
 once complete; files starting with "." aren't listed.
 
 Deleting an app on the web page removes its folder under `apps/`; its saves and the files in its
@@ -198,7 +198,15 @@ Maps, things, items and flags have stable IDs (`Id`), handed out once and never 
 world; tiles, sprites, sounds and music are referred to by their position in the world's lists.
 `World::validate`, run on every read, checks that every reference points somewhere, that sizes
 match (layers `width × height`, pictures 256 pixels, music parts equally long) and that IDs are
-unique.
+unique. The world's `uid`, its title (at most 200 bytes) and its thumbnail come first, so a list of
+worlds can read just them (`Head`, from the first `Head::MAX_BYTES` bytes).
+
+**Saved games** ([save.rs](../adventure/engine/src/save.rs)): the Adventure app keeps one per
+world in `/ogo/saves/adventure/`, named after the world's `uid` as 16 lowercase hex digits, plus
+`last` (the same name, for the world played last). A save is `ADS`, its version as a little-endian
+u16 (currently 1), then the `Save` encoded with postcard: `uid`, hero, place, items, flags, hidden
+things and pet, all by stable ID. Resuming keeps what still exists in the world and starts at the
+world's start if the saved place is gone or blocked; a save of another version is ignored.
 
 ## Web API
 

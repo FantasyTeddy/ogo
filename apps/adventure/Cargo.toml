@@ -1,0 +1,31 @@
+[package]
+name = "adventure"
+version = "0.1.0"
+authors = ["ogo examples"]
+edition.workspace = true
+license.workspace = true
+description = "Walk around in tile worlds from the SD card, with adventure-engine"
+
+# Read by `cargo xtask pack` for app.toml
+[package.metadata.ogo]
+name = "Adventure"
+kind = "game"
+# The web page lets the user upload worlds here
+folders = [{ label = "Worlds", path = "adventure", extensions = ["adv"] }]
+
+[[bin]]
+name = "adventure"
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+[dependencies]
+ogo-sdk.workspace = true
+adventure-format.workspace = true
+adventure-engine.workspace = true
+embedded-graphics.workspace = true
+log.workspace = true
+anyhow.workspace = true
+# Not used directly, but build.rs only gets ESP-IDF's linker arguments from a direct dependency.
+esp-idf-svc.workspace = true
+
+[build-dependencies]
+embuild.workspace = true

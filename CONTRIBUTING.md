@@ -169,6 +169,7 @@ the workspace version fails before anything is published.
 | [apps/brickfall/](apps/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
 | [apps/smash/](apps/smash/) | Smash, a brick-breaker built on `ogo-sdk` |
 | [apps/gb/](apps/gb/) | GB, plays Game Boy ROMs from the SD card with `ogo-gb` |
+| [apps/adventure/](apps/adventure/) | Adventure, plays `.adv` worlds from the SD card with `adventure-engine` |
 | [apps/ble/](apps/ble/) | Bluetooth, lists the BLE devices nearby (built with [sdkconfig.bluetooth](sdkconfig.bluetooth)) |
 | [xtask/](xtask/) | Build tasks (`cargo xtask pack / release / flash / test / samples / icon`), run on the PC |
 | [docs/](docs/) | Architecture, contracts, app guide, hardware notes |

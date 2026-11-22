@@ -54,7 +54,7 @@ internet.
 | [ogo-board](../ogo-board/src/lib.rs) | Board support (display, backlight, buttons, speaker, SD card, battery, LED) and the contracts that touch the hardware: boot contract (`boot`), image description in flash (`image`), flash writing (`flash`), settings in NVS (`settings`). Also the shared look (`ui`: colours and drawing helpers for launcher, recovery, the SDK's overlays and apps) |
 | [ogo-gb](../ogo-gb/src/lib.rs) | Game Boy (DMG) emulator core, `no_std` with `alloc`: the SM83 CPU, memory map, cartridges with MBC1, MBC3 (with clock) and MBC5, timer, joypad, the LCD (timing and drawing, a line at a time) and sound (four channels, mixed to mono samples). Starts in the state the boot ROM leaves, without one. On the ESP32 its hot path runs from IRAM. Own workspace, tested on the PC with public test ROMs, including screenshot comparisons |
 | [adventure-format](../adventure/format/src/lib.rs) | Adventure's `.adv` world file: tiles, sprites, maps with three layers, things with rules (conditions and actions), items, flags, sounds and music as notes. Reading, writing and checking a world, so a world that passes can be played without panicking. Own workspace with the engine, tested on the PC |
-| [adventure-engine](../adventure/engine/src/lib.rs) | Plays an `.adv` world: walking tile by tile, walls, the things' rules (bumping and stepping on), doors with a fade, a pet that follows, bubbles, item icons; draws into a 160×120 picture and returns sounds to play. Knows nothing about the hardware. Includes a hand-built sample world and a window to walk around in on the PC |
+| [adventure-engine](../adventure/engine/src/lib.rs) | Plays an `.adv` world: walking tile by tile, walls, the things' rules (bumping and stepping on), doors with a fade, a pet that follows, bubbles, item icons; draws into a 160×120 picture and returns sounds to play. Saves a game and resumes it, keeping what still fits a changed world. Knows nothing about the hardware. Includes a hand-built sample world and a window to walk around in on the PC |
 | [ogo-sdk](../ogo-sdk/src/lib.rs) | What apps build on: the `App` trait, frame loop, input, sound, saves, pause menu, VOL |
 | [ogo-launcher](../ogo-launcher/src/main.rs) | The launcher firmware |
 | [ogo-recovery](../ogo-recovery/src/main.rs) | The fallback in the factory slot |
@@ -62,6 +62,7 @@ internet.
 | [apps/brickfall](../apps/brickfall/src/main.rs) | Falling-bricks puzzle on the SDK |
 | [apps/smash](../apps/smash/src/main.rs) | Brick-breaker on the SDK |
 | [apps/gb](../apps/gb/src/main.rs) | Game Boy ROMs from the SD card on `ogo-gb`, at 1:1 and 240 MHz |
+| [apps/adventure](../apps/adventure/src/main.rs) | `.adv` worlds from the SD card on `adventure-engine`: a start screen of thumbnails, the engine's 160×120 picture doubled, its sounds and music on the speaker, a save per world |
 | [xtask](../xtask/src/main.rs) | Build tasks on the PC (own workspace): `pack`, `release`, `flash`, `test`, `samples`, `icon` |
 
 Launcher and recovery use `ogo-board` directly; apps use `ogo-sdk`, which wraps it. Everything

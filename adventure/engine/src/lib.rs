@@ -8,6 +8,9 @@ use std::collections::{HashMap, HashSet};
 use adventure_format::*;
 
 pub mod sample;
+mod save;
+
+pub use save::Save;
 
 /// The picture [`Game::draw`] paints, in pixels. The device shows it doubled.
 pub const WIDTH: usize = 160;
@@ -176,7 +179,8 @@ enum Trigger {
 /// A world being played.
 pub struct Game {
     world: World,
-    hero: SpriteRef,
+    /// A position in `world.heroes`
+    hero: usize,
     /// The current map, a position in `world.maps`
     map: usize,
     player: Body,
@@ -198,13 +202,15 @@ pub struct Game {
     music: Option<Option<MusicRef>>,
     events: Vec<Event>,
     random: u32,
+    /// Counts the changes worth saving
+    progress: u32,
 }
 
 impl Game {
     /// Starts the world from the beginning, as `world.heroes[hero]` (the first if out of range).
     pub fn new(world: World, hero: usize) -> Result<Game, Error> {
         world.validate()?;
-        let hero = world.heroes.get(hero).copied().unwrap_or(world.heroes[0]);
+        let hero = if hero < world.heroes.len() { hero } else { 0 };
         let start = world.start;
         let random = (world.uid as u32 ^ (world.uid >> 32) as u32) | 1;
         let mut game = Game {
@@ -227,6 +233,7 @@ impl Game {
             music: None,
             events: Vec::new(),
             random,
+            progress: 0,
         };
         game.enter(start);
         Ok(game)
@@ -262,6 +269,12 @@ impl Game {
     /// The thing following the player.
     pub fn pet(&self) -> Option<Id> {
         self.pet.as_ref().map(|pet| pet.id)
+    }
+
+    /// Changes whenever something worth saving changed: items, flags, hidden things, the pet or
+    /// the map. Where on a map the player stands isn't counted.
+    pub fn progress(&self) -> u32 {
+        self.progress
     }
 
     /// One frame: moves everything on and runs the rules the player triggers.
@@ -335,6 +348,7 @@ impl Game {
             self.events.push(Event::Music(music));
             self.music = Some(music);
         }
+        self.progress += 1;
     }
 
     fn refresh_layers(&mut self) {
@@ -574,6 +588,15 @@ impl Game {
     }
 
     fn act(&mut self, i: usize, action: Action) {
+        if let Action::Give { .. }
+        | Action::Take { .. }
+        | Action::SetFlag(_)
+        | Action::ClearFlag(_)
+        | Action::Hide(_)
+        | Action::Join = action
+        {
+            self.progress += 1;
+        }
         match action {
             Action::Sound(sound) => self.events.push(Event::Sound(sound)),
             Action::Bubble(picture) => self.bubble(i, BubbleKind::Picture(picture)),
@@ -711,7 +734,7 @@ impl Game {
                 });
             }
         }
-        let hero = sprite(self.hero);
+        let hero = sprite(self.world.heroes[self.hero]);
         let wobble = match self.wobble {
             0 => 0,
             w if w % 2 == 1 => 1,

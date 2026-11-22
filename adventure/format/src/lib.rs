@@ -29,6 +29,8 @@ pub const TRANSPARENT: u16 = 0xF81F;
 
 /// The largest map, in tiles, in either direction.
 pub const MAX_MAP_SIDE: u16 = 256;
+/// The longest title, in bytes.
+pub const MAX_TITLE: usize = 200;
 /// The largest thumbnail, in pixels.
 pub const MAX_THUMBNAIL: (u16, u16) = (160, 120);
 /// The most pictures a tile, or a sprite per direction, can have.
@@ -435,16 +437,60 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// What comes after [`MAGIC`] and a matching [`VERSION`].
+fn body(bytes: &[u8]) -> Result<&[u8], Error> {
+    let rest = bytes.strip_prefix(MAGIC).ok_or(Error::NotAdv)?;
+    let (version, rest) = rest.split_first_chunk::<2>().ok_or(Error::NotAdv)?;
+    let version = u16::from_le_bytes(*version);
+    if version != VERSION {
+        return Err(Error::Version(version));
+    }
+    Ok(rest)
+}
+
+/// The first fields of a [`World`], which can be read without the rest, e.g. to show a list of
+/// worlds: they're encoded first, in this order.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Head {
+    pub uid: u64,
+    pub title: String,
+    pub thumbnail: Picture,
+}
+
+impl Head {
+    /// The most bytes the head of a file can take, header included: enough to read for
+    /// [`Head::from_bytes`]. Variable-length numbers take at most 10 bytes (u64), 5 (lengths) or 3
+    /// (u16).
+    pub const MAX_BYTES: usize = MAGIC.len()
+        + 2
+        + 10
+        + 5
+        + MAX_TITLE
+        + 3
+        + 3
+        + 5
+        + 2 * MAX_THUMBNAIL.0 as usize * MAX_THUMBNAIL.1 as usize;
+
+    /// Reads the head of an `.adv` file; `bytes` may end anywhere after it.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Head, Error> {
+        let (head, _) = postcard::take_from_bytes::<Head>(body(bytes)?).map_err(Error::Decode)?;
+        let thumb = &head.thumbnail;
+        let (max_w, max_h) = MAX_THUMBNAIL;
+        let fits = (1..=max_w).contains(&thumb.width) && (1..=max_h).contains(&thumb.height);
+        if !fits || thumb.pixels.0.len() != thumb.width as usize * thumb.height as usize {
+            return Err(Error::Invalid("broken thumbnail".into()));
+        }
+        if head.title.len() > MAX_TITLE {
+            return Err(Error::Invalid("title too long".into()));
+        }
+        Ok(head)
+    }
+}
+
 impl World {
     /// Reads and checks an `.adv` file.
     pub fn from_bytes(bytes: &[u8]) -> Result<World, Error> {
-        let rest = bytes.strip_prefix(MAGIC).ok_or(Error::NotAdv)?;
-        let (version, rest) = rest.split_first_chunk::<2>().ok_or(Error::NotAdv)?;
-        let version = u16::from_le_bytes(*version);
-        if version != VERSION {
-            return Err(Error::Version(version));
-        }
-        let world: World = postcard::from_bytes(rest).map_err(Error::Decode)?;
+        let world: World = postcard::from_bytes(body(bytes)?).map_err(Error::Decode)?;
         world.validate()?;
         Ok(world)
     }
@@ -498,6 +544,7 @@ fn unique(ids: impl IntoIterator<Item = Id>, what: &str) -> Checked {
 impl Check<'_> {
     fn world(&self) -> Checked {
         let w = self.world;
+        ensure(w.title.len() <= MAX_TITLE, || "title too long".into())?;
         let (max_w, max_h) = MAX_THUMBNAIL;
         let thumb = &w.thumbnail;
         ensure(
@@ -816,6 +863,28 @@ mod tests {
         let bytes = world.to_bytes();
         assert_eq!(&bytes[..5], b"ADV\x01\x00");
         assert_eq!(World::from_bytes(&bytes).unwrap(), world);
+    }
+
+    #[test]
+    fn head_without_the_rest() {
+        let mut world = tiny();
+        world.thumbnail = Picture {
+            width: MAX_THUMBNAIL.0,
+            height: MAX_THUMBNAIL.1,
+            pixels: Pixels(vec![7; MAX_THUMBNAIL.0 as usize * MAX_THUMBNAIL.1 as usize]),
+        };
+        world.title = "x".repeat(MAX_TITLE);
+        world.uid = u64::MAX;
+        let bytes = world.to_bytes();
+        let head = Head::from_bytes(&bytes[..Head::MAX_BYTES.min(bytes.len())]).unwrap();
+        assert_eq!(
+            (head.uid, &head.title, &head.thumbnail),
+            (world.uid, &world.title, &world.thumbnail)
+        );
+        assert!(matches!(
+            Head::from_bytes(&bytes[..300]),
+            Err(Error::Decode(_))
+        ));
     }
 
     #[test]
