@@ -89,13 +89,17 @@ were and what you found, in `/ogo/saves/adventure/`.
 Worlds are made on the PC with the **Adventure editor** (in [adventure/editor](adventure/editor),
 started with `cargo run --manifest-path adventure/Cargo.toml --target host-tuple -p
 adventure-editor`). A world is a folder: `world.json`, the tileset `tiles.png` (16×16 tiles side by
-side, drawn in any paint program) and the characters in `sprites/`. **New world…** asks for a name,
-creates a folder of that name and starts it from the sample village. Paint the maps' three layers
-(ground, decoration, and what's drawn above the player, like treetops) with pencil, fill, rectangle
-and eraser; right-click picks up a tile. Each tile can be solid, animated and make a sound when
-stepped on. **▶ Play** tries the world right in the editor, **Export…** writes the `.adv` file, and
-**Send to device** uploads it to the Adventure app over WiFi (the device's address is on its WiFi
-screen). The pictures reload by themselves when their files change.
+side, drawn in any paint program) and the characters in `sprites/`. **New world…** (in the menu on
+"Adventure") asks for a name, creates a folder of that name and starts it from the sample village.
+The maps are tabs above the map; the layer bar picks which of the three layers to paint ("Ground ›
+Decoration › Above the player", like treetops), and the layers above it turn see-through. Paint
+with pencil, fill, box and eraser; right-click picks up a tile. The right panel shows the tile
+selected in the palette (solid, animated, a sound when stepped on): a kind of tile, so changes
+apply wherever it's used. A map's settings (name, size, music) open from its tab (double-click,
+right-click or "⋯"), the world's (title, tileset, characters) from its name. **Play** tries the world in a window of its own, from the start or from the
+cell clicked last; **Export…** writes the `.adv` file, and **Send…** looks for the device at the
+address on its WiFi screen and uploads the world to the Adventure app. The pictures reload by
+themselves when their files change.
 
 **Bluetooth** lists the Bluetooth LE devices nearby: phones, headphones, watches, trackers. Each row
 shows the name, or for the many devices that send none, what they are where a published format says

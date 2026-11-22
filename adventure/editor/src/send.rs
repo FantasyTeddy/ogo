@@ -30,16 +30,55 @@ fn percent_encode(text: &str) -> String {
         .collect()
 }
 
-/// Uploads `bytes` as `name` to the device at `address` (e.g. "192.168.1.23"); the launcher's
-/// answer on success, or why it failed.
-pub fn send(address: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
+/// The host part of an address as typed, e.g. "http://192.168.1.23/" → "192.168.1.23".
+fn host(address: &str) -> Result<&str, String> {
     let host = address
         .trim()
         .trim_start_matches("http://")
         .trim_end_matches('/');
     if host.is_empty() {
-        return Err("enter the device's address first (its WiFi screen shows it)".into());
+        Err("Enter the device's address: its WiFi screen shows it".into())
+    } else {
+        Ok(host)
     }
+}
+
+/// Whether the launcher answers at `address`, and whether the Adventure app is installed: e.g.
+/// "ogo 0.3.0, Adventure installed".
+pub fn check(address: &str) -> Result<String, String> {
+    let host = host(address)?;
+    let get = |path: &str| -> Result<serde_json::Value, String> {
+        let mut response = ureq::get(&format!("http://{host}{path}"))
+            .config()
+            .timeout_global(Some(Duration::from_secs(4)))
+            .build()
+            .call()
+            .map_err(|_| format!("Not reachable at {host}"))?;
+        let body = response
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| e.to_string())?;
+        serde_json::from_str(&body).map_err(|_| format!("{host} isn't an ogo device"))
+    };
+    let status = get("/api/status")?;
+    let version = status["version"].as_str().unwrap_or("?").to_string();
+    let apps = get("/api/apps")?;
+    let installed = apps
+        .as_array()
+        .is_some_and(|apps| apps.iter().any(|app| app["id"] == "adventure"));
+    if installed {
+        Ok(format!("Found: ogo {version}, Adventure installed"))
+    } else {
+        Err(format!(
+            "Found ogo {version}, but the Adventure app isn't installed"
+        ))
+    }
+}
+
+/// Uploads `bytes` as `name` to the device at `address` (e.g. "192.168.1.23"); the launcher's
+/// answer on success, or why it failed.
+pub fn send(address: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let host = host(address)?;
     let url = format!(
         "http://{host}/api/apps/adventure/folders/0/{}",
         percent_encode(name)
