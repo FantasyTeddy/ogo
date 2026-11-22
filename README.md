@@ -96,8 +96,17 @@ Decoration › Above the player", like treetops), and the layers above it turn s
 with pencil, fill, box and eraser; right-click picks up a tile. The right panel shows the tile
 selected in the palette (solid, animated, a sound when stepped on): a kind of tile, so changes
 apply wherever it's used. A map's settings (name, size, music) open from its tab (double-click,
-right-click or "⋯"), the world's (title, tileset, characters) from its name. **Play** tries the world in a window of its own, from the start or from the
-cell clicked last; **Export…** writes the `.adv` file, and **Send…** looks for the device at the
+right-click or "⋯"), the world's (title, tileset, characters) from its name. The **Objects** tab
+places characters, items and invisible spots (e.g. in front of a door), with its own tools: Select
+(click, drag to move), Place (click an empty cell), Remove, and Start (where the player starts).
+The map steps back so the objects stand out. The right panel then shows that one object: its
+picture, whether the player bumps into it or walks onto it, whether it stays, wanders or walks a
+path, whether it's always there, and its rules: for bumping into it and for stepping onto it, each
+"if … then" with actions like playing a sound, showing a picture, giving or taking items, setting
+flags, making objects disappear, following the player, or taking the player somewhere (pick the
+cell on the map). Items (with their pictures) and flags are named in the world's settings, which
+also show how many rules use each. **Play** tries the world on a handheld in a window of its own (its buttons light up,
+and can be clicked), from the start or from the cell clicked last; **Export…** writes the `.adv` file, and **Send…** looks for the device at the
 address on its WiFi screen and uploads the world to the Adventure app. The pictures reload by
 themselves when their files change.
 

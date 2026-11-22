@@ -67,6 +67,14 @@ pub const WARNING: &str = "\u{e4e2}";
 pub const IMAGE: &str = "\u{e2ca}";
 pub const CROSS: &str = "\u{e4f6}";
 pub const DOTS: &str = "\u{e1fe}";
+pub const ARROW_UP: &str = "\u{e08e}";
+pub const ARROW_DOWN: &str = "\u{e03e}";
+pub const ARROW_LEFT: &str = "\u{e058}";
+pub const ARROW_RIGHT: &str = "\u{e06c}";
+pub const DOOR: &str = "\u{e61c}";
+pub const MAP_PIN: &str = "\u{e316}";
+pub const CURSOR: &str = "\u{e1dc}";
+pub const STAMP: &str = "\u{ea48}";
 pub const INFO: &str = "\u{e2ce}";
 
 fn bold() -> FontFamily {
