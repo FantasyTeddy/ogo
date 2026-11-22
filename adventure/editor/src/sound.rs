@@ -1,12 +1,14 @@
-//! Sound for the Play window, made like the device's speaker makes it: sound effects are sine
-//! tones played one after another from a short queue, music is up to two looping parts, quieter,
-//! under them. Every note fades in and out.
+//! Sound for the Play window and previews, made like the device makes it: sound effects of notes
+//! are sine tones played one after another from a short queue, recorded ones play at once through
+//! the engine's [`Recordings`], and music is up to two looping parts, quieter, under them. Every
+//! note fades in and out.
 
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
 use std::sync::{Arc, Mutex};
 
-use adventure_format::{Music, Note, Wave};
+use adventure_engine::Recordings;
+use adventure_format::{Music, Note, Sound, SoundRef, Wave};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 
@@ -55,6 +57,38 @@ impl Speaker {
         }
     }
 
+    /// The world's sounds, which [`Speaker::sound`] plays.
+    pub fn set_sounds(&self, sounds: Vec<Sound>) {
+        let mut mixer = self.mixer.lock().unwrap();
+        mixer.recordings.stop();
+        mixer.sounds = sounds;
+    }
+
+    /// Plays one of the world's sounds: notes after any queued, a recording at once.
+    pub fn sound(&self, sound: SoundRef) {
+        let mut mixer = self.mixer.lock().unwrap();
+        let mixer = &mut *mixer;
+        match mixer.sounds.get(sound.0 as usize) {
+            Some(Sound::Notes(notes)) => {
+                let notes = notes.clone();
+                mixer.effect(notes);
+            }
+            Some(Sound::Samples(_)) => mixer.recordings.start(&mixer.sounds, sound),
+            None => {}
+        }
+    }
+
+    /// Plays `sound` alone, instead of whatever played before.
+    pub fn preview(&self, sound: Sound) {
+        {
+            let mut mixer = self.mixer.lock().unwrap();
+            mixer.effects.clear();
+            mixer.effect = Voice::default();
+        }
+        self.set_sounds(vec![sound]);
+        self.sound(SoundRef(0));
+    }
+
     /// Plays `music` in a loop from its start, instead of any before; None stops it.
     pub fn music(&self, music: Option<&Music>) {
         self.mixer.lock().unwrap().music(music.cloned());
@@ -73,8 +107,9 @@ fn stream<T: SizedSample + FromSample<f32>>(
             config,
             move |out: &mut [T], _| {
                 let mut mixer = mixer.lock().unwrap();
-                for frame in out.chunks_mut(channels) {
-                    let value = T::from_sample(LEVEL * mixer.next());
+                mixer.record(out.len() / channels);
+                for (i, frame) in out.chunks_mut(channels).enumerate() {
+                    let value = T::from_sample(LEVEL * mixer.next(i));
                     frame.fill(value);
                 }
             },
@@ -92,6 +127,11 @@ struct Mixer {
     effect: Voice,
     music: Option<Music>,
     music_voices: [Voice; 2],
+    /// The world's sounds, for the recorded ones
+    sounds: Vec<Sound>,
+    recordings: Recordings,
+    /// The recordings' samples for the frames being made
+    recorded: Vec<i16>,
 }
 
 impl Mixer {
@@ -102,7 +142,17 @@ impl Mixer {
             effect: Voice::default(),
             music: None,
             music_voices: Default::default(),
+            sounds: Vec::new(),
+            recordings: Recordings::default(),
+            recorded: Vec::new(),
         }
+    }
+
+    /// Makes the recordings' next `count` samples, which [`Mixer::next`] adds in.
+    fn record(&mut self, count: usize) {
+        self.recorded.resize(count, 0);
+        self.recordings
+            .fill(&self.sounds, self.rate, &mut self.recorded);
     }
 
     fn effect(&mut self, notes: Vec<Note>) {
@@ -116,14 +166,18 @@ impl Mixer {
         self.music_voices = Default::default();
     }
 
-    /// The next sample, -1.0 to 1.0.
-    fn next(&mut self) -> f32 {
+    /// The next sample, -1.0 to 1.0, with sample `i` of the recordings made last.
+    fn next(&mut self, i: usize) -> f32 {
         let effect_gain = if self.music.is_some() {
             EFFECT_GAIN_WITH_MUSIC
         } else {
             1.0
         };
-        let mut value = effect_gain * self.next_effect();
+        let recorded = self
+            .recorded
+            .get(i)
+            .map_or(0.0, |&v| f32::from(v) / 32768.0);
+        let mut value = recorded + effect_gain * self.next_effect();
         if let Some(music) = &self.music {
             let gain = MUSIC_GAIN / music.parts.len() as f32;
             for (voice, part) in self.music_voices.iter_mut().zip(&music.parts) {
@@ -221,7 +275,7 @@ mod tests {
         let mut mixer = Mixer::new(1000);
         mixer.effect(vec![Note::new(100, 10)]);
         mixer.effect(vec![Note::new(0, 5), Note::new(200, 10)]);
-        let samples: Vec<f32> = (0..40).map(|_| mixer.next()).collect();
+        let samples: Vec<f32> = (0..40).map(|_| mixer.next(0)).collect();
         assert!(
             samples[..10].iter().any(|&v| v.abs() > 0.1),
             "the first tone"
@@ -235,6 +289,20 @@ mod tests {
     }
 
     #[test]
+    fn recordings_play_alongside() {
+        let mut mixer = Mixer::new(8000);
+        mixer.sounds = vec![Sound::Samples(adventure_format::Samples {
+            rate: 8000,
+            samples: vec![100, 100],
+        })];
+        mixer.recordings.start(&mixer.sounds, SoundRef(0));
+        mixer.record(3);
+        let samples: Vec<f32> = (0..3).map(|i| mixer.next(i)).collect();
+        assert!(samples[0] > 0.5 && samples[1] > 0.5);
+        assert_eq!(samples[2], 0.0, "over after two samples");
+    }
+
+    #[test]
     fn music_loops_under_the_effects() {
         let mut mixer = Mixer::new(1000);
         mixer.music(Some(Music {
@@ -243,7 +311,7 @@ mod tests {
                 notes: vec![Note::new(250, 20)],
             }],
         }));
-        let loud = (0..100).map(|_| mixer.next().abs()).fold(0.0, f32::max);
+        let loud = (0..100).map(|_| mixer.next(0).abs()).fold(0.0, f32::max);
         assert!(
             loud > 0.0 && loud <= MUSIC_GAIN + 0.001,
             "quiet, and still playing: {loud}"

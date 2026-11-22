@@ -76,7 +76,8 @@ pub const MAP_PIN: &str = "\u{e316}";
 pub const CURSOR: &str = "\u{e1dc}";
 pub const STAMP: &str = "\u{ea48}";
 pub const INFO: &str = "\u{e2ce}";
-
+pub const SPEAKER: &str = "\u{e44a}";
+pub const STOP: &str = "\u{e46c}";
 fn bold() -> FontFamily {
     FontFamily::Name("bold".into())
 }

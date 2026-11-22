@@ -184,7 +184,7 @@ An Adventure world in one file, read and written by `adventure-format`:
 
 ```
 "ADV"          3 bytes
-version        u16, little-endian: VERSION (currently 1)
+version        u16, little-endian: VERSION (currently 2)
 world          the World, encoded with postcard 1.x
 ```
 
@@ -192,7 +192,9 @@ The Rust types in [adventure-format](../adventure/format/src/lib.rs) are the lay
 encodes them field by field in declaration order, so reordering fields or enum variants changes the
 format. Pixels are RGB565, row by row, stored as a postcard byte array (length, then two
 little-endian bytes per pixel). Tiles and sprite pictures are 16×16; `0xF81F` (magenta) is
-transparent. Only files of the current version are read: any change to the types raises `VERSION`.
+transparent. A sound is either notes (frequency and length, played as sine tones) or samples: mono,
+signed 8-bit, 8 to 32 kHz, at most 4 seconds. Only files of the current version are read: any
+change to the types raises `VERSION`.
 
 Maps, things, items and flags have stable IDs (`Id`), handed out once and never reused within a
 world; tiles, sprites, sounds and music are referred to by their position in the world's lists.

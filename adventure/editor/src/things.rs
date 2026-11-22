@@ -1084,19 +1084,22 @@ pub(crate) fn name_and_use(
     remove: &mut Option<usize>,
     index: usize,
 ) {
-    ui.vertical(|ui| {
-        ui.set_width(ui.available_width() - 40.0);
-        ui.spacing_mut().item_spacing.y = 2.0;
-        text_input(ui, name, hint);
-        ui.label(muted(used).small());
+    // The button first, from the right, so the name takes exactly the rest: a guessed width
+    // made the card wider than its column, which then widened everything after it
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        let delete = ui
+            .add_enabled(count == 0, quiet(RichText::new(TRASH).size(16.0)))
+            .on_hover_text("Delete")
+            .on_disabled_hover_text("Still in use, so it can't be deleted");
+        if delete.clicked() {
+            *remove = Some(index);
+        }
+        ui.with_layout(Layout::top_down(Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            text_input(ui, name, hint);
+            ui.label(muted(used).small());
+        });
     });
-    let delete = ui
-        .add_enabled(count == 0, quiet(RichText::new(TRASH).size(16.0)))
-        .on_hover_text("Delete")
-        .on_disabled_hover_text("Still in use, so it can't be deleted");
-    if delete.clicked() {
-        *remove = Some(index);
-    }
 }
 
 /// All sprites as pictures to pick one from; closes the popup it's in, if asked.

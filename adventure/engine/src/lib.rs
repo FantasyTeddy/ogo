@@ -7,9 +7,11 @@ use std::collections::{HashMap, HashSet};
 
 use adventure_format::*;
 
+pub mod recordings;
 pub mod sample;
 mod save;
 
+pub use recordings::Recordings;
 pub use save::Save;
 
 /// The picture [`Game::draw`] paints, in pixels. The device shows it doubled.

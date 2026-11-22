@@ -18,7 +18,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// The first bytes of every `.adv` file.
 pub const MAGIC: &[u8; 3] = b"ADV";
 /// The version of the format, after [`MAGIC`].
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 
 /// A tile, and every picture of a sprite, is `TILE` × `TILE` pixels.
 pub const TILE: usize = 16;
@@ -37,6 +37,10 @@ pub const MAX_THUMBNAIL: (u16, u16) = (160, 120);
 pub const MAX_FRAMES: usize = 4;
 /// The most parts a piece of music can have.
 pub const MAX_PARTS: usize = 2;
+/// The sample rates [`Samples`] can have, in Hz.
+pub const SAMPLE_RATES: std::ops::RangeInclusive<u16> = 8000..=32000;
+/// The longest [`Samples`], in seconds.
+pub const MAX_SAMPLE_SECONDS: usize = 4;
 
 // ---- World -----------------------------------------------------------------------------------
 
@@ -46,7 +50,7 @@ pub struct World {
     /// Chosen at random once per world, and kept when it's changed: tells worlds apart, whatever
     /// their files are called.
     pub uid: u64,
-    /// For the grown-ups (web page, logs); never shown to the player.
+    /// Shown small under the thumbnail on the start screen, and on the web page and in logs.
     pub title: String,
     /// What the player picks the world by.
     pub thumbnail: Picture,
@@ -60,7 +64,7 @@ pub struct World {
     /// The flags that exist. They have no names in the file.
     pub flags: Vec<Id>,
     /// Sound effects.
-    pub sounds: Vec<Melody>,
+    pub sounds: Vec<Sound>,
     pub music: Vec<Music>,
     pub maps: Vec<Map>,
 }
@@ -387,9 +391,21 @@ impl Note {
     }
 }
 
-/// A sound effect.
+/// A sound effect: tones, or recorded sound.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Melody(pub Vec<Note>);
+pub enum Sound {
+    /// Played one after another, as sine tones.
+    Notes(Vec<Note>),
+    Samples(Samples),
+}
+
+/// Recorded sound: mono, signed 8-bit, at most [`MAX_SAMPLE_SECONDS`] long.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Samples {
+    /// Samples per second, within [`SAMPLE_RATES`].
+    pub rate: u16,
+    pub samples: Vec<i8>,
+}
 
 /// Background music: 1 to [`MAX_PARTS`] parts of equal length, played together and looped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -595,6 +611,21 @@ impl Check<'_> {
             self.sprite(item.icon)?;
         }
         unique(w.flags.iter().copied(), "flag")?;
+
+        for (i, sound) in w.sounds.iter().enumerate() {
+            if let Sound::Samples(samples) = sound {
+                ensure(SAMPLE_RATES.contains(&samples.rate), || {
+                    format!("sound {i} has a sample rate of {} Hz", samples.rate)
+                })?;
+                ensure(!samples.samples.is_empty(), || {
+                    format!("sound {i} is empty")
+                })?;
+                ensure(
+                    samples.samples.len() <= samples.rate as usize * MAX_SAMPLE_SECONDS,
+                    || format!("sound {i} is longer than {MAX_SAMPLE_SECONDS} seconds"),
+                )?;
+            }
+        }
 
         for (i, music) in w.music.iter().enumerate() {
             ensure((1..=MAX_PARTS).contains(&music.parts.len()), || {
@@ -803,7 +834,7 @@ mod tests {
                 icon: SpriteRef(1),
             }],
             flags: vec![Id(3)],
-            sounds: vec![Melody(vec![Note::new(880, 50)])],
+            sounds: vec![Sound::Notes(vec![Note::new(880, 50)])],
             music: vec![Music {
                 parts: vec![
                     Part {
@@ -859,7 +890,7 @@ mod tests {
         let world = tiny();
         world.validate().unwrap();
         let bytes = world.to_bytes();
-        assert_eq!(&bytes[..5], b"ADV\x01\x00");
+        assert_eq!(&bytes[..5], b"ADV\x02\x00");
         assert_eq!(World::from_bytes(&bytes).unwrap(), world);
     }
 
@@ -900,8 +931,8 @@ mod tests {
         ));
         assert!(matches!(World::from_bytes(b"ADV"), Err(Error::NotAdv)));
         let mut bytes = tiny().to_bytes();
-        bytes[3] = 2;
-        assert!(matches!(World::from_bytes(&bytes), Err(Error::Version(2))));
+        bytes[3] = 9;
+        assert!(matches!(World::from_bytes(&bytes), Err(Error::Version(9))));
         let bytes = tiny().to_bytes();
         assert!(matches!(
             World::from_bytes(&bytes[..bytes.len() - 10]),
@@ -944,6 +975,26 @@ mod tests {
             })))
         .contains("map 7"));
         assert!(invalid(|w| w.sprites[1].pixels.0.pop().map(drop).unwrap()).contains("pixels"));
+        let samples = |rate, length| {
+            Sound::Samples(Samples {
+                rate,
+                samples: vec![0; length],
+            })
+        };
+        assert!(invalid(|w| w.sounds.push(samples(4000, 10))).contains("4000 Hz"));
+        assert!(invalid(|w| w.sounds.push(samples(8000, 0))).contains("empty"));
+        assert!(invalid(|w| w.sounds.push(samples(8000, 32001))).contains("longer"));
+    }
+
+    #[test]
+    fn recorded_sounds_round_trip() {
+        let mut world = tiny();
+        world.sounds.push(Sound::Samples(Samples {
+            rate: 16000,
+            samples: vec![0, 127, -128, 5],
+        }));
+        let bytes = world.to_bytes();
+        assert_eq!(World::from_bytes(&bytes).unwrap(), world);
     }
 
     #[test]

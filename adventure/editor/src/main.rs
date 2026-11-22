@@ -5,6 +5,7 @@
 //! `cargo run --manifest-path adventure/Cargo.toml --target host-tuple -p adventure-editor
 //! [-- <folder>]`: without a folder, the one open last time.
 
+mod audio;
 mod export;
 mod handheld;
 mod images;
@@ -31,7 +32,7 @@ use eframe::egui::{
 use export::Assets;
 use handheld::{Handheld, HandheldButton};
 use images::Rgba;
-use project::{Brush, Project, TileDef};
+use project::{Brush, Project, SoundSource, TileDef};
 use theme::*;
 use things::{Stamp, Trigger};
 
@@ -154,7 +155,15 @@ enum Dialog {
 enum Section {
     General,
     Pictures,
+    Sounds,
     Items,
+}
+
+/// What a click in the world's settings wants to hear.
+enum Preview {
+    Sound(usize),
+    Music(usize),
+    Stop,
 }
 
 /// What to do once the unsaved changes are saved or dropped.
@@ -295,6 +304,10 @@ struct Editor {
     /// A thing being dragged to another cell
     dragging: Option<usize>,
     picking: Option<Pick>,
+    /// Plays the sounds and music listened to in the world's settings; opened on the first
+    preview: Option<sound::Speaker>,
+    /// The music being listened to there
+    previewing: Option<usize>,
 }
 
 const UNDO_STEPS: usize = 200;
@@ -337,6 +350,8 @@ impl Editor {
             stamp: Stamp::Sprite(adventure_format::SpriteRef(0)),
             dragging: None,
             picking: None,
+            preview: None,
+            previewing: None,
         };
         // The folder given on the command line, or the one open last time
         let folder = std::env::args().nth(1).or_else(|| stored("project"));
@@ -554,7 +569,7 @@ impl Editor {
         if times != open.times {
             open.times = times;
             reload(open);
-            self.say("Pictures reloaded");
+            self.say("Changed files reloaded");
         }
     }
 
@@ -640,32 +655,10 @@ impl Editor {
         }
         let first = open.project.sprites.len();
         for file in &files {
-            let stem = file
-                .file_stem()
-                .map_or("picture".into(), |s| s.to_string_lossy().to_string());
-            let base: String = stem
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                        c.to_ascii_lowercase()
-                    } else {
-                        '-'
-                    }
-                })
-                .collect();
-            let mut name = format!("{base}.png");
-            let mut n = 2;
-            while folder.join(&name).exists() {
-                name = format!("{base}-{n}.png");
-                n += 1;
-            }
-            if let Err(error) = std::fs::copy(file, folder.join(&name)) {
-                return self.fail(format!("Can't copy {}: {error}", file.display()));
-            }
-            let mut pretty: String = stem.replace(['_', '-'], " ");
-            if let Some(c) = pretty.get(0..1) {
-                pretty = c.to_uppercase() + &pretty[1..];
-            }
+            let (name, pretty) = match copy_in(file, &folder, "png") {
+                Ok(names) => names,
+                Err(error) => return self.fail(error),
+            };
             open.project.sprites.push(project::SpriteDef {
                 name: pretty,
                 file: name,
@@ -684,6 +677,78 @@ impl Editor {
         self.say(message);
         for problem in problems {
             self.fail(problem);
+        }
+    }
+
+    /// Copies WAVs into sounds/ and adds them as sounds.
+    fn add_sounds(&mut self) {
+        let Some(open) = &mut self.open else { return };
+        let Some(files) = rfd::FileDialog::new()
+            .add_filter("WAV", &["wav"])
+            .set_title("Sounds: WAV files, at most 4 seconds")
+            .pick_files()
+        else {
+            return;
+        };
+        let folder = open.dir.join(project::SOUNDS);
+        if let Err(error) = std::fs::create_dir_all(&folder) {
+            return self.fail(format!("Can't create {}: {error}", folder.display()));
+        }
+        let first = open.project.sounds.len();
+        for file in &files {
+            let (name, pretty) = match copy_in(file, &folder, "wav") {
+                Ok(names) => names,
+                Err(error) => return self.fail(error),
+            };
+            open.project.sounds.push(project::SoundDef {
+                name: pretty,
+                source: SoundSource::File { file: name },
+            });
+        }
+        reload(open);
+        open.times = picture_times(&open.dir, &open.project);
+        let problems: Vec<String> = (first..open.project.sounds.len())
+            .filter_map(|i| export::sound(&open.project.sounds[i], &open.assets.sounds[i]).err())
+            .collect();
+        self.say(format!("Added {} sounds", files.len()));
+        for problem in problems {
+            self.fail(problem);
+        }
+    }
+
+    /// Plays what was clicked in the world's settings.
+    fn listen(&mut self, preview: Preview) {
+        let Some(open) = &self.open else { return };
+        if self.preview.is_none() {
+            match sound::Speaker::open() {
+                Ok(speaker) => self.preview = Some(speaker),
+                Err(error) => return self.fail(format!("Can't play sound: {error}")),
+            }
+        }
+        let Some(speaker) = &self.preview else { return };
+        match preview {
+            Preview::Sound(i) => {
+                let sound = open
+                    .assets
+                    .sounds
+                    .get(i)
+                    .map(|s| export::sound(&open.project.sounds[i], s));
+                if let Some(Ok(sound)) = sound {
+                    speaker.preview(sound);
+                }
+            }
+            Preview::Music(i) => {
+                if let Some(def) = open.project.music.get(i) {
+                    speaker.music(Some(&adventure_format::Music {
+                        parts: def.parts.clone(),
+                    }));
+                    self.previewing = Some(i);
+                }
+            }
+            Preview::Stop => {
+                speaker.music(None);
+                self.previewing = None;
+            }
         }
     }
 
@@ -811,6 +876,7 @@ impl Editor {
             };
         }
         let title = world.title.clone();
+        let world_sounds = world.sounds.clone();
         match Game::new(world, 0) {
             Ok(game) => {
                 self.play = Some(Play {
@@ -822,7 +888,8 @@ impl Editor {
                     behind: 0.0,
                     speaker: sound::Speaker::open()
                         .inspect_err(|e| eprintln!("no sound: {e}"))
-                        .ok(),
+                        .ok()
+                        .inspect(|speaker| speaker.set_sounds(world_sounds)),
                 });
             }
             Err(error) => self.fail(error.to_string()),
@@ -1621,6 +1688,10 @@ impl Editor {
         let mut add_tiles = false;
         let mut add_pictures = false;
         let mut removed_picture = false;
+        let mut add_sounds = false;
+        let mut removed_sound = false;
+        let mut preview = None;
+        let previewing = self.previewing;
         let mut go = None;
         let modal = egui::Modal::new(Id::NULL.with("world settings"))
             .frame(dialog_frame())
@@ -1632,11 +1703,12 @@ impl Editor {
                 dialog_title(ui, "World settings", &mut close);
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
-                        ui.set_width(150.0);
+                        ui.set_width(170.0);
                         ui.spacing_mut().item_spacing.y = 4.0;
                         for (s, icon, label) in [
                             (Section::General, INFO, "General"),
                             (Section::Pictures, IMAGE, "Pictures"),
+                            (Section::Sounds, SPEAKER, "Sounds & music"),
                             (Section::Items, FLAG, "Items & flags"),
                         ] {
                             let on = s == section;
@@ -1645,7 +1717,7 @@ impl Editor {
                                 .corner_radius(12)
                                 .inner_margin(Margin::symmetric(10, 7));
                             let item = surface(ui, look, (!on).then_some(HOVER), |ui| {
-                                ui.set_width(130.0);
+                                ui.set_width(150.0);
                                 let colour = if on { TEXT } else { MUTED };
                                 ui.label(RichText::new(format!("{icon}   {label}")).color(colour));
                             });
@@ -1691,6 +1763,97 @@ impl Editor {
                                 });
                                 field(ui, "Folder", |ui| {
                                     ui.label(muted(open.dir.display().to_string()).small());
+                                });
+                            }
+                            Section::Sounds => {
+                                field(ui, "Sounds · for objects' rules and tiles' steps", |ui| {
+                                    let width = ui.available_width();
+                                    let uses: Vec<usize> = (0..open.project.sounds.len())
+                                        .map(|i| open.project.sound_uses(i))
+                                        .collect();
+                                    let mut remove = None;
+                                    for (i, def) in open.project.sounds.iter_mut().enumerate() {
+                                        let loaded = open.assets.sounds.get(i).and_then(Option::as_ref);
+                                        let problem = loaded.and_then(|l| l.as_ref().err());
+                                        let what = match (&def.source, loaded) {
+                                            (SoundSource::Notes { notes }, _) => {
+                                                format!("{} notes", notes.len())
+                                            }
+                                            (SoundSource::File { file }, Some(Ok(samples))) => {
+                                                format!("{file} · {:.1} s", audio::seconds(samples))
+                                            }
+                                            (SoundSource::File { file }, _) => file.clone(),
+                                        };
+                                        let used = match uses[i] {
+                                            0 => format!("{what} · not used yet"),
+                                            1 => format!("{what} · used once"),
+                                            n => format!("{what} · used {n} times"),
+                                        };
+                                        things::card(ui, width, |ui| {
+                                            let icon = if problem.is_some() { WARNING } else { PLAY };
+                                            let hint = problem.map_or("Listen".to_string(), Clone::clone);
+                                            if listen_button(ui, icon, problem.is_some())
+                                                .on_hover_text(hint)
+                                                .clicked()
+                                                && problem.is_none()
+                                            {
+                                                preview = Some(Preview::Sound(i));
+                                            }
+                                            things::name_and_use(ui, &mut def.name, "the sound's name", &used, uses[i], &mut remove, i);
+                                        });
+                                    }
+                                    if let Some(i) = remove {
+                                        open.project.remove_sound(i);
+                                        removed_sound = true;
+                                    }
+                                    if ui.add(quiet(muted(format!("{PLUS}  Add sounds…")))).clicked() {
+                                        add_sounds = true;
+                                    }
+                                    ui.label(
+                                        muted(
+                                            "WAVs go into sounds/: made mono, 16 kHz and 8-bit, \
+                                             quiet ends cut off, at most 4 seconds.",
+                                        )
+                                        .small(),
+                                    );
+                                });
+                                ui.add_space(6.0);
+                                field(ui, "Music · for maps", |ui| {
+                                    let width = ui.available_width();
+                                    let uses: Vec<usize> = (0..open.project.music.len())
+                                        .map(|i| open.project.music_uses(i))
+                                        .collect();
+                                    let mut remove = None;
+                                    for (i, def) in open.project.music.iter_mut().enumerate() {
+                                        let used = match uses[i] {
+                                            0 => "no map plays it yet".to_string(),
+                                            1 => "played on 1 map".to_string(),
+                                            n => format!("played on {n} maps"),
+                                        };
+                                        things::card(ui, width, |ui| {
+                                            let playing = previewing == Some(i);
+                                            let (icon, hint) = if playing {
+                                                (STOP, "Stop")
+                                            } else {
+                                                (PLAY, "Listen")
+                                            };
+                                            if listen_button(ui, icon, false).on_hover_text(hint).clicked() {
+                                                preview = Some(if playing {
+                                                    Preview::Stop
+                                                } else {
+                                                    Preview::Music(i)
+                                                });
+                                            }
+                                            things::name_and_use(ui, &mut def.name, "the music's name", &used, uses[i], &mut remove, i);
+                                        });
+                                    }
+                                    if let Some(i) = remove {
+                                        open.project.remove_music(i);
+                                        preview = Some(Preview::Stop);
+                                    }
+                                    if open.project.music.is_empty() {
+                                        ui.label(muted("No music yet.").small());
+                                    }
                                 });
                             }
                             Section::Items => {
@@ -1843,9 +2006,23 @@ impl Editor {
             }
             self.say("Picture removed from the world; its file stays in sprites/");
         }
+        if add_sounds {
+            self.add_sounds();
+        }
+        if removed_sound {
+            if let Some(open) = &mut self.open {
+                reload(open);
+            }
+            self.say("Sound removed from the world; its file stays in sounds/");
+        }
+        if let Some(preview) = preview {
+            self.listen(preview);
+        }
         if close || modal.should_close() {
             self.dialog = None;
             self.thumbnail = None;
+            self.preview = None;
+            self.previewing = None;
         }
     }
 
@@ -2569,11 +2746,7 @@ impl Editor {
                             let world = play.game.world();
                             for event in events {
                                 match event {
-                                    Event::Sound(sound) => {
-                                        if let Some(melody) = world.sounds.get(sound.0 as usize) {
-                                            speaker.play(&melody.0);
-                                        }
-                                    }
+                                    Event::Sound(sound) => speaker.sound(sound),
                                     Event::Music(music) => speaker
                                         .music(music.and_then(|m| world.music.get(m.0 as usize))),
                                     Event::Bump => speaker.play(&BUMP),
@@ -2852,6 +3025,10 @@ fn picture_times(dir: &Path, project: &Project) -> Vec<Option<SystemTime>> {
                 .iter()
                 .map(|s| time(dir.join(project::SPRITES).join(&s.file))),
         )
+        .chain(project.sounds.iter().map(|s| match &s.source {
+            SoundSource::Notes { .. } => None,
+            SoundSource::File { file } => time(dir.join(project::SOUNDS).join(file)),
+        }))
         .collect()
 }
 
@@ -3054,4 +3231,59 @@ fn map_picture(open: &mut Open, index: usize, view: View, ctx: &egui::Context) -
     };
     open.pictures.insert(slot, (key, texture.clone()));
     texture
+}
+
+/// Copies `file` into `folder` under a plain name of its own ending in `.extension`; that name,
+/// and a name for people made from the file's.
+fn copy_in(file: &Path, folder: &Path, extension: &str) -> Result<(String, String), String> {
+    let stem = file
+        .file_stem()
+        .map_or("file".into(), |s| s.to_string_lossy().to_string());
+    let base: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let mut name = format!("{base}.{extension}");
+    let mut n = 2;
+    while folder.join(&name).exists() {
+        name = format!("{base}-{n}.{extension}");
+        n += 1;
+    }
+    std::fs::copy(file, folder.join(&name))
+        .map_err(|error| format!("Can't copy {}: {error}", file.display()))?;
+    let mut pretty: String = stem.replace(['_', '-'], " ");
+    if let Some(c) = pretty.get(0..1) {
+        pretty = c.to_uppercase() + &pretty[1..];
+    }
+    Ok((name, pretty))
+}
+
+/// A square button with an icon, for listening to a sound.
+fn listen_button(ui: &mut Ui, icon: &str, broken: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
+    let response = if broken {
+        response
+    } else {
+        response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    };
+    let fill = if response.hovered() && !broken {
+        HOVER
+    } else {
+        PANEL
+    };
+    ui.painter().rect_filled(rect, 10, fill);
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        icon,
+        egui::FontId::proportional(20.0),
+        if broken { WARN } else { TEXT },
+    );
+    response
 }

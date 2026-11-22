@@ -854,7 +854,7 @@ pub fn world() -> World {
         &[(420, 80), (300, 80), (200, 120)],
     ]
     .iter()
-    .map(|melody| Melody(notes(melody)))
+    .map(|melody| Sound::Notes(notes(melody)))
     .collect();
     let music = vec![
         Music {

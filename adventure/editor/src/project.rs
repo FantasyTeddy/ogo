@@ -8,13 +8,14 @@ use std::hash::{BuildHasher, Hasher};
 use std::path::Path;
 
 use adventure_format::{
-    Id, LayerKind, Melody, MusicRef, Note, Part, Place, Pos, SoundRef, SpriteRef, Swap, Thing,
+    Id, LayerKind, MusicRef, Note, Part, Place, Pos, SoundRef, SpriteRef, Swap, Thing,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const FILE: &str = "world.json";
 pub const TILESET: &str = "tiles.png";
 pub const SPRITES: &str = "sprites";
+pub const SOUNDS: &str = "sounds";
 /// The version of `world.json`
 pub const VERSION: u32 = 1;
 
@@ -71,7 +72,16 @@ pub struct FlagDef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SoundDef {
     pub name: String,
-    pub notes: Vec<Note>,
+    #[serde(flatten)]
+    pub source: SoundSource,
+}
+
+/// Where a sound comes from: notes, or a WAV file in `sounds/`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SoundSource {
+    Notes { notes: Vec<Note> },
+    File { file: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -455,6 +465,71 @@ impl Project {
         }
     }
 
+    /// How often sound `index` is used: as tiles' step sounds and in objects' rules.
+    pub fn sound_uses(&self, index: usize) -> usize {
+        let sound = SoundRef(index as u16);
+        let steps = self
+            .tiles
+            .iter()
+            .filter(|t| t.step_sound == Some(sound))
+            .count();
+        let rules = self
+            .maps
+            .iter()
+            .flat_map(|m| &m.things)
+            .flat_map(|t| t.thing.on_bump.iter().chain(&t.thing.on_step))
+            .flat_map(|r| &r.then)
+            .filter(|a| **a == adventure_format::Action::Sound(sound))
+            .count();
+        steps + rules
+    }
+
+    /// Removes sound `index`, which nothing uses any more; the sounds after it move up. Its file
+    /// stays in the folder.
+    pub fn remove_sound(&mut self, index: usize) {
+        self.sounds.remove(index);
+        let shift = |s: &mut SoundRef| {
+            if s.0 as usize > index {
+                s.0 -= 1;
+            }
+        };
+        for tile in &mut self.tiles {
+            if let Some(sound) = &mut tile.step_sound {
+                shift(sound);
+            }
+        }
+        for thing in self.maps.iter_mut().flat_map(|m| &mut m.things) {
+            let rules = thing
+                .thing
+                .on_bump
+                .iter_mut()
+                .chain(&mut thing.thing.on_step);
+            for action in rules.flat_map(|r| &mut r.then) {
+                if let adventure_format::Action::Sound(sound) = action {
+                    shift(sound);
+                }
+            }
+        }
+    }
+
+    /// Removes music `index`, which no map plays any more; the music after it moves up.
+    pub fn remove_music(&mut self, index: usize) {
+        self.music.remove(index);
+        for map in &mut self.maps {
+            if let Some(music) = &mut map.music {
+                if music.0 as usize > index {
+                    music.0 -= 1;
+                }
+            }
+        }
+    }
+
+    /// The maps that play music `index`.
+    pub fn music_uses(&self, index: usize) -> usize {
+        let music = Some(MusicRef(index as u16));
+        self.maps.iter().filter(|m| m.music == music).count()
+    }
+
     /// The tileset cells no tile uses.
     pub fn unused_cells(&self, cells: usize) -> Vec<u16> {
         let used: HashSet<u16> = self.tiles.iter().flat_map(|t| t.cells.clone()).collect();
@@ -470,11 +545,6 @@ pub fn new_uid() -> u64 {
         .map_or(0, |t| t.as_nanos());
     hasher.write_u128(nanos);
     hasher.finish()
-}
-
-/// Sounds as the format has them.
-pub fn melodies(sounds: &[SoundDef]) -> Vec<Melody> {
-    sounds.iter().map(|s| Melody(s.notes.clone())).collect()
 }
 
 #[cfg(test)]
@@ -496,6 +566,29 @@ mod tests {
         assert_eq!(json, r#"["1 2 0","0 0 3"]"#);
         assert_eq!(serde_json::from_str::<Grid>(&json).unwrap(), g);
         assert!(serde_json::from_str::<Grid>(r#"["1 x"]"#).is_err());
+    }
+
+    #[test]
+    fn sounds_are_notes_or_files_in_json() {
+        let notes: SoundDef =
+            serde_json::from_str(r#"{"name":"Meow","notes":[{"hz":880,"ms":50}]}"#).unwrap();
+        assert_eq!(
+            notes.source,
+            SoundSource::Notes {
+                notes: vec![Note::new(880, 50)]
+            }
+        );
+        let file: SoundDef = serde_json::from_str(r#"{"name":"Moo","file":"cow.wav"}"#).unwrap();
+        assert_eq!(
+            file.source,
+            SoundSource::File {
+                file: "cow.wav".into()
+            }
+        );
+        assert_eq!(
+            serde_json::to_string(&file).unwrap(),
+            r#"{"name":"Moo","file":"cow.wav"}"#
+        );
     }
 
     #[test]

@@ -4,18 +4,24 @@ use std::fs;
 use std::path::Path;
 
 use adventure_engine::{sample, Game, HEIGHT, WIDTH};
-use adventure_format::{Dir, Item, Layer, Map, Music, Picture, Pixels, Sprite, Tile, World, TILE};
-
-use crate::images::Rgba;
-use crate::project::{
-    self, FlagDef, Grid, ItemDef, MapDef, MusicDef, Project, SoundDef, SpriteDef, ThingDef, TileDef,
+use adventure_format::{
+    Dir, Item, Layer, Map, Music, Picture, Pixels, Samples, Sound, Sprite, Tile, World, TILE,
 };
 
-/// The pictures of a project, as far as they could be read.
+use crate::audio;
+use crate::images::Rgba;
+use crate::project::{
+    self, FlagDef, Grid, ItemDef, MapDef, MusicDef, Project, SoundDef, SoundSource, SpriteDef,
+    ThingDef, TileDef,
+};
+
+/// The pictures and recorded sounds of a project, as far as they could be read.
 pub struct Assets {
     pub tileset: Result<Rgba, String>,
     /// One per sprite of the project
     pub sprites: Vec<Result<Rgba, String>>,
+    /// One per sound of the project; None for notes
+    pub sounds: Vec<Option<Result<Samples, String>>>,
 }
 
 impl Assets {
@@ -26,6 +32,16 @@ impl Assets {
                 .sprites
                 .iter()
                 .map(|sprite| Rgba::load(&dir.join(project::SPRITES).join(&sprite.file)))
+                .collect(),
+            sounds: project
+                .sounds
+                .iter()
+                .map(|sound| match &sound.source {
+                    SoundSource::Notes { .. } => None,
+                    SoundSource::File { file } => {
+                        Some(audio::load(&dir.join(project::SOUNDS).join(file)))
+                    }
+                })
                 .collect(),
         }
     }
@@ -100,7 +116,12 @@ pub fn world(project: &Project, assets: &Assets) -> Result<World, String> {
             })
             .collect(),
         flags: project.flags.iter().map(|flag| flag.id).collect(),
-        sounds: project::melodies(&project.sounds),
+        sounds: project
+            .sounds
+            .iter()
+            .zip(&assets.sounds)
+            .map(|(def, samples)| sound(def, samples))
+            .collect::<Result<Vec<_>, String>>()?,
         music: project
             .music
             .iter()
@@ -113,6 +134,20 @@ pub fn world(project: &Project, assets: &Assets) -> Result<World, String> {
     world.validate().map_err(|e| e.to_string())?;
     world.thumbnail = start_view(&world);
     Ok(world)
+}
+
+/// A sound as the format has it; Err says what's wrong with its file.
+pub fn sound(def: &SoundDef, samples: &Option<Result<Samples, String>>) -> Result<Sound, String> {
+    match (&def.source, samples) {
+        (SoundSource::Notes { notes }, _) => Ok(Sound::Notes(notes.clone())),
+        (SoundSource::File { .. }, Some(Ok(samples))) => Ok(Sound::Samples(samples.clone())),
+        (SoundSource::File { .. }, Some(Err(error))) => {
+            Err(format!("sound \"{}\": {error}", def.name))
+        }
+        (SoundSource::File { file }, None) => {
+            Err(format!("sound \"{}\": {file} isn't loaded", def.name))
+        }
+    }
 }
 
 /// What the player sees at the start.
@@ -322,9 +357,15 @@ pub fn starter() -> (Project, Assets) {
             .sounds
             .iter()
             .enumerate()
-            .map(|(i, melody)| SoundDef {
+            .map(|(i, sound)| SoundDef {
                 name: name(&SOUND_NAMES, i, "Sound"),
-                notes: melody.0.clone(),
+                source: match sound {
+                    Sound::Notes(notes) => SoundSource::Notes {
+                        notes: notes.clone(),
+                    },
+                    // The sample world has only notes
+                    Sound::Samples(_) => SoundSource::Notes { notes: Vec::new() },
+                },
             })
             .collect(),
         music: world
@@ -343,6 +384,7 @@ pub fn starter() -> (Project, Assets) {
     let assets = Assets {
         tileset: Ok(tileset),
         sprites: sprite_images,
+        sounds: vec![None; project.sounds.len()],
     };
     (project, assets)
 }
@@ -388,6 +430,7 @@ pub fn empty() -> (Project, Assets) {
         // One empty cell, so there's a tileset to add tiles to
         tileset: Ok(Rgba::new(TILE, TILE)),
         sprites: Vec::new(),
+        sounds: Vec::new(),
     };
     (project, assets)
 }
@@ -405,6 +448,8 @@ fn write_new(dir: &Path, mut project: Project, assets: Assets) -> Result<Project
     }
     let sprites = dir.join(project::SPRITES);
     fs::create_dir_all(&sprites).map_err(|e| format!("{}: {e}", sprites.display()))?;
+    let sounds = dir.join(project::SOUNDS);
+    fs::create_dir_all(&sounds).map_err(|e| format!("{}: {e}", sounds.display()))?;
     assets
         .tileset
         .as_ref()
@@ -487,6 +532,29 @@ mod tests {
             made.sprites[0].directions, 1,
             "a front-facing player is fine"
         );
+    }
+
+    #[test]
+    fn recorded_sounds_go_into_the_world() {
+        let (mut project, mut assets) = starter();
+        project.sounds.push(SoundDef {
+            name: "Moo".into(),
+            source: SoundSource::File {
+                file: "cow.wav".into(),
+            },
+        });
+        let samples = Samples {
+            rate: audio::RATE,
+            samples: vec![1, 2, 3],
+        };
+        assets.sounds.push(Some(Ok(samples.clone())));
+        let made = world(&project, &assets).unwrap();
+        assert_eq!(made.sounds.last(), Some(&Sound::Samples(samples)));
+        // A file that can't be read names the sound
+        *assets.sounds.last_mut().unwrap() = Some(Err("cow.wav: it's silent".into()));
+        assert!(world(&project, &assets)
+            .unwrap_err()
+            .contains("\"Moo\": cow.wav"));
     }
 
     #[test]

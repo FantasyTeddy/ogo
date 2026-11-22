@@ -1,17 +1,23 @@
 //! Adventure: walk around in tile worlds, made for children who can't read yet.
 //!
-//! The worlds are `.adv` files in `/adventure/` on the SD card, which the web page can fill; without
-//! any, the sample village built into adventure-engine. The start screen shows each world's picture
-//! (Left/Right, A), then, if a world has more than one hero, the heroes. With one world it starts
-//! right away. Progress is saved per world whenever something changes and when the pause menu
-//! opens; the next start goes on from there, as the same hero.
+//! The worlds are `.adv` files in `/adventure/` on the SD card, which the web page can fill, and
+//! the sample village built into adventure-engine after them. The start screen shows each world's
+//! picture with its name (Left/Right, A), starting at the one played last, then, if a world has
+//! more than one hero, the heroes. Progress is saved per world whenever something changes and when
+//! the pause menu opens; the next start goes on from there, as the same hero.
 
 use std::{fs, io::Read, path::PathBuf};
 
-use adventure_engine::{sample, Buttons, Event, Game, Save, HEIGHT, WIDTH};
-use adventure_format::{Dir, Head, World, TILE, TRANSPARENT};
-use embedded_graphics::{pixelcolor::raw::RawU16, primitives::Rectangle};
+use adventure_engine::{sample, Buttons, Event, Game, Recordings, Save, HEIGHT, WIDTH};
+use adventure_format::{Dir, Head, Sound, World, TILE, TRANSPARENT};
+use embedded_graphics::{
+    mono_font::{iso_8859_1::FONT_6X10, MonoTextStyle},
+    pixelcolor::raw::RawU16,
+    primitives::Rectangle,
+    text::{Alignment, Baseline, Text, TextStyleBuilder},
+};
 use ogo_sdk::prelude::*;
+use ogo_sdk::{Stream, SAMPLE_RATE};
 
 const WORLD_DIR: &str = "/sd/adventure";
 /// The save that remembers the world played last
@@ -66,6 +72,11 @@ struct Playing {
     /// until the app exits
     tracks: Vec<Track>,
     saved: u32,
+    recordings: Recordings,
+    /// Open while recorded sounds play: the speaker stays on while one is open
+    stream: Option<Stream>,
+    /// Room for the samples handed to the stream
+    samples: Vec<i16>,
 }
 
 struct Adventure {
@@ -85,16 +96,12 @@ impl App for Adventure {
             .iter()
             .position(|entry| entry.head.as_ref().map(|head| save_name(head.uid)) == last)
             .unwrap_or(0);
-        let mut app = Adventure {
+        Adventure {
             screen: Screen::Worlds { selected },
             worlds,
             picture: vec![0; WIDTH * HEIGHT],
             frame: 0,
-        };
-        if app.worlds.len() == 1 {
-            app.open(ctx, 0);
         }
-        app
     }
 
     fn update(&mut self, ctx: &mut Ctx) {
@@ -134,6 +141,20 @@ impl App for Adventure {
     fn draw(&self, fb: &mut Framebuffer) {
         let pixels = self.picture.iter().map(|&p| Rgb565::from(RawU16::new(p)));
         fb.fill_contiguous(&fb.bounding_box(), pixels).ok();
+        // The world's name, small under its picture: for the grown-ups, and for learning letters
+        if let Screen::Worlds { selected } = &self.screen {
+            if let Some(head) = &self.worlds[*selected].head {
+                let style = MonoTextStyle::new(&FONT_6X10, Rgb565::from(RawU16::new(FRAME)));
+                let layout = TextStyleBuilder::new()
+                    .alignment(Alignment::Center)
+                    .baseline(Baseline::Top)
+                    .build();
+                let at = Point::new(WIDTH as i32 / 2, NAME_TOP as i32);
+                Text::with_text_style(&caption(&head.title), at, style, layout)
+                    .draw(fb)
+                    .ok();
+            }
+        }
     }
 
     fn area(&self) -> Option<Area> {
@@ -143,6 +164,9 @@ impl App for Adventure {
     fn paused(&mut self, ctx: &mut Ctx) {
         if let Screen::Playing(playing) = &mut self.screen {
             playing.save(ctx);
+            // An open stream keeps the speaker on, hissing, while the menu is open
+            playing.recordings.stop();
+            playing.stream = None;
         }
     }
 }
@@ -151,6 +175,11 @@ const MOVED: [Note; 1] = [Note::new(660, 40)];
 const CHOSEN: [Note; 2] = [Note::new(660, 60), Note::new(990, 90)];
 const REFUSED: [Note; 2] = [Note::new(220, 100), Note::new(165, 160)];
 const BUMP: [Note; 1] = [Note::new(150, 40)];
+/// Samples the stream is kept ahead by (100 ms): it starts playing at 75 ms and drops the oldest
+/// beyond 125 ms.
+const STREAM_AHEAD: usize = SAMPLE_RATE as usize / 10;
+/// Fewer left than this (10 ms), the stream waits for more that won't come: done.
+const STREAM_DONE: usize = SAMPLE_RATE as usize / 100;
 
 /// Left and Right through `count` choices, round and round.
 fn browse(ctx: &mut Ctx, selected: usize, count: usize) -> Option<usize> {
@@ -168,9 +197,10 @@ fn browse(ctx: &mut Ctx, selected: usize, count: usize) -> Option<usize> {
     Some(next)
 }
 
-/// The worlds on the SD card, by file name; the sample if there are none.
+/// The worlds on the SD card, by file name, then the sample.
 fn scan() -> Vec<Entry> {
     let mut paths: Vec<PathBuf> = fs::read_dir(WORLD_DIR)
+        .inspect_err(|error| log::info!("{WORLD_DIR}: {error}"))
         .map(|entries| {
             entries
                 .filter_map(|entry| entry.ok().map(|entry| entry.path()))
@@ -182,19 +212,8 @@ fn scan() -> Vec<Entry> {
         })
         .unwrap_or_default();
     paths.sort_by_key(|path| path.to_string_lossy().to_ascii_lowercase());
-    if paths.is_empty() {
-        let world = sample::world();
-        let head = Head {
-            uid: world.uid,
-            title: world.title,
-            thumbnail: world.thumbnail,
-        };
-        return vec![Entry {
-            path: None,
-            head: Some(head),
-        }];
-    }
-    paths
+    log::info!("{} worlds in {WORLD_DIR}", paths.len());
+    let mut worlds: Vec<Entry> = paths
         .into_iter()
         .map(|path| {
             let head = read_head(&path)
@@ -205,7 +224,17 @@ fn scan() -> Vec<Entry> {
                 head,
             }
         })
-        .collect()
+        .collect();
+    let sample = sample::world();
+    worlds.push(Entry {
+        path: None,
+        head: Some(Head {
+            uid: sample.uid,
+            title: sample.title,
+            thumbnail: sample.thumbnail,
+        }),
+    });
+    worlds
 }
 
 fn read_head(path: &PathBuf) -> anyhow::Result<Head> {
@@ -264,6 +293,9 @@ impl Adventure {
             game,
             tracks,
             saved: 0,
+            recordings: Recordings::default(),
+            stream: None,
+            samples: Vec::new(),
         };
         playing.save(ctx);
         self.screen = Screen::Playing(Box::new(playing));
@@ -326,21 +358,45 @@ impl Playing {
         };
         for event in self.game.step(buttons) {
             match event {
-                Event::Sound(sound) => {
-                    let notes: Vec<Note> = self.game.world().sounds[sound.0 as usize]
-                        .0
-                        .iter()
-                        .map(|note| Note::new(note.hz as u32, note.ms as u32))
-                        .collect();
-                    ctx.sound().play(&notes);
-                }
+                Event::Sound(sound) => match &self.game.world().sounds[sound.0 as usize] {
+                    Sound::Notes(notes) => {
+                        let notes: Vec<Note> = notes
+                            .iter()
+                            .map(|note| Note::new(note.hz as u32, note.ms as u32))
+                            .collect();
+                        ctx.sound().play(&notes);
+                    }
+                    Sound::Samples(_) => self.recordings.start(&self.game.world().sounds, sound),
+                },
                 Event::Music(Some(music)) => ctx.sound().play_music(self.tracks[music.0 as usize]),
                 Event::Music(None) => ctx.sound().stop_music(),
                 Event::Bump => ctx.sound().play(&BUMP),
             }
         }
+        self.feed(ctx);
         if self.game.progress() != self.saved {
             self.save(ctx);
+        }
+    }
+
+    /// Keeps the stream about [`STREAM_AHEAD`] ahead while recorded sounds play, and closes it once
+    /// what's left has played.
+    fn feed(&mut self, ctx: &mut Ctx) {
+        if self.recordings.is_playing() {
+            let stream = self.stream.get_or_insert_with(|| ctx.sound().open_stream());
+            let missing = STREAM_AHEAD.saturating_sub(stream.buffered());
+            if missing > 0 {
+                self.samples.resize(missing, 0);
+                let sounds = &self.game.world().sounds;
+                self.recordings.fill(sounds, SAMPLE_RATE, &mut self.samples);
+                stream.push(&self.samples);
+            }
+        } else if self
+            .stream
+            .as_ref()
+            .is_some_and(|stream| stream.buffered() < STREAM_DONE)
+        {
+            self.stream = None;
         }
     }
 
@@ -381,9 +437,23 @@ fn track(music: &adventure_format::Music) -> Track {
 
 // ---- Drawing the choices ---------------------------------------------------------------------
 
-/// The space for the picture being chosen: centred, leaving room for the arrows and dots
-const BOX: (usize, usize) = (120, 90);
-const BOX_TOP: usize = 8;
+/// The space for the picture being chosen: centred, leaving room for the arrows, the name and the
+/// dots
+const BOX: (usize, usize) = (120, 84);
+const BOX_TOP: usize = 5;
+/// The top of the world's name, under its picture
+const NAME_TOP: usize = 96;
+/// The most characters of a name that fit across the screen, 6 pixels each
+const NAME_CHARS: usize = 26;
+
+/// `title` as it fits across the screen: cut short, with dots, if it's too long.
+fn caption(title: &str) -> String {
+    if title.chars().count() <= NAME_CHARS {
+        title.to_string()
+    } else {
+        title.chars().take(NAME_CHARS - 3).collect::<String>().trim_end().to_string() + "..."
+    }
+}
 
 /// A picture as large as fits in [`BOX`] (keeping its shape), with a white frame.
 fn framed(out: &mut [u16], pixels: &[u16], width: usize, height: usize) {
@@ -438,9 +508,9 @@ fn dots(out: &mut [u16], selected: usize, count: usize) {
     for i in 0..shown {
         let x = left + i * spacing;
         if i == selected {
-            fill(out, x - 2, 106, 5, 5, FRAME);
+            fill(out, x - 2, 109, 5, 5, FRAME);
         } else {
-            fill(out, x - 1, 107, 3, 3, DOT);
+            fill(out, x - 1, 110, 3, 3, DOT);
         }
     }
 }

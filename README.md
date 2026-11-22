@@ -81,10 +81,11 @@ the same channels, so there's no switching off only the music). The pause menu a
 **Adventure** is for children who can't read yet: walk around in a little tile world, meet animals
 and people, find things. Everything answers with pictures and sounds, there's no text and no
 fighting. Worlds are `.adv` files: upload them on the web page (under Adventure, "Worlds"), or copy
-them into `/adventure/` on the SD card; without any, it has a sample village. The start screen shows
-each world's picture (**Left**/**Right**, **A**); some worlds then let you choose who to be. The
-arrows walk, **A** looks at or talks to what's in front, **B** runs. Each world remembers where you
-were and what you found, in `/ogo/saves/adventure/`.
+them into `/adventure/` on the SD card; a sample village is always there too. The start screen shows
+each world's picture with its name small below it (**Left**/**Right**, **A**), starting at the one
+played last; some worlds then let you choose who to be. The arrows walk, **A** looks at or talks to
+what's in front, **B** runs. Each world remembers where you were and what you found, in
+`/ogo/saves/adventure/`.
 
 Worlds are made on the PC with the **Adventure editor** (in [adventure/editor](adventure/editor),
 started with `cargo run --manifest-path adventure/Cargo.toml --target host-tuple -p
@@ -94,7 +95,10 @@ village…** and **New empty world…** (in the menu on "Adventure") ask for a n
 of that name. The world's settings, under Pictures, add tiles from a PNG (they go after the
 existing ones in `tiles.png`, so the maps stay as they are), add pictures (copied into `sprites/`:
 one 16×16 picture, or a row per direction and a column per step), and choose who the player is; a
-picture facing the viewer turns by mirroring and hops a little when it walks.
+picture facing the viewer turns by mirroring and hops a little when it walks. Under Sounds & music,
+each sound and piece of music can be listened to; **Add sounds…** copies WAV files into `sounds/`
+(a voice, an animal, a door), which become mono, 16 kHz and 8-bit with the quiet ends cut off, at
+most 4 seconds each.
 The maps are tabs above the map; the layer bar under it picks which of the three layers to paint
 ("Ground › Decoration › Above", the last over the player, like treetops), and the layers above it
 turn see-through. The
