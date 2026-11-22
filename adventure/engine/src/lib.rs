@@ -28,7 +28,6 @@ const FADE: u8 = 20;
 const BUBBLE_FRAMES: u16 = 70;
 /// Frames between two bumps while walking into a wall
 const BUMP_PAUSE: u8 = 14;
-const WOBBLE: u8 = 6;
 const ANIMATION_FRAMES: u8 = 12;
 /// Item icons at the top of the screen
 const MAX_ICONS: usize = 16;
@@ -194,7 +193,6 @@ pub struct Game {
     bubbles: Vec<Bubble>,
     /// Frames into a fade, and where it leads
     fade: Option<(u8, Place)>,
-    wobble: u8,
     bump_pause: u8,
     frame: u32,
     previous: Buttons,
@@ -226,7 +224,6 @@ impl Game {
             hidden: HashSet::new(),
             bubbles: Vec::new(),
             fade: None,
-            wobble: 0,
             bump_pause: 0,
             frame: 0,
             previous: Buttons::default(),
@@ -297,7 +294,6 @@ impl Game {
             bubble.left -= 1;
             bubble.left > 0
         });
-        self.wobble = self.wobble.saturating_sub(1);
         self.bump_pause = self.bump_pause.saturating_sub(1);
 
         for i in 0..self.things.len() {
@@ -537,10 +533,7 @@ impl Game {
             self.bump_pause = BUMP_PAUSE;
             match next.and_then(|to| self.solid_thing_at(to)) {
                 Some(i) => self.bump(i),
-                None => {
-                    self.wobble = WOBBLE;
-                    self.events.push(Event::Bump);
-                }
+                None => self.events.push(Event::Bump),
             }
         }
     }
@@ -694,6 +687,7 @@ impl Game {
             x: i32,
             y: i32,
             pixels: &'a [u16],
+            flip: bool,
         }
         let sprite = |look: SpriteRef| &self.world.sprites[look.0 as usize];
         let mut figures = Vec::new();
@@ -714,41 +708,45 @@ impl Game {
                 Some((Animation::Shake, t)) => x += if t % 2 == 0 { 1 } else { -1 },
                 None => {}
             }
-            let sprite = sprite(look);
-            let frame = state.body.frame(state.body.prog, sprite.frames);
+            let (pixels, flip, hop) = pose(&state.body, state.body.prog, sprite(look), face);
             figures.push(Figure {
                 x,
-                y,
-                pixels: sprite.picture(face, frame),
+                y: y - hop,
+                pixels,
+                flip,
             });
         }
         if let Some(pet) = &self.pet {
             if let Some(look) = pet.look {
                 let (x, y) = pet.body.pixel(self.player.prog);
-                let sprite = sprite(look);
-                let frame = pet.body.frame(self.player.prog, sprite.frames);
+                let (pixels, flip, hop) =
+                    pose(&pet.body, self.player.prog, sprite(look), pet.body.face);
                 figures.push(Figure {
                     x,
-                    y,
-                    pixels: sprite.picture(pet.body.face, frame),
+                    y: y - hop,
+                    pixels,
+                    flip,
                 });
             }
         }
         let hero = sprite(self.world.heroes[self.hero]);
-        let wobble = match self.wobble {
-            0 => 0,
-            w if w % 2 == 1 => 1,
-            _ => -1,
-        };
-        let frame = self.player.frame(self.player.prog, hero.frames);
+        let (pixels, flip, hop) = pose(&self.player, self.player.prog, hero, self.player.face);
         figures.push(Figure {
-            x: px + wobble,
-            y: py,
-            pixels: hero.picture(self.player.face, frame),
+            x: px,
+            y: py - hop,
+            pixels,
+            flip,
         });
         figures.sort_by_key(|figure| figure.y);
         for figure in figures {
-            blit(out, figure.pixels, TILE, figure.x - cx, figure.y - cy);
+            blit(
+                out,
+                figure.pixels,
+                TILE,
+                figure.x - cx,
+                figure.y - cy,
+                figure.flip,
+            );
         }
 
         self.draw_layer(out, LayerKind::Above, cx, cy);
@@ -799,7 +797,14 @@ impl Game {
                     1 => 0,
                     n => (time_ms / tile.frame_ms as u64) as usize % n,
                 };
-                blit(out, &tile.frames[frame].0, TILE, tx * T - cx, ty * T - cy);
+                blit(
+                    out,
+                    &tile.frames[frame].0,
+                    TILE,
+                    tx * T - cx,
+                    ty * T - cy,
+                    false,
+                );
             }
         }
     }
@@ -837,7 +842,7 @@ impl Game {
         }
         fill(out, tail, top + height + 3, 1, 1, OUTLINE);
         let picture = self.world.sprites[picture.0 as usize].picture(Dir::Down, 0);
-        blit(out, picture, TILE, left + 2, top + 2);
+        blit(out, picture, TILE, left + 2, top + 2, false);
         for dot in 0..dots {
             fill(out, left + 20 + dot * 4, top + 9, 3, 3, DOT);
         }
@@ -877,20 +882,31 @@ impl Game {
     }
 }
 
+/// Which of a sprite's pictures shows a body, whether mirrored, and how far it's lifted: a picture
+/// without directions is mirrored to face left, one without walking pictures hops a pixel in the
+/// middle of each step.
+fn pose<'a>(body: &Body, prog: u8, sprite: &'a Sprite, face: Dir) -> (&'a [u16], bool, i32) {
+    let frame = body.frame(prog, sprite.frames);
+    let flip = sprite.directions == 1 && face == Dir::Left;
+    let hop = (sprite.frames == 1 && body.moving() && (4..12).contains(&prog)) as i32;
+    (sprite.picture(face, frame), flip, hop)
+}
+
 /// The direction from `from` to its neighbour `to`.
 fn toward(from: Pos, to: Pos) -> Option<Dir> {
     Dir::ALL.into_iter().find(|&dir| from.step(dir) == Some(to))
 }
 
-/// Copies a picture `width` pixels wide to (`x`, `y`), leaving out transparent pixels and whatever
-/// is off the picture.
-fn blit(out: &mut [u16], pixels: &[u16], width: usize, x: i32, y: i32) {
+/// Copies a picture `width` pixels wide to (`x`, `y`), mirrored if asked, leaving out transparent
+/// pixels and whatever is off the picture.
+fn blit(out: &mut [u16], pixels: &[u16], width: usize, x: i32, y: i32, flip: bool) {
     for (row, line) in pixels.chunks_exact(width).enumerate() {
         let oy = y + row as i32;
         if !(0..HEIGHT as i32).contains(&oy) {
             continue;
         }
         for (col, &pixel) in line.iter().enumerate() {
+            let col = if flip { width - 1 - col } else { col };
             let ox = x + col as i32;
             if pixel != TRANSPARENT && (0..WIDTH as i32).contains(&ox) {
                 out[oy as usize * WIDTH + ox as usize] = pixel;

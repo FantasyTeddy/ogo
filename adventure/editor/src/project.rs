@@ -336,6 +336,60 @@ impl Project {
         }
     }
 
+    /// How often sprite `index` is used: as the player, an item's icon, an object's picture or a
+    /// picture in a bubble.
+    pub fn sprite_uses(&self, index: usize) -> usize {
+        let sprite = SpriteRef(index as u16);
+        let heroes = self.heroes.iter().filter(|&&h| h == sprite).count();
+        let icons = self.items.iter().filter(|i| i.icon == sprite).count();
+        let objects: usize = self
+            .maps
+            .iter()
+            .flat_map(|m| &m.things)
+            .map(|t| {
+                let look = (t.thing.look == Some(sprite)) as usize;
+                let bubbles = t
+                    .thing
+                    .on_bump
+                    .iter()
+                    .chain(&t.thing.on_step)
+                    .flat_map(|r| &r.then)
+                    .filter(|a| **a == adventure_format::Action::Bubble(sprite))
+                    .count();
+                look + bubbles
+            })
+            .sum();
+        heroes + icons + objects
+    }
+
+    /// Removes sprite `index`, which nothing uses any more; the sprites after it move up. Its file
+    /// stays in the folder.
+    pub fn remove_sprite(&mut self, index: usize) {
+        self.sprites.remove(index);
+        let shift = |s: &mut SpriteRef| {
+            if s.0 as usize > index {
+                s.0 -= 1;
+            }
+        };
+        self.heroes.iter_mut().for_each(shift);
+        self.items.iter_mut().for_each(|i| shift(&mut i.icon));
+        for thing in self.maps.iter_mut().flat_map(|m| &mut m.things) {
+            if let Some(look) = &mut thing.thing.look {
+                shift(look);
+            }
+            let rules = thing
+                .thing
+                .on_bump
+                .iter_mut()
+                .chain(&mut thing.thing.on_step);
+            for action in rules.flat_map(|r| &mut r.then) {
+                if let adventure_format::Action::Bubble(sprite) = action {
+                    shift(sprite);
+                }
+            }
+        }
+    }
+
     /// The tileset cells no tile uses.
     pub fn unused_cells(&self, cells: usize) -> Vec<u16> {
         let used: HashSet<u16> = self.tiles.iter().flat_map(|t| t.cells.clone()).collect();

@@ -50,7 +50,7 @@ pub struct World {
     pub title: String,
     /// What the player picks the world by.
     pub thumbnail: Picture,
-    /// The characters the player can be, with 4 directions each. With one, there's no choice.
+    /// The characters the player can be. With one, there's no choice.
     pub heroes: Vec<SpriteRef>,
     pub start: Place,
     pub tiles: Vec<Tile>,
@@ -137,7 +137,8 @@ pub struct Tile {
 /// A character, an item or a picture for bubbles.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sprite {
-    /// 1 (e.g. an apple) or 4, in the order of [`Dir`].
+    /// 1 (e.g. an apple, or a figure facing the viewer) or 4, in the order of [`Dir`]. The engine
+    /// mirrors a one-direction picture when it faces left.
     pub directions: u8,
     /// Pictures per direction, 1 to [`MAX_FRAMES`]: the first standing, the others walking.
     pub frames: u8,
@@ -587,9 +588,6 @@ impl Check<'_> {
         ensure(!w.heroes.is_empty(), || "no heroes".into())?;
         for &hero in &w.heroes {
             self.sprite(hero)?;
-            ensure(w.sprites[hero.0 as usize].directions == 4, || {
-                format!("hero sprite {} doesn't have 4 directions", hero.0)
-            })?;
         }
 
         unique(w.items.iter().map(|item| item.id), "item")?;
@@ -924,7 +922,7 @@ mod tests {
     fn finds_broken_references() {
         assert!(invalid(|w| w.maps[0].ground.0[0] = 3).contains("tile"));
         assert!(invalid(|w| w.maps[0].decoration.0.pop().map(drop).unwrap()).contains("size"));
-        assert!(invalid(|w| w.heroes = vec![SpriteRef(1)]).contains("4 directions"));
+        assert!(invalid(|w| w.heroes = vec![SpriteRef(5)]).contains("sprite 5"));
         assert!(invalid(|w| w.heroes.clear()).contains("heroes"));
         assert!(invalid(|w| w.start.at = Pos::new(3, 0)).contains("off map"));
         assert!(invalid(|w| w.flags.clear()).contains("flag 3"));

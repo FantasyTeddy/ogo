@@ -33,6 +33,9 @@ impl Assets {
 
 /// The world a project makes, checked; its thumbnail is the view at the start.
 pub fn world(project: &Project, assets: &Assets) -> Result<World, String> {
+    if project.heroes.is_empty() {
+        return Err("choose who the player is: World settings › Pictures".into());
+    }
     let tileset = assets.tileset.as_ref().map_err(Clone::clone)?;
     let tiles = project
         .tiles
@@ -125,7 +128,8 @@ fn start_view(world: &World) -> Picture {
     }
 }
 
-fn sprite(def: &SpriteDef, image: &Result<Rgba, String>) -> Result<Sprite, String> {
+/// A sprite from its PNG; why not, if the picture has the wrong shape.
+pub fn sprite(def: &SpriteDef, image: &Result<Rgba, String>) -> Result<Sprite, String> {
     let image = image.as_ref().map_err(Clone::clone)?;
     let (frames, directions) = image.cells();
     let shape_ok = image.width % TILE == 0
@@ -346,6 +350,49 @@ pub fn starter() -> (Project, Assets) {
 /// Creates the folder `dir` with the starter project in it, titled after the folder. An existing
 /// folder is only used if it's empty.
 pub fn write_starter(dir: &Path) -> Result<Project, String> {
+    let (project, assets) = starter();
+    write_new(dir, project, assets)
+}
+
+/// Creates the folder `dir` with an empty world in it: one empty map, no tiles, no pictures.
+pub fn write_empty(dir: &Path) -> Result<Project, String> {
+    let (project, assets) = empty();
+    write_new(dir, project, assets)
+}
+
+/// A world with nothing in it yet but one empty map.
+pub fn empty() -> (Project, Assets) {
+    let mut project = Project {
+        version: project::VERSION,
+        uid: project::new_uid(),
+        title: "My world".into(),
+        tiles: Vec::new(),
+        sprites: Vec::new(),
+        heroes: Vec::new(),
+        start: adventure_format::Place {
+            map: adventure_format::Id(0),
+            at: adventure_format::Pos::new(10, 7),
+            facing: Dir::Down,
+        },
+        items: Vec::new(),
+        flags: Vec::new(),
+        sounds: Vec::new(),
+        music: Vec::new(),
+        maps: Vec::new(),
+        next_id: 0,
+    };
+    let map = project.add_map(20, 15, 0);
+    project.maps[map].name = "Map 1".into();
+    project.start.map = project.maps[map].id;
+    let assets = Assets {
+        // One empty cell, so there's a tileset to add tiles to
+        tileset: Ok(Rgba::new(TILE, TILE)),
+        sprites: Vec::new(),
+    };
+    (project, assets)
+}
+
+fn write_new(dir: &Path, mut project: Project, assets: Assets) -> Result<Project, String> {
     let in_use = fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some());
     if in_use {
         return Err(format!(
@@ -353,7 +400,6 @@ pub fn write_starter(dir: &Path) -> Result<Project, String> {
             dir.display()
         ));
     }
-    let (mut project, assets) = starter();
     if let Some(name) = dir.file_name().and_then(|n| n.to_str()) {
         project.title = name.to_string();
     }
@@ -420,6 +466,49 @@ mod tests {
         assets.sprites[0] = Ok(Rgba::new(48, 32));
         let error = world(&project, &assets).unwrap_err();
         assert!(error.contains("\"Girl\" is 48x32"), "{error}");
+    }
+
+    #[test]
+    fn an_empty_world_needs_a_player() {
+        let (mut project, mut assets) = empty();
+        assert_eq!(project.maps.len(), 1);
+        let error = world(&project, &assets).unwrap_err();
+        assert!(error.contains("player"), "{error}");
+        let mut farmer = Rgba::new(TILE, TILE);
+        farmer.paste(&[0x07E0; TILE * TILE], TILE, 0, 0);
+        project.sprites.push(SpriteDef {
+            name: "Farmer".into(),
+            file: "farmer.png".into(),
+        });
+        assets.sprites.push(Ok(farmer));
+        project.heroes = vec![adventure_format::SpriteRef(0)];
+        let made = world(&project, &assets).unwrap();
+        assert_eq!(
+            made.sprites[0].directions, 1,
+            "a front-facing player is fine"
+        );
+    }
+
+    #[test]
+    fn removing_a_sprite_renumbers_the_rest() {
+        use adventure_format::SpriteRef;
+        let (mut project, mut assets) = starter();
+        let cat = 1;
+        assert_eq!(project.sprite_uses(cat), 1, "the cat's object");
+        project.maps[0]
+            .things
+            .retain(|t| t.thing.look != Some(SpriteRef(cat as u16)));
+        assert_eq!(project.sprite_uses(cat), 0);
+        project.remove_sprite(cat);
+        let _ = assets.sprites.remove(cat);
+        assert_eq!(project.items[0].icon, SpriteRef(4), "the apple moved up");
+        let horse = project.maps[0]
+            .things
+            .iter()
+            .find(|t| t.name == "Horse")
+            .unwrap();
+        assert_eq!(horse.thing.look, Some(SpriteRef(2)));
+        world(&project, &assets).unwrap();
     }
 
     #[test]

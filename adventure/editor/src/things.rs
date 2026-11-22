@@ -259,6 +259,12 @@ impl Editor {
         match (hit, tool) {
             (Some(i), _) => self.thing = Some(i),
             (None, Tool::Place) => {
+                if let Stamp::Sprite(sprite) = self.stamp {
+                    if sprite.0 as usize >= open.project.sprites.len() {
+                        self.fail("Add a picture first: World settings › Pictures");
+                        return;
+                    }
+                }
                 let id = open.project.new_id();
                 let (look, name, solid) = match self.stamp {
                     Stamp::Sprite(sprite) => (
@@ -980,7 +986,7 @@ pub(crate) fn items_and_flags(
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .show(|ui| {
                             ui.label(muted("Its picture:"));
-                            sprite_grid(ui, pictures, &mut item.icon);
+                            sprite_grid(ui, pictures, &mut item.icon, 240.0, true);
                         });
                     name_and_use(
                         ui,
@@ -1056,7 +1062,7 @@ pub(crate) fn items_and_flags(
 
 /// A row in a list of items or flags, `width` wide: measured once for the whole list, as each
 /// row would otherwise widen the column for the next.
-fn card(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
+pub(crate) fn card(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
     Frame::new()
         .fill(PANEL2.gamma_multiply(1.4))
         .corner_radius(12)
@@ -1069,7 +1075,7 @@ fn card(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
 }
 
 /// The name to type in, how often it's used, and a delete button while it isn't used.
-fn name_and_use(
+pub(crate) fn name_and_use(
     ui: &mut Ui,
     name: &mut String,
     hint: &str,
@@ -1087,16 +1093,22 @@ fn name_and_use(
     let delete = ui
         .add_enabled(count == 0, quiet(RichText::new(TRASH).size(16.0)))
         .on_hover_text("Delete")
-        .on_disabled_hover_text("Still used by a rule, so it can't be deleted");
+        .on_disabled_hover_text("Still in use, so it can't be deleted");
     if delete.clicked() {
         *remove = Some(index);
     }
 }
 
-/// All sprites as pictures to pick one from.
-fn sprite_grid(ui: &mut Ui, pictures: &[Option<(TextureHandle, Rect)>], chosen: &mut SpriteRef) {
+/// All sprites as pictures to pick one from; closes the popup it's in, if asked.
+pub(crate) fn sprite_grid(
+    ui: &mut Ui,
+    pictures: &[Option<(TextureHandle, Rect)>],
+    chosen: &mut SpriteRef,
+    width: f32,
+    in_popup: bool,
+) {
     ui.horizontal_wrapped(|ui| {
-        ui.set_max_width(240.0);
+        ui.set_max_width(width);
         for (i, entry) in pictures.iter().enumerate() {
             let (rect, response) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::click());
             let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -1116,7 +1128,9 @@ fn sprite_grid(ui: &mut Ui, pictures: &[Option<(TextureHandle, Rect)>], chosen: 
             }
             if response.clicked() {
                 *chosen = SpriteRef(i as u16);
-                ui.close();
+                if in_popup {
+                    ui.close();
+                }
             }
         }
     });

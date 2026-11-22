@@ -160,6 +160,7 @@ enum Section {
 #[derive(Debug, Clone, Copy)]
 enum Pending {
     New,
+    NewEmpty,
     Open,
     Close,
 }
@@ -403,7 +404,7 @@ impl Editor {
 
     fn proceed(&mut self, then: Pending, ctx: &egui::Context) {
         match then {
-            Pending::New => {
+            Pending::New | Pending::NewEmpty => {
                 // A save dialog, so a new name can be typed in: the world gets a folder of that name
                 let mut dialog = rfd::FileDialog::new()
                     .set_title("Name of the new world")
@@ -412,7 +413,11 @@ impl Editor {
                     dialog = dialog.set_directory(parent);
                 }
                 if let Some(dir) = dialog.save_file() {
-                    match export::write_starter(&dir) {
+                    let written = match then {
+                        Pending::New => export::write_starter(&dir),
+                        _ => export::write_empty(&dir),
+                    };
+                    match written {
                         Ok(_) => self.open_dir(&dir),
                         Err(error) => self.fail(error),
                     }
@@ -509,6 +514,135 @@ impl Editor {
             open.times = times;
             reload(open);
             self.say("Pictures reloaded");
+        }
+    }
+
+    /// Adds a PNG's 16×16 tiles to the tileset, and a tile for each one that isn't empty.
+    fn add_tiles(&mut self) {
+        let Some(open) = &mut self.open else { return };
+        let Some(file) = rfd::FileDialog::new()
+            .add_filter("PNG", &["png"])
+            .set_title("Tiles to add: 16x16 side by side")
+            .pick_file()
+        else {
+            return;
+        };
+        let extra = match Rgba::load(&file) {
+            Ok(image) if image.width % TILE == 0 && image.height % TILE == 0 && image.width > 0 => {
+                image
+            }
+            Ok(image) => {
+                return self.fail(format!(
+                    "{} is {}x{}: tiles need a picture of whole 16x16 cells",
+                    file.display(),
+                    image.width,
+                    image.height
+                ))
+            }
+            Err(error) => return self.fail(error),
+        };
+        // An empty tileset (a new, empty world's) is replaced rather than added to
+        let base = open
+            .assets
+            .tileset
+            .as_ref()
+            .ok()
+            .filter(|t| t.pixels.iter().any(|p| p[3] >= 128))
+            .cloned()
+            .unwrap_or_else(|| Rgba::new(0, 0));
+        let (both, cells) = images::append_cells(&base, &extra);
+        if let Err(error) = both.save(&open.dir.join(project::TILESET)) {
+            return self.fail(error);
+        }
+        // "tilemap_packed" → "Tilemap packed"
+        let stem = file.file_stem().map_or("Tile".into(), |s| {
+            s.to_string_lossy().replace(['_', '-'], " ")
+        });
+        let stem = stem
+            .get(0..1)
+            .map_or(stem.clone(), |c| c.to_uppercase() + &stem[1..]);
+        let mut added = 0;
+        for cell in cells {
+            let empty = both
+                .cell(cell as usize)
+                .is_none_or(|pixels| pixels.iter().all(|&p| p == TRANSPARENT));
+            if !empty {
+                added += 1;
+                open.project.tiles.push(TileDef {
+                    name: format!("{stem} {added}"),
+                    cells: vec![cell],
+                    frame_ms: 300,
+                    solid: false,
+                    step_sound: None,
+                });
+            }
+        }
+        reload(open);
+        open.times = picture_times(&open.dir, &open.project);
+        self.say(format!("Added {added} tiles"));
+    }
+
+    /// Copies PNGs into sprites/ and adds them as pictures; the first becomes the player if there
+    /// isn't one yet.
+    fn add_pictures(&mut self) {
+        let Some(open) = &mut self.open else { return };
+        let Some(files) = rfd::FileDialog::new()
+            .add_filter("PNG", &["png"])
+            .set_title("Pictures: 16x16, or rows of them for directions and steps")
+            .pick_files()
+        else {
+            return;
+        };
+        let folder = open.dir.join(project::SPRITES);
+        if let Err(error) = std::fs::create_dir_all(&folder) {
+            return self.fail(format!("Can't create {}: {error}", folder.display()));
+        }
+        let first = open.project.sprites.len();
+        for file in &files {
+            let stem = file
+                .file_stem()
+                .map_or("picture".into(), |s| s.to_string_lossy().to_string());
+            let base: String = stem
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c.to_ascii_lowercase()
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            let mut name = format!("{base}.png");
+            let mut n = 2;
+            while folder.join(&name).exists() {
+                name = format!("{base}-{n}.png");
+                n += 1;
+            }
+            if let Err(error) = std::fs::copy(file, folder.join(&name)) {
+                return self.fail(format!("Can't copy {}: {error}", file.display()));
+            }
+            let mut pretty: String = stem.replace(['_', '-'], " ");
+            if let Some(c) = pretty.get(0..1) {
+                pretty = c.to_uppercase() + &pretty[1..];
+            }
+            open.project.sprites.push(project::SpriteDef {
+                name: pretty,
+                file: name,
+            });
+        }
+        reload(open);
+        open.times = picture_times(&open.dir, &open.project);
+        let problems: Vec<String> = (first..open.project.sprites.len())
+            .filter_map(|i| export::sprite(&open.project.sprites[i], &open.assets.sprites[i]).err())
+            .collect();
+        let mut message = format!("Added {} pictures", files.len());
+        if open.project.heroes.is_empty() && first < open.project.sprites.len() {
+            open.project.heroes = vec![adventure_format::SpriteRef(first as u16)];
+            message += &format!("; {} is the player", open.project.sprites[first].name);
+        }
+        self.say(message);
+        for problem in problems {
+            self.fail(problem);
         }
     }
 
@@ -704,8 +838,14 @@ impl Editor {
             );
             Popup::menu(&app).show(|ui| {
                 ui.set_min_width(220.0);
-                if ui.button(format!("{NEW}   New world…")).clicked() {
+                if ui
+                    .button(format!("{NEW}   New world from the sample village…"))
+                    .clicked()
+                {
                     action = Some(Pending::New);
+                }
+                if ui.button(format!("{NEW}   New empty world…")).clicked() {
+                    action = Some(Pending::NewEmpty);
                 }
                 if ui.button(format!("{OPEN}   Open world…")).clicked() {
                     action = Some(Pending::Open);
@@ -983,20 +1123,19 @@ impl Editor {
                             ui.allocate_exact_size(vec2(side, side), Sense::click());
                         let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
                         let cell = tile.cells.first().copied().unwrap_or(0);
-                        ui.painter().rect_filled(rect, 10, PANEL2);
+                        ui.painter().rect_filled(rect, 0, PANEL2);
                         egui::Image::from_texture(SizedTexture::new(
                             tileset.id(),
                             vec2(side, side),
                         ))
                         .uv(cell_uv(size, cell))
-                        .corner_radius(10)
                         .paint_at(ui, rect);
                         if i == self.tile {
-                            ring(ui, rect, 12);
+                            ring(ui, rect, 4);
                         } else if response.hovered() {
                             ui.painter().rect_stroke(
                                 rect,
-                                10,
+                                3,
                                 Stroke::new(1.5, MUTED),
                                 StrokeKind::Outside,
                             );
@@ -1042,13 +1181,12 @@ impl Editor {
                 };
                 ui.horizontal(|ui| {
                     let (rect, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());
-                    ui.painter().rect_filled(rect, 12, PANEL2);
+                    ui.painter().rect_filled(rect, 0, PANEL2);
                     egui::Image::from_texture(SizedTexture::new(tileset.id(), vec2(72.0, 72.0)))
                         .uv(cell_uv(
                             tileset_size,
                             tile.cells.first().copied().unwrap_or(0),
                         ))
-                        .corner_radius(12)
                         .paint_at(ui, rect);
                     ui.vertical(|ui| {
                         ui.label(muted("Name").small());
@@ -1100,13 +1238,12 @@ impl Editor {
                             let (rect, response) =
                                 ui.allocate_exact_size(vec2(36.0, 36.0), Sense::click());
                             let removable = tile.cells.len() > 1;
-                            ui.painter().rect_filled(rect, 8, PANEL2);
+                            ui.painter().rect_filled(rect, 0, PANEL2);
                             egui::Image::from_texture(SizedTexture::new(
                                 tileset.id(),
                                 vec2(36.0, 36.0),
                             ))
                             .uv(cell_uv(tileset_size, cell))
-                            .corner_radius(8)
                             .paint_at(ui, rect);
                             if removable {
                                 let response = response
@@ -1115,7 +1252,7 @@ impl Editor {
                                 if response.hovered() {
                                     ui.painter().rect_filled(
                                         rect,
-                                        8,
+                                        0,
                                         Color32::from_black_alpha(140),
                                     );
                                     ui.painter().text(
@@ -1224,6 +1361,9 @@ impl Editor {
         let thumbnail = self.thumbnail.clone();
         let mut close = false;
         let mut import = false;
+        let mut add_tiles = false;
+        let mut add_pictures = false;
+        let mut removed_picture = false;
         let mut go = None;
         let modal = egui::Modal::new(Id::NULL.with("world settings"))
             .frame(dialog_frame())
@@ -1259,8 +1399,11 @@ impl Editor {
                     });
                     ui.add_space(8.0);
                     ui.vertical(|ui| {
-                        // As tall as the tallest section, so switching doesn't jump
+                        // As tall as the tallest section, so switching doesn't jump; scrolling when
+                        // the window is too small for it
                         ui.set_min_height(430.0);
+                        let room = (ui.ctx().content_rect().height() - 220.0).max(300.0);
+                        egui::ScrollArea::vertical().max_height(room).show(ui, |ui| {
                         match section {
                             Section::General => {
                                 field(ui, "Title", |ui| {
@@ -1303,14 +1446,14 @@ impl Editor {
                             Section::Pictures => {
                                 field(ui, "Tileset", |ui| {
                                     if let Some(tileset) = &open.tileset {
+                                        // At most 440 wide and 220 high: a big tileset stays a preview
                                         let size = tileset.size_vec2() * 2.0;
-                                        let scale = (440.0 / size.x).min(1.0);
+                                        let scale = (440.0 / size.x).min(220.0 / size.y).min(1.0);
                                         ui.add(
                                             egui::Image::from_texture(SizedTexture::new(
                                                 tileset.id(),
                                                 size * scale,
-                                            ))
-                                            .corner_radius(8),
+                                            )),
                                         );
                                     }
                                     ui.label(
@@ -1320,51 +1463,108 @@ impl Editor {
                                         )
                                         .small(),
                                     );
-                                    if ui
-                                        .button(format!("{IMAGE}  Import tileset…"))
-                                        .on_hover_text(
-                                            "Replaces tiles.png; the tiles keep their cells",
-                                        )
-                                        .clicked()
-                                    {
-                                        import = true;
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .button(format!("{PLUS}  Add tiles from a PNG…"))
+                                            .on_hover_text("Adds its 16×16 tiles to the tileset and the palette; the ones there stay")
+                                            .clicked()
+                                        {
+                                            add_tiles = true;
+                                        }
+                                        if ui
+                                            .button(format!("{IMAGE}  Replace tileset…"))
+                                            .on_hover_text("Replaces tiles.png; the tiles keep their cells")
+                                            .clicked()
+                                        {
+                                            import = true;
+                                        }
+                                    });
+                                });
+                                ui.add_space(6.0);
+                                field(ui, "The player walks as", |ui| {
+                                    if open.project.sprites.is_empty() {
+                                        ui.label(muted("Add a picture below first.").small());
+                                    } else {
+                                        let mut hero = open
+                                            .project
+                                            .heroes
+                                            .first()
+                                            .copied()
+                                            .unwrap_or(adventure_format::SpriteRef(u16::MAX));
+                                        let before = hero;
+                                        things::sprite_grid(ui, &open.sprite_pictures, &mut hero, 440.0, false);
+                                        if hero != before {
+                                            open.project.heroes = vec![hero];
+                                        }
+                                        ui.label(
+                                            muted(
+                                                "A picture facing the viewer turns by mirroring; one with \
+                                                 4 rows (down, up, left, right) turns properly.",
+                                            )
+                                            .small(),
+                                        );
                                     }
                                 });
                                 ui.add_space(6.0);
-                                field(ui, "Characters", |ui| {
-                                    ui.horizontal_wrapped(|ui| {
-                                        for (def, picture) in
-                                            open.project.sprites.iter().zip(&open.sprite_pictures)
-                                        {
-                                            ui.vertical(|ui| {
-                                                ui.set_width(64.0);
-                                                let (rect, _) = ui.allocate_exact_size(
-                                                    vec2(48.0, 48.0),
-                                                    Sense::hover(),
-                                                );
-                                                ui.painter().rect_filled(rect, 10, PANEL);
-                                                if let Some((texture, uv)) = picture {
-                                                    egui::Image::from_texture(SizedTexture::new(
-                                                        texture.id(),
-                                                        rect.size(),
-                                                    ))
-                                                    .uv(*uv)
-                                                    .paint_at(ui, rect);
+                                field(ui, "Pictures · characters, items and bubbles", |ui| {
+                                    let width = ui.available_width();
+                                    let uses: Vec<usize> = (0..open.project.sprites.len())
+                                        .map(|i| open.project.sprite_uses(i))
+                                        .collect();
+                                    let mut remove = None;
+                                    for (i, def) in open.project.sprites.iter_mut().enumerate() {
+                                        let problem = open
+                                            .assets
+                                            .sprites
+                                            .get(i)
+                                            .and_then(|image| export::sprite(def, image).err());
+                                        things::card(ui, width, |ui| {
+                                            let (rect, response) =
+                                                ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
+                                            ui.painter().rect_filled(rect, 10, PANEL);
+                                            match (&problem, open.sprite_pictures.get(i)) {
+                                                (None, Some(Some((texture, uv)))) => {
+                                                    things::picture(ui, texture, *uv, rect.shrink(4.0));
                                                 }
-                                                ui.label(muted(&def.name).small());
-                                            });
-                                        }
-                                    });
+                                                _ => {
+                                                    ui.painter().text(
+                                                        rect.center(),
+                                                        Align2::CENTER_CENTER,
+                                                        WARNING,
+                                                        egui::FontId::proportional(22.0),
+                                                        WARN,
+                                                    );
+                                                }
+                                            }
+                                            if let Some(problem) = &problem {
+                                                response.on_hover_text(problem);
+                                            }
+                                            let used = match uses[i] {
+                                                0 => "not used yet".to_string(),
+                                                1 => "used once".to_string(),
+                                                n => format!("used {n} times"),
+                                            };
+                                            things::name_and_use(ui, &mut def.name, "the picture's name", &used, uses[i], &mut remove, i);
+                                        });
+                                    }
+                                    if let Some(i) = remove {
+                                        open.project.remove_sprite(i);
+                                        removed_picture = true;
+                                    }
+                                    if ui.add(quiet(muted(format!("{PLUS}  Add pictures…")))).clicked() {
+                                        add_pictures = true;
+                                    }
                                     ui.label(
                                         muted(
-                                            "One PNG each in sprites/: a row per direction \
-                                             (down, up, left, right), a column per picture.",
+                                            "PNGs go into sprites/: one 16×16 picture, or a row per \
+                                             direction (down, up, left, right) and a column per step.",
                                         )
                                         .small(),
                                     );
                                 });
                             }
                         }
+                        });
                     });
                 });
             });
@@ -1373,6 +1573,18 @@ impl Editor {
         }
         if import {
             self.import_tileset();
+        }
+        if add_tiles {
+            self.add_tiles();
+        }
+        if add_pictures {
+            self.add_pictures();
+        }
+        if removed_picture {
+            if let Some(open) = &mut self.open {
+                reload(open);
+            }
+            self.say("Picture removed from the world; its file stays in sprites/");
         }
         if close || modal.should_close() {
             self.dialog = None;
@@ -2175,6 +2387,19 @@ impl Editor {
                 .clicked()
             {
                 self.ask(Pending::New, &ctx);
+            }
+            ui.add_space(4.0);
+            if ui
+                .add(
+                    egui::Button::new(format!("{NEW}  New empty world…"))
+                        .min_size(vec2(200.0, 36.0)),
+                )
+                .on_hover_text(
+                    "Asks for a name; starts with one empty map, for your own tiles and pictures",
+                )
+                .clicked()
+            {
+                self.ask(Pending::NewEmpty, &ctx);
             }
             ui.add_space(4.0);
             if ui

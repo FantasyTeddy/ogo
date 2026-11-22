@@ -105,6 +105,43 @@ impl Rgba {
     }
 }
 
+/// `extra`'s cells after `base`'s, in a picture as wide as `base`, so `base`'s cells keep their
+/// numbers; and the numbers of the new cells.
+pub fn append_cells(base: &Rgba, extra: &Rgba) -> (Rgba, Vec<u16>) {
+    let (base_columns, base_rows) = base.cells();
+    let columns = if base_columns > 0 {
+        base_columns
+    } else {
+        extra.cells().0.max(1)
+    };
+    let first = base_columns * base_rows;
+    let (extra_columns, extra_rows) = extra.cells();
+    let count = extra_columns * extra_rows;
+    let total = first + count;
+    let mut out = Rgba::new(columns * TILE, total.div_ceil(columns) * TILE);
+    let copy =
+        |out: &mut Rgba, from: &Rgba, from_cell: usize, from_columns: usize, to_cell: usize| {
+            let (fx, fy) = (
+                from_cell % from_columns * TILE,
+                from_cell / from_columns * TILE,
+            );
+            let (tx, ty) = (to_cell % columns * TILE, to_cell / columns * TILE);
+            for y in 0..TILE {
+                for x in 0..TILE {
+                    out.pixels[(ty + y) * out.width + tx + x] =
+                        from.pixels[(fy + y) * from.width + fx + x];
+                }
+            }
+        };
+    for cell in 0..first {
+        copy(&mut out, base, cell, base_columns, cell);
+    }
+    for cell in 0..count {
+        copy(&mut out, extra, cell, extra_columns, first + cell);
+    }
+    (out, (first..total).map(|c| c as u16).collect())
+}
+
 /// Mostly transparent pixels become [`TRANSPARENT`]; an opaque pixel that happens to have its
 /// colour is nudged by one step of green, which nobody sees.
 pub fn to_rgb565([r, g, b, a]: [u8; 4]) -> u16 {
@@ -146,6 +183,29 @@ mod tests {
             "real magenta isn't transparent"
         );
         assert_eq!(to_rgb565([10, 20, 30, 0]), TRANSPARENT);
+    }
+
+    #[test]
+    fn appended_cells_keep_the_old_numbers() {
+        let mut base = Rgba::new(32, 16);
+        base.paste(&[0x1111; TILE * TILE], TILE, 0, 0);
+        base.paste(&[0x2222; TILE * TILE], TILE, 16, 0);
+        let mut extra = Rgba::new(48, 16);
+        for (i, colour) in [0x3333u16, 0x4444, 0x5555].into_iter().enumerate() {
+            extra.paste(&[colour; TILE * TILE], TILE, i * TILE, 0);
+        }
+        let (both, new) = append_cells(&base, &extra);
+        assert_eq!(new, [2, 3, 4]);
+        assert_eq!((both.width, both.height), (32, 48));
+        let first = |cell: usize| both.cell(cell).unwrap()[0];
+        assert_eq!(
+            [first(0), first(1), first(2), first(3), first(4)],
+            [0x1111, 0x2222, 0x3333, 0x4444, 0x5555]
+        );
+        assert_eq!(both.cell(5).unwrap()[0], TRANSPARENT);
+        // Onto nothing: the new picture's width
+        let (only, new) = append_cells(&Rgba::new(0, 0), &extra);
+        assert_eq!((only.width, new), (48, vec![0, 1, 2]));
     }
 
     #[test]
