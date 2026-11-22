@@ -86,6 +86,17 @@ each world's picture (**Left**/**Right**, **A**); some worlds then let you choos
 arrows walk, **A** looks at or talks to what's in front, **B** runs. Each world remembers where you
 were and what you found, in `/ogo/saves/adventure/`.
 
+Worlds are made on the PC with the **Adventure editor** (in [adventure/editor](adventure/editor),
+started with `cargo run --manifest-path adventure/Cargo.toml --target host-tuple -p
+adventure-editor`). A world is a folder: `world.json`, the tileset `tiles.png` (16×16 tiles side by
+side, drawn in any paint program) and the characters in `sprites/`. **New world…** asks for a name,
+creates a folder of that name and starts it from the sample village. Paint the maps' three layers
+(ground, decoration, and what's drawn above the player, like treetops) with pencil, fill, rectangle
+and eraser; right-click picks up a tile. Each tile can be solid, animated and make a sound when
+stepped on. **▶ Play** tries the world right in the editor, **Export…** writes the `.adv` file, and
+**Send to device** uploads it to the Adventure app over WiFi (the device's address is on its WiFi
+screen). The pictures reload by themselves when their files change.
+
 **Bluetooth** lists the Bluetooth LE devices nearby: phones, headphones, watches, trackers. Each row
 shows the name, or for the many devices that send none, what they are where a published format says
 so (e.g. "iBeacon", "Windows laptop", "Fast Pair", or "Google service" for a phone using Google's

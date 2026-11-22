@@ -117,8 +117,11 @@ build folder's `tmp`). Unpack the
 skipped. `cargo run --release --manifest-path ogo-gb/Cargo.toml --target host-tuple --example bench
 -- <rom>` measures the core's speed on the PC, and `--example record -- <rom> <seconds> <out.wav>`
 records its sound to listen to. Last come the tests of `adventure-format` (reading, writing and
-checking `.adv` worlds) and `adventure-engine` (walking, walls, doors, items, the rules, drawing,
-played through the hand-built sample world). `cargo run --manifest-path adventure/Cargo.toml
+checking `.adv` worlds), `adventure-engine` (walking, walls, doors, items, the rules, saving,
+drawing, played through the hand-built sample world) and `adventure-editor` (project files, PNGs,
+painting operations, and that its starter project makes the sample world). `cargo run
+--manifest-path adventure/Cargo.toml --target host-tuple -p adventure-editor` starts the editor.
+`cargo run --manifest-path adventure/Cargo.toml
 --target host-tuple --example walk` walks around the sample world (or `-- <file.adv>`) in a window,
 and `--example export -- <file.adv>` writes it as a file. Everything that needs the ESP32 is tested
 on the device.
@@ -164,7 +167,7 @@ the workspace version fails before anything is published.
 | [ogo-sdk/](ogo-sdk/) | App SDK: frame loop, input, sound, saves, pause menu, return to the launcher |
 | [ogo-format/](ogo-format/) | File formats and pure logic shared by the firmware and xtask, with unit tests that run on the PC |
 | [ogo-gb/](ogo-gb/) | Game Boy emulator core (`no_std`): CPU, memory map, cartridges, timer, LCD, sound; tested on the PC |
-| [adventure/](adventure/) | Adventure, tile worlds to walk around in: the `.adv` world format (`format/`) and the engine that plays it (`engine/`); tested on the PC |
+| [adventure/](adventure/) | Adventure, tile worlds to walk around in: the `.adv` world format (`format/`), the engine that plays it (`engine/`) and the editor that makes worlds on the PC (`editor/`); tested on the PC |
 | [apps/snake/](apps/snake/) | Snake, built on `ogo-sdk` |
 | [apps/brickfall/](apps/brickfall/) | Brickfall, a falling-bricks puzzle built on `ogo-sdk` |
 | [apps/smash/](apps/smash/) | Smash, a brick-breaker built on `ogo-sdk` |

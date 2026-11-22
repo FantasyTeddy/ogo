@@ -1,0 +1,16 @@
+[package]
+name = "adventure-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Makes Adventure worlds on the PC: tiles, maps, test-play, export and send to the device"
+
+[dependencies]
+adventure-format.workspace = true
+adventure-engine.workspace = true
+serde.workspace = true
+serde_json = "1"
+png = "0.18"
+eframe = { version = "0.37", features = ["persistence"] }
+rfd = "0.18"
+ureq = "3"

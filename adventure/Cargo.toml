@@ -3,7 +3,7 @@
 # Own workspace, like ogo-format and ogo-gb: these crates build and test on the PC (cargo xtask test).
 [workspace]
 resolver = "2"
-members = ["format", "engine"]
+members = ["format", "engine", "editor"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ license = "MIT"
 
 [workspace.dependencies]
 adventure-format = { path = "format" }
+adventure-engine = { path = "engine" }
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 postcard = { version = "1", features = ["alloc"] }
