@@ -24,13 +24,13 @@ use adventure_format::{Dir, LayerKind, MusicRef, Place, Pos, SoundRef, TILE, TRA
 use eframe::egui::{
     self, load::SizedTexture, pos2, vec2, Align, Align2, Color32, ColorImage, CornerRadius, Frame,
     Id, Key, KeyboardShortcut, Layout, Margin, Modifiers, Popup, PopupCloseBehavior, Rect,
-    RectAlign, RichText, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, Ui,
+    RectAlign, RichText, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, Ui, UiBuilder,
 };
 
 use export::Assets;
 use handheld::{Handheld, HandheldButton};
 use images::Rgba;
-use project::{Project, TileDef};
+use project::{Brush, Project, TileDef};
 use theme::*;
 use things::{Stamp, Trigger};
 
@@ -118,8 +118,8 @@ const LAYERS: [(LayerKind, &str, &str); 3] = [
     ),
     (
         LayerKind::Above,
-        "Above the player",
-        "Treetops, roofs: drawn over everyone",
+        "Above",
+        "Treetops, roofs: drawn over everyone, the player too",
     ),
 ];
 
@@ -228,12 +228,36 @@ struct Toast {
     at: Instant,
 }
 
+/// How tall the segments in the bars around the map are.
+const BAR_HEIGHT: f32 = 30.0;
+
+/// A rounded strip that holds segments, like the tools or the zoom.
+fn pill() -> Frame {
+    Frame::new()
+        .fill(PANEL2)
+        .corner_radius(PILL)
+        .inner_margin(Margin::same(3))
+}
+
+/// A block picked from the tileset: its corners there (column, row), and what it paints.
+struct Block {
+    from: (usize, usize),
+    to: (usize, usize),
+    brush: Brush,
+}
+
 struct Editor {
     open: Option<Open>,
     map: usize,
     layer: LayerKind,
     tool: Tool,
     tile: usize,
+    /// A block of tiles picked from the tileset, painted instead of the one tile
+    block: Option<Block>,
+    /// Where the stroke being painted began, which blocks line up with
+    stroke_from: Option<Pos>,
+    /// The cell of the tileset where a drag across the palette began
+    sheet_drag: Option<(usize, usize)>,
     dialog: Option<Dialog>,
     /// The map tab under the mouse last frame, which shows its "⋯"
     tab_hover: Option<usize>,
@@ -282,6 +306,9 @@ impl Editor {
             layer: LayerKind::Ground,
             tool: Tool::Pencil,
             tile: 0,
+            block: None,
+            stroke_from: None,
+            sheet_drag: None,
             dialog: None,
             tab_hover: None,
             thumbnail: None,
@@ -364,6 +391,7 @@ impl Editor {
         let times = picture_times(dir, &project);
         self.map = project.map_index(project.start.map).unwrap_or(0);
         self.tile = 0;
+        self.block = None;
         self.dialog = None;
         self.cursor = None;
         self.size = None;
@@ -492,6 +520,14 @@ impl Editor {
         if let Some(open) = &self.open {
             self.map = self.map.min(open.project.maps.len().saturating_sub(1));
             self.tile = self.tile.min(open.project.tiles.len().saturating_sub(1));
+            let tiles = open.project.tiles.len() as u16;
+            if self
+                .block
+                .as_ref()
+                .is_some_and(|b| b.brush.tiles.iter().any(|&t| t > tiles))
+            {
+                self.block = None;
+            }
             let things = open
                 .project
                 .maps
@@ -1002,24 +1038,114 @@ impl Editor {
         }
     }
 
-    fn tool_strip(&mut self, ui: &mut Ui) {
-        let tools = match self.mode {
-            Mode::Tiles => TILE_TOOLS,
-            Mode::Things => OBJECT_TOOLS,
-        };
-        {
-            ui.vertical_centered(|ui| {
-                ui.spacing_mut().item_spacing.y = 4.0;
-                for (tool, icon, label, hint) in tools {
-                    if theme::tool(ui, icon, label, self.tool == tool)
-                        .on_hover_text(hint)
-                        .clicked()
-                    {
-                        self.tool = tool;
-                    }
-                }
+    /// Above the map: the tools of the tab in the middle (or what a door's target asks), the grid
+    /// on the right.
+    fn tool_bar(&mut self, ui: &mut Ui) {
+        let (row, _) =
+            ui.allocate_exact_size(vec2(ui.available_width(), BAR_HEIGHT + 8.0), Sense::hover());
+        let side = |layout| UiBuilder::new().max_rect(row).layout(layout);
+        ui.scope_builder(side(Layout::right_to_left(Align::Center)), |ui| {
+            ui.label("Grid");
+            switch(ui, &mut self.grid);
+        });
+        if self.picking.is_some() {
+            ui.scope_builder(side(Layout::left_to_right(Align::Center)), |ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{MAP_PIN}  Click the cell where the player arrives"
+                    ))
+                    .color(WARN),
+                );
+                ui.label(muted("· Esc cancels"));
             });
+            return;
         }
+        let tools = match self.mode {
+            Mode::Tiles => &TILE_TOOLS[..],
+            Mode::Things => &OBJECT_TOOLS[..],
+        };
+        // Centred by last frame's width; the first frame draws again once it's known
+        let width_id = Id::NULL.with(("tools width", self.mode == Mode::Tiles));
+        let width: Option<f32> = ui.data(|d| d.get_temp(width_id));
+        let middle = Rect::from_center_size(
+            row.center(),
+            vec2(width.unwrap_or(row.width()), row.height()),
+        );
+        let builder = UiBuilder::new()
+            .max_rect(middle)
+            .layout(Layout::left_to_right(Align::Center));
+        let drawn = ui
+            .scope_builder(builder, |ui| {
+                pill()
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        for &(tool, icon, label, hint) in tools {
+                            if theme::tool(ui, icon, label, self.tool == tool)
+                                .on_hover_text(hint)
+                                .clicked()
+                            {
+                                self.tool = tool;
+                            }
+                        }
+                    })
+                    .response
+                    .rect
+                    .width()
+            })
+            .inner;
+        if width != Some(drawn) {
+            ui.data_mut(|d| d.insert_temp(width_id, drawn));
+            ui.ctx().request_repaint();
+        }
+    }
+
+    /// Under the map: the layer being painted on (or what a click does to objects), and the zoom.
+    fn view_bar(&mut self, ui: &mut Ui) {
+        // A row of fixed height, so both sides are centred on the same line
+        let row = vec2(ui.available_width(), BAR_HEIGHT + 8.0);
+        ui.allocate_ui_with_layout(row, Layout::left_to_right(Align::Center), |ui| {
+            ui.set_min_size(row);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                pill().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.set_height(BAR_HEIGHT);
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        if ui
+                            .add_enabled(self.zoom < 6.0, quiet(PLUS))
+                            .on_hover_text("Zoom in")
+                            .clicked()
+                        {
+                            self.zoom += 1.0;
+                        }
+                        ui.label(muted(format!("{}×", self.zoom as u32)));
+                        if ui
+                            .add_enabled(self.zoom > 1.0, quiet(MINUS))
+                            .on_hover_text("Zoom out")
+                            .clicked()
+                        {
+                            self.zoom -= 1.0;
+                        }
+                    });
+                });
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    match (self.mode, self.picking) {
+                        (_, Some(_)) => {}
+                        (Mode::Tiles, None) => self.layer_bar(ui),
+                        (Mode::Things, None) => {
+                            let hint = match self.tool {
+                                Tool::Place => {
+                                    "Click an empty cell to place what's chosen on the left"
+                                }
+                                Tool::Remove => "Click an object to remove it",
+                                Tool::Start => "Click where the player starts",
+                                _ => "Click an object to select it · drag to move it",
+                            };
+                            ui.add(egui::Label::new(muted(hint)).truncate());
+                        }
+                    }
+                });
+            });
+        });
     }
 
     fn palette(&mut self, ui: &mut Ui) {
@@ -1109,55 +1235,177 @@ impl Editor {
         if new_tile {
             add(&mut open.project, unused.first().copied().unwrap_or(0));
             self.tile = open.project.tiles.len() - 1;
+            self.block = None;
         }
+        // Each tile where its picture is in the tileset, so shapes drawn across several cells
+        // stay together; tiles sharing a picture with another come after it
+        let columns = (size.x as usize / TILE).max(1);
+        let rows = size.y as usize / TILE;
+        let mut at_cell: Vec<Option<usize>> = vec![None; columns * rows];
+        let mut others = Vec::new();
+        for (i, tile) in open.project.tiles.iter().enumerate() {
+            match at_cell.get_mut(tile.cells.first().copied().unwrap_or(0) as usize) {
+                Some(slot @ None) => *slot = Some(i),
+                _ => others.push(i),
+            }
+        }
+        // Cells picked this frame: a click picks one, a drag a block
+        let mut chosen = None;
         ui.add_space(4.0);
-        egui::ScrollArea::vertical()
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                let gap = 8.0;
-                let side = ((ui.available_width() - 3.0 * gap) / 4.0).floor();
-                ui.spacing_mut().item_spacing = vec2(gap, gap);
+        egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+            // As big as the panel allows, but big enough to click: then it scrolls sideways
+            let side = ((ui.available_width() - 6.0) / columns as f32)
+                .floor()
+                .clamp(24.0, 48.0);
+            let (outer, response) = ui.allocate_exact_size(
+                vec2(columns as f32, rows as f32) * side + vec2(6.0, 6.0),
+                Sense::click_and_drag(),
+            );
+            let rect = outer.shrink(3.0);
+            let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+            let cell_at = |pos: egui::Pos2| {
+                let p = (pos - rect.min) / side;
+                (
+                    (p.x.max(0.0) as usize).min(columns - 1),
+                    (p.y.max(0.0) as usize).min(rows.saturating_sub(1)),
+                )
+            };
+            let cell_rect = |(x, y): (usize, usize)| {
+                Rect::from_min_size(rect.min + vec2(x as f32, y as f32) * side, vec2(side, side))
+            };
+            let painter = ui.painter();
+            painter.rect_filled(rect, 0, PANEL2);
+            // Pictures that aren't a tile yet faintly, the tiles over them
+            let whole = Rect::from_min_max(
+                pos2(0.0, 0.0),
+                pos2(
+                    (columns * TILE) as f32 / size.x,
+                    (rows * TILE) as f32 / size.y,
+                ),
+            );
+            painter.image(tileset.id(), rect, whole, Color32::from_white_alpha(70));
+            for (cell, tile) in at_cell.iter().enumerate() {
+                if tile.is_some() {
+                    painter.image(
+                        tileset.id(),
+                        cell_rect((cell % columns, cell / columns)),
+                        cell_uv(size, cell as u16),
+                        Color32::WHITE,
+                    );
+                }
+            }
+            let hover = response.hover_pos().map(cell_at);
+            let latest = ui.input(|i| i.pointer.latest_pos()).map(cell_at);
+            if response.drag_started() {
+                self.sheet_drag = ui.input(|i| i.pointer.press_origin()).map(cell_at);
+            }
+            let dragged = self.sheet_drag.zip(latest).filter(|_| response.dragged());
+            if response.drag_stopped() {
+                chosen = self.sheet_drag.take().zip(latest);
+            } else if response.clicked() {
+                chosen = hover.map(|c| (c, c));
+            }
+            let picked = match (dragged, &self.block) {
+                (Some((a, b)), _) => Some(cell_rect(a).union(cell_rect(b))),
+                (None, Some(block)) => Some(cell_rect(block.from).union(cell_rect(block.to))),
+                (None, None) => at_cell
+                    .iter()
+                    .position(|&t| t == Some(self.tile))
+                    .map(|cell| cell_rect((cell % columns, cell / columns))),
+            };
+            if let Some(at) = hover.filter(|_| dragged.is_none()) {
+                painter.rect_stroke(
+                    cell_rect(at),
+                    2,
+                    Stroke::new(1.5, MUTED),
+                    StrokeKind::Outside,
+                );
+            }
+            if let Some(r) = picked {
+                ring(ui, r, 4);
+            }
+            let hint = hover.and_then(|(x, y)| {
+                let cell = y * columns + x;
+                match at_cell[cell] {
+                    Some(i) => Some(open.project.tiles[i].name.clone()),
+                    None if unused.contains(&(cell as u16)) => {
+                        Some("Not a tile yet: click to use it".to_string())
+                    }
+                    None => None,
+                }
+            });
+            if let Some(hint) = hint {
+                response.on_hover_text(hint);
+            }
+            if !others.is_empty() {
+                ui.add_space(8.0);
+                ui.label(muted("More tiles on the same pictures").small());
+                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                 ui.horizontal_wrapped(|ui| {
-                    for (i, tile) in open.project.tiles.iter().enumerate() {
+                    for &i in &others {
+                        let tile = &open.project.tiles[i];
                         let (rect, response) =
                             ui.allocate_exact_size(vec2(side, side), Sense::click());
-                        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-                        let cell = tile.cells.first().copied().unwrap_or(0);
-                        ui.painter().rect_filled(rect, 0, PANEL2);
-                        egui::Image::from_texture(SizedTexture::new(
-                            tileset.id(),
-                            vec2(side, side),
-                        ))
-                        .uv(cell_uv(size, cell))
-                        .paint_at(ui, rect);
-                        if i == self.tile {
+                        egui::Image::from_texture(SizedTexture::new(tileset.id(), rect.size()))
+                            .uv(cell_uv(size, tile.cells.first().copied().unwrap_or(0)))
+                            .paint_at(ui, rect);
+                        if i == self.tile && self.block.is_none() {
                             ring(ui, rect, 4);
-                        } else if response.hovered() {
-                            ui.painter().rect_stroke(
-                                rect,
-                                3,
-                                Stroke::new(1.5, MUTED),
-                                StrokeKind::Outside,
-                            );
                         }
-                        if response.on_hover_text(&tile.name).clicked() {
+                        if response
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text(&tile.name)
+                            .clicked()
+                        {
                             self.tile = i;
-                            if self.tool == Tool::Eraser {
-                                self.tool = Tool::Pencil;
-                            }
+                            self.block = None;
                         }
                     }
                 });
-                if !unused.is_empty() {
-                    ui.add_space(6.0);
-                    let label = format!("{PLUS}  A tile for each unused cell ({})", unused.len());
-                    if ui.add(quiet(muted(label))).clicked() {
-                        for &cell in &unused {
-                            add(&mut open.project, cell);
-                        }
+            }
+            if !unused.is_empty() {
+                ui.add_space(6.0);
+                let label = format!("{PLUS}  A tile for each unused cell ({})", unused.len());
+                if ui.add(quiet(muted(label))).clicked() {
+                    for &cell in &unused {
+                        add(&mut open.project, cell);
                     }
                 }
-            });
+            }
+        });
+        let Some((a, b)) = chosen else { return };
+        // The picked cells as tiles: pictures that aren't one yet become one
+        let ((x0, x1), (y0, y1)) = ((a.0.min(b.0), a.0.max(b.0)), (a.1.min(b.1), a.1.max(b.1)));
+        let mut tiles = Vec::new();
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let cell = y * columns + x;
+                tiles.push(match at_cell[cell] {
+                    Some(i) => i as u16 + 1,
+                    None if unused.contains(&(cell as u16)) => {
+                        add(&mut open.project, cell as u16);
+                        open.project.tiles.len() as u16
+                    }
+                    None => 0,
+                });
+            }
+        }
+        let Some(&first) = tiles.iter().find(|&&t| t > 0) else {
+            return;
+        };
+        self.tile = first as usize - 1;
+        self.block = (tiles.len() > 1).then(|| Block {
+            from: (x0, y0),
+            to: (x1, y1),
+            brush: Brush {
+                width: (x1 - x0 + 1) as u16,
+                height: (y1 - y0 + 1) as u16,
+                tiles,
+            },
+        });
+        if self.tool == Tool::Eraser {
+            self.tool = Tool::Pencil;
+        }
     }
 
     fn inspector(&mut self, ui: &mut Ui) {
@@ -1319,6 +1567,7 @@ impl Editor {
                 {
                     open.project.remove_tile(self.tile);
                     self.tile = self.tile.min(open.project.tiles.len() - 1);
+                    self.block = None;
                 }
             });
     }
@@ -1835,95 +2084,56 @@ impl Editor {
             .show(ui, |ui| {
                 ui.set_min_size(ui.available_size());
                 ui.spacing_mut().item_spacing.y = 10.0;
-                match (self.mode, self.picking) {
-                    (_, Some(_)) => {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{MAP_PIN}  Click the cell where the player arrives"
-                                ))
-                                .color(WARN),
-                            );
-                            ui.label(muted("· switch maps with the tabs · Esc cancels"));
-                        });
-                    }
-                    (Mode::Tiles, None) => self.layer_bar(ui),
-                    (Mode::Things, None) => {
-                        // Wrapping, so a narrow window doesn't push the map wider than its space
-                        let hint = match self.tool {
-                            Tool::Place => "Click an empty cell to place what's chosen on the left",
-                            Tool::Remove => "Click an object to remove it",
-                            Tool::Start => "Click where the player starts",
-                            _ => {
-                                "Click an object to select it · drag to move it · Delete removes it"
-                            }
-                        };
-                        ui.add(egui::Label::new(muted(hint)).wrap());
-                    }
-                }
-                self.canvas(ui);
+                self.tool_bar(ui);
+                // The map, and the bar under it
+                let room = ui.available_size() - vec2(0.0, 46.0);
+                ui.allocate_ui(room.max(vec2(0.0, 0.0)), |ui| self.canvas(ui));
+                self.view_bar(ui);
             });
         self.sheet = sheet.response.rect;
-        self.zoom_control(&ctx);
     }
 
     fn layer_bar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let Some(open) = &mut self.open else { return };
         let mut chosen = None;
-        ui.horizontal(|ui| {
-            ui.label(muted("Painting on"));
-            Frame::new()
-                .fill(PANEL)
-                .corner_radius(PILL)
-                .inner_margin(Margin::same(3))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        for (n, (layer, label, hint)) in LAYERS.into_iter().enumerate() {
-                            if n > 0 {
-                                ui.label(RichText::new(CARET_RIGHT).color(MUTED).size(13.0));
-                            }
-                            let on = self.layer == layer;
-                            let preview = map_picture(open, self.map, View::Layer(layer), &ctx);
-                            let look = Frame::new()
-                                .fill(if on { SELECT } else { Color32::TRANSPARENT })
-                                .corner_radius(12)
-                                .inner_margin(Margin {
-                                    left: 4,
-                                    right: 10,
-                                    top: 3,
-                                    bottom: 3,
-                                });
-                            let hover = (!on).then_some(HOVER);
-                            let segment = surface(ui, look, hover, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 6.0;
-                                    let (rect, _) =
-                                        ui.allocate_exact_size(vec2(30.0, 20.0), Sense::hover());
-                                    egui::Image::from_texture(SizedTexture::new(
-                                        preview.id(),
-                                        rect.size(),
-                                    ))
-                                    .uv(Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)))
-                                    .corner_radius(4)
-                                    .paint_at(ui, rect);
-                                    ui.label(RichText::new(label).color(if on {
-                                        TEXT
-                                    } else {
-                                        MUTED
-                                    }));
-                                });
-                            });
-                            if segment.on_hover_text(hint).clicked() {
-                                chosen = Some(layer);
-                            }
-                        }
+        pill().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.set_height(BAR_HEIGHT);
+                ui.spacing_mut().item_spacing.x = 2.0;
+                for (n, (layer, label, hint)) in LAYERS.into_iter().enumerate() {
+                    if n > 0 {
+                        ui.label(RichText::new(CARET_RIGHT).color(MUTED).size(13.0));
+                    }
+                    let on = self.layer == layer;
+                    let preview = map_picture(open, self.map, View::Layer(layer), &ctx);
+                    let look = Frame::new()
+                        .fill(if on { SELECT } else { Color32::TRANSPARENT })
+                        .corner_radius(15)
+                        .inner_margin(Margin {
+                            left: 5,
+                            right: 12,
+                            top: 0,
+                            bottom: 0,
+                        });
+                    let hover = (!on).then_some(HOVER);
+                    let segment = surface(ui, look, hover, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.set_height(BAR_HEIGHT);
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            let (rect, _) =
+                                ui.allocate_exact_size(vec2(30.0, 20.0), Sense::hover());
+                            egui::Image::from_texture(SizedTexture::new(preview.id(), rect.size()))
+                                .uv(Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)))
+                                .corner_radius(4)
+                                .paint_at(ui, rect);
+                            ui.label(RichText::new(label).color(if on { TEXT } else { MUTED }));
+                        });
                     });
-                });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label("Grid");
-                switch(ui, &mut self.grid);
+                    if segment.on_hover_text(hint).clicked() {
+                        chosen = Some(layer);
+                    }
+                }
             });
         });
         if let Some(layer) = chosen {
@@ -1958,6 +2168,27 @@ impl Editor {
             _ => None,
         };
         let place_spot = self.tool == Tool::Place && self.stamp == Stamp::Spot;
+        // What the pencil would paint, shown faintly under the mouse: (column, row, picture)
+        let tileset = open.tileset.clone();
+        let mut brush_ghost = Vec::new();
+        if let (false, Tool::Pencil | Tool::Box, Some(tileset)) = (things_mode, self.tool, &tileset)
+        {
+            let brush = self
+                .block
+                .as_ref()
+                .map_or_else(|| Brush::one(self.tile as u16 + 1), |b| b.brush.clone());
+            for (i, &tile) in brush.tiles.iter().enumerate() {
+                let Some(def) = tile
+                    .checked_sub(1)
+                    .and_then(|t| open.project.tiles.get(t as usize))
+                else {
+                    continue;
+                };
+                let cell = def.cells.first().copied().unwrap_or(0);
+                let (x, y) = (i as u16 % brush.width, i as u16 / brush.width);
+                brush_ghost.push((x, y, cell_uv(tileset.size_vec2(), cell)));
+            }
+        }
         let mut delete = None;
         let map = &open.project.maps[self.map];
         let (width, height) = (map.width(), map.height());
@@ -1974,6 +2205,12 @@ impl Editor {
         let (tool, rect_from, grid) = (self.tool, self.rect_from, self.grid);
 
         let mut input = CanvasInput::default();
+        // Scroll bars over the map, shown while the mouse is on it: a map a little too big for
+        // its room shouldn't get a line drawn under it
+        let scroll = &mut ui.spacing_mut().scroll;
+        *scroll = egui::style::ScrollStyle::floating();
+        scroll.dormant_background_opacity = 0.0;
+        scroll.dormant_handle_opacity = 0.0;
         egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
             let size = vec2(width as f32 * scale, height as f32 * scale);
             // Centred while it fits, scrolled when it doesn't
@@ -2059,7 +2296,18 @@ impl Editor {
             };
             let hover = response.hover_pos().and_then(to_cell);
             if let Some(at) = hover.filter(|_| !over_object) {
-                painter.rect_stroke(cell_rect(at), 3, Stroke::new(1.5, TEXT), StrokeKind::Inside);
+                let mut outline = cell_rect(at);
+                if let (Some(tileset), None) = (&tileset, rect_from) {
+                    for &(x, y, uv) in &brush_ghost {
+                        let (px, py) = (at.x + x, at.y + y);
+                        if px < width && py < height {
+                            let r = cell_rect(Pos::new(px, py));
+                            painter.image(tileset.id(), r, uv, Color32::from_white_alpha(150));
+                            outline = outline.union(r);
+                        }
+                    }
+                }
+                painter.rect_stroke(outline, 3, Stroke::new(1.5, TEXT), StrokeKind::Inside);
             }
             if let (Tool::Box, Some(from), Some(to), false) = (tool, rect_from, hover, things_mode)
             {
@@ -2158,43 +2406,6 @@ impl Editor {
         self.apply(input);
     }
 
-    fn zoom_control(&mut self, ctx: &egui::Context) {
-        if self.sheet == Rect::NOTHING {
-            return;
-        }
-        egui::Area::new(Id::NULL.with("zoom"))
-            .order(egui::Order::Foreground)
-            .pivot(Align2::RIGHT_BOTTOM)
-            .fixed_pos(self.sheet.right_bottom() - vec2(14.0, 14.0))
-            .show(ctx, |ui| {
-                Frame::new()
-                    .fill(PANEL)
-                    .corner_radius(PILL)
-                    .inner_margin(Margin::same(3))
-                    .stroke(Stroke::new(1.0, LINE))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 2.0;
-                            if ui
-                                .add_enabled(self.zoom > 1.0, quiet(MINUS))
-                                .on_hover_text("Zoom out")
-                                .clicked()
-                            {
-                                self.zoom -= 1.0;
-                            }
-                            ui.label(muted(format!("{}×", self.zoom as u32)));
-                            if ui
-                                .add_enabled(self.zoom < 6.0, quiet(PLUS))
-                                .on_hover_text("Zoom in")
-                                .clicked()
-                            {
-                                self.zoom += 1.0;
-                            }
-                        });
-                    });
-            });
-    }
-
     fn toasts(&mut self, ctx: &egui::Context) {
         let life = |toast: &Toast| if toast.error { 6.0 } else { 2.5 };
         self.toasts
@@ -2252,13 +2463,19 @@ impl Editor {
             return;
         }
         let Some(open) = &mut self.open else { return };
+        if !input.painting {
+            self.stroke_from = None;
+        }
         let Some(at) = input.cell else {
             if input.drag_stopped {
                 self.rect_from = None;
             }
             return;
         };
-        let tile = self.tile as u16 + 1;
+        let brush = self
+            .block
+            .as_ref()
+            .map_or_else(|| Brush::one(self.tile as u16 + 1), |b| b.brush.clone());
         let has_tiles = !open.project.tiles.is_empty();
         if input.clicked || input.drag_started {
             self.cursor = Some(at);
@@ -2267,6 +2484,7 @@ impl Editor {
         if input.picked {
             if let Some(n) = map.layer(self.layer).get(at).filter(|&n| n > 0) {
                 self.tile = n as usize - 1;
+                self.block = None;
                 if self.tool == Tool::Eraser {
                     self.tool = Tool::Pencil;
                 }
@@ -2275,19 +2493,23 @@ impl Editor {
         }
         let layer = map.layer_mut(self.layer);
         match self.tool {
-            Tool::Pencil if input.painting && has_tiles => layer.set(at, tile),
+            Tool::Pencil if input.painting && has_tiles => {
+                // A block goes down whole, side by side with the others of the stroke
+                let from = *self.stroke_from.get_or_insert(at);
+                layer.stamp(brush.snap(from, at), &brush);
+            }
             Tool::Eraser if input.painting => layer.set(at, 0),
-            Tool::Fill if input.clicked && has_tiles => layer.flood(at, tile),
+            Tool::Fill if input.clicked && has_tiles => layer.flood(at, &brush),
             Tool::Box => {
                 if input.drag_started {
                     self.rect_from = Some(at);
                 }
                 if input.drag_stopped {
                     if let Some(from) = self.rect_from.take() {
-                        layer.rect(from, at, tile);
+                        layer.rect(from, at, &brush);
                     }
                 } else if input.clicked {
-                    layer.set(at, tile);
+                    layer.stamp(at, &brush);
                 }
             }
             _ => {}
@@ -2492,18 +2714,11 @@ impl eframe::App for Editor {
             bottom: 10,
         };
         if self.open.is_some() {
-            egui::Panel::left("tools")
-                .resizable(false)
-                .exact_size(86.0)
-                .frame(
-                    panel_frame()
-                        .inner_margin(Margin::symmetric(6, 12))
-                        .outer_margin(gap(10, 0)),
-                )
-                .show(ui, |ui| self.tool_strip(ui));
-            egui::Panel::left("palette")
-                .resizable(false)
-                .exact_size(222.0)
+            // Wider for a tileset of many columns: drag its edge
+            egui::Panel::left("palette sheet")
+                .resizable(true)
+                .default_size(318.0)
+                .size_range(222.0..=640.0)
                 .frame(panel_frame().outer_margin(gap(10, 0)))
                 .show(ui, |ui| self.palette(ui));
             // One panel per mode: egui keeps a panel's size, so a changing width would be laid out stale

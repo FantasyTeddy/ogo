@@ -95,9 +95,12 @@ of that name. The world's settings, under Pictures, add tiles from a PNG (they g
 existing ones in `tiles.png`, so the maps stay as they are), add pictures (copied into `sprites/`:
 one 16×16 picture, or a row per direction and a column per step), and choose who the player is; a
 picture facing the viewer turns by mirroring and hops a little when it walks.
-The maps are tabs above the map; the layer bar picks which of the three layers to paint ("Ground ›
-Decoration › Above the player", like treetops), and the layers above it turn see-through. Paint
-with pencil, fill, box and eraser; right-click picks up a tile. The right panel shows the tile
+The maps are tabs above the map; the layer bar under it picks which of the three layers to paint
+("Ground › Decoration › Above", the last over the player, like treetops), and the layers above it
+turn see-through. The
+palette shows the tiles as they lie in `tiles.png` (drag its edge to make it wider); dragging across
+it picks a block, like a whole house or a patch of grass, which the tools then paint whole. Paint
+with pencil, fill, box and eraser, above the map; right-click picks up a tile. The right panel shows the tile
 selected in the palette (solid, animated, a sound when stepped on): a kind of tile, so changes
 apply wherever it's used. A map's settings (name, size, music) open from its tab (double-click,
 right-click or "⋯"), the world's (title, tileset, characters) from its name. The **Objects** tab

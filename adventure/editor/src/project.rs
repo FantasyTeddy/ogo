@@ -127,6 +127,46 @@ impl<'de> Deserialize<'de> for Grid {
     }
 }
 
+/// What painting puts down: one tile, or a block of them picked from the tileset, repeated
+/// when it covers more. 0 in a block is a hole that keeps what's there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Brush {
+    pub width: u16,
+    pub height: u16,
+    pub tiles: Vec<u16>,
+}
+
+impl Brush {
+    pub fn one(tile: u16) -> Brush {
+        Brush {
+            width: 1,
+            height: 1,
+            tiles: vec![tile],
+        }
+    }
+
+    /// The tile for `pos` when the brush is laid down from `origin`; None for a hole.
+    pub fn tile(&self, origin: Pos, pos: Pos) -> Option<u16> {
+        let x = (pos.x as i32 - origin.x as i32).rem_euclid(self.width as i32) as usize;
+        let y = (pos.y as i32 - origin.y as i32).rem_euclid(self.height as i32) as usize;
+        let tile = self.tiles[y * self.width as usize + x];
+        (tile > 0 || self.tiles.len() == 1).then_some(tile)
+    }
+
+    /// Where a block goes for `pos` in a stroke that started at `origin`: in steps of its size,
+    /// so dragging lays blocks side by side.
+    pub fn snap(&self, origin: Pos, pos: Pos) -> Pos {
+        let step = |o: u16, p: u16, size: u16| {
+            let d = (p as i32 - o as i32).div_euclid(size as i32) * size as i32;
+            (o as i32 + d).max(0) as u16
+        };
+        Pos::new(
+            step(origin.x, pos.x, self.width),
+            step(origin.y, pos.y, self.height),
+        )
+    }
+}
+
 impl Grid {
     pub fn filled(width: usize, height: usize, tile: u16) -> Grid {
         Grid(vec![vec![tile; width]; height])
@@ -154,32 +194,57 @@ impl Grid {
         }
     }
 
-    /// Fills the area of same tiles around `at` (left, right, up, down) with `tile`.
-    pub fn flood(&mut self, at: Pos, tile: u16) {
+    /// Fills the area of same tiles around `at` (left, right, up, down) with `brush`, repeated
+    /// from `at`.
+    pub fn flood(&mut self, at: Pos, brush: &Brush) {
         let Some(old) = self.get(at) else { return };
-        if old == tile {
+        if brush.tiles == [old] {
             return;
         }
+        let mut area = HashSet::new();
         let mut todo = VecDeque::from([at]);
         while let Some(pos) = todo.pop_front() {
-            if self.get(pos) != Some(old) {
+            if self.get(pos) != Some(old) || !area.insert(pos) {
                 continue;
             }
-            self.set(pos, tile);
             for dir in adventure_format::Dir::ALL {
                 if let Some(next) = pos.step(dir) {
                     todo.push_back(next);
                 }
             }
         }
+        for pos in area {
+            self.paint(pos, brush.tile(at, pos));
+        }
     }
 
-    /// Fills the rectangle between two corners.
-    pub fn rect(&mut self, a: Pos, b: Pos, tile: u16) {
-        for y in a.y.min(b.y)..=a.y.max(b.y) {
-            for x in a.x.min(b.x)..=a.x.max(b.x) {
-                self.set(Pos::new(x, y), tile);
+    /// Fills the rectangle between two corners with `brush`, repeated from its top left.
+    pub fn rect(&mut self, a: Pos, b: Pos, brush: &Brush) {
+        let from = Pos::new(a.x.min(b.x), a.y.min(b.y));
+        for y in from.y..=a.y.max(b.y) {
+            for x in from.x..=a.x.max(b.x) {
+                let pos = Pos::new(x, y);
+                self.paint(pos, brush.tile(from, pos));
             }
+        }
+    }
+
+    /// The whole brush with its top left at `at`.
+    pub fn stamp(&mut self, at: Pos, brush: &Brush) {
+        for y in 0..brush.height {
+            for x in 0..brush.width {
+                if let (Some(px), Some(py)) = (at.x.checked_add(x), at.y.checked_add(y)) {
+                    let pos = Pos::new(px, py);
+                    self.paint(pos, brush.tile(at, pos));
+                }
+            }
+        }
+    }
+
+    /// Sets a cell unless `tile` is a brush's hole.
+    fn paint(&mut self, at: Pos, tile: Option<u16>) {
+        if let Some(tile) = tile {
+            self.set(at, tile);
         }
     }
 
@@ -436,16 +501,38 @@ mod tests {
     #[test]
     fn flood_fills_the_same_tiles_around() {
         let mut g = grid(&["1121", "1221", "1111"]);
-        g.flood(Pos::new(0, 0), 3);
+        g.flood(Pos::new(0, 0), &Brush::one(3));
         assert_eq!(g, grid(&["3323", "3223", "3333"]));
-        g.flood(Pos::new(2, 0), 3);
+        g.flood(Pos::new(2, 0), &Brush::one(3));
         assert_eq!(g, grid(&["3333", "3333", "3333"]));
+    }
+
+    #[test]
+    fn blocks_repeat_and_keep_their_holes() {
+        // A 2 × 2 block whose bottom right is a hole
+        let block = Brush {
+            width: 2,
+            height: 2,
+            tiles: vec![1, 2, 3, 0],
+        };
+        let mut g = grid(&["9999", "9999", "9999"]);
+        g.stamp(Pos::new(1, 1), &block);
+        assert_eq!(g, grid(&["9999", "9129", "9399"]));
+        let mut g = grid(&["9999", "9999", "9999"]);
+        g.rect(Pos::new(3, 2), Pos::new(0, 0), &block);
+        assert_eq!(g, grid(&["1212", "3939", "1212"]));
+        let mut g = grid(&["5555", "5555", "7777"]);
+        g.flood(Pos::new(1, 0), &block);
+        assert_eq!(g, grid(&["2121", "5353", "7777"]));
+        // Dragging lays blocks side by side from where the stroke began
+        assert_eq!(block.snap(Pos::new(3, 3), Pos::new(6, 2)), Pos::new(5, 1));
+        assert_eq!(block.snap(Pos::new(1, 1), Pos::new(0, 0)), Pos::new(0, 0));
     }
 
     #[test]
     fn rect_and_resize() {
         let mut g = grid(&["000", "000"]);
-        g.rect(Pos::new(2, 1), Pos::new(1, 0), 5);
+        g.rect(Pos::new(2, 1), Pos::new(1, 0), &Brush::one(5));
         assert_eq!(g, grid(&["055", "055"]));
         g.resize(4, 3, 1);
         assert_eq!(g, grid(&["0551", "0551", "1111"]));

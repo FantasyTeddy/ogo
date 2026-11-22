@@ -331,9 +331,14 @@ pub fn switch(ui: &mut Ui, on: &mut bool) -> Response {
     response
 }
 
-/// A tool in the tool strip: its icon with a short label below.
+/// A tool in the map's tool bar: its icon and a short label, side by side.
 pub fn tool(ui: &mut Ui, icon: &str, label: &str, on: bool) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(56.0, 52.0), Sense::click());
+    let font = FontId::new(13.0, bold());
+    let text = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font.clone(), TEXT);
+    let size = vec2(40.0 + text.size().x + 14.0, 30.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let response = response.on_hover_cursor(CursorIcon::PointingHand);
     let painter = ui.painter();
     let fill = if on {
@@ -343,24 +348,24 @@ pub fn tool(ui: &mut Ui, icon: &str, label: &str, on: bool) -> Response {
     } else {
         Color32::TRANSPARENT
     };
-    painter.rect_filled(rect, CornerRadius::same(14), fill);
+    painter.rect_filled(rect, CornerRadius::same(15), fill);
     let colour = if on || response.hovered() {
         TEXT
     } else {
         MUTED
     };
     painter.text(
-        rect.center_top() + vec2(0.0, 17.0),
+        rect.left_center() + vec2(22.0, 0.0),
         egui::Align2::CENTER_CENTER,
         icon,
-        FontId::new(21.0, FontFamily::Proportional),
+        FontId::new(17.0, FontFamily::Proportional),
         colour,
     );
     painter.text(
-        rect.center_bottom() - vec2(0.0, 12.0),
-        egui::Align2::CENTER_CENTER,
+        rect.left_center() + vec2(38.0, 0.0),
+        egui::Align2::LEFT_CENTER,
         label,
-        FontId::new(11.5, bold()),
+        font,
         colour,
     );
     response
