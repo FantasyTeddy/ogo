@@ -16,3 +16,4 @@ rfd = "0.18"
 ureq = "3"
 cpal = "0.18"
 hound = "3.5"
+midly = { version = "0.5", default-features = false, features = ["std"] }

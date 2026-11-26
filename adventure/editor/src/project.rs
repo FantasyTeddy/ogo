@@ -8,7 +8,7 @@ use std::hash::{BuildHasher, Hasher};
 use std::path::Path;
 
 use adventure_format::{
-    Id, LayerKind, MusicRef, Note, Part, Place, Pos, SoundRef, SpriteRef, Swap, Thing,
+    Id, LayerKind, Music, MusicRef, Note, Part, Place, Pos, SoundRef, SpriteRef, Swap, Thing, Wave,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -16,6 +16,7 @@ pub const FILE: &str = "world.json";
 pub const TILESET: &str = "tiles.png";
 pub const SPRITES: &str = "sprites";
 pub const SOUNDS: &str = "sounds";
+pub const MUSIC: &str = "music";
 /// The version of `world.json`
 pub const VERSION: u32 = 1;
 
@@ -87,7 +88,21 @@ pub enum SoundSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MusicDef {
     pub name: String,
-    pub parts: Vec<Part>,
+    /// A MIDI file in `music/`
+    pub file: String,
+    /// The file's part played as the melody, numbered as [`crate::midi::read`] finds them
+    pub melody: usize,
+    /// And the one played as the bass, if any
+    pub bass: Option<usize>,
+    pub melody_wave: Wave,
+    pub bass_wave: Wave,
+}
+
+/// Music as projects stored it before it came from MIDI files: notes for each part.
+#[derive(Deserialize)]
+struct OldMusic {
+    name: String,
+    parts: Vec<Part>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -317,14 +332,33 @@ impl Project {
         let path = dir.join(FILE);
         let text =
             fs::read_to_string(&path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
-        let project: Project =
-            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let error = |e: serde_json::Error| format!("{}: {e}", path.display());
+        let mut value: serde_json::Value = serde_json::from_str(&text).map_err(error)?;
+        // Music stored as notes becomes MIDI files, once
+        let mut old = Vec::new();
+        if let Some(music) = value.get_mut("music").and_then(|m| m.as_array_mut()) {
+            for (i, entry) in music.iter_mut().enumerate() {
+                if entry.get("parts").is_some() {
+                    let song: OldMusic = serde_json::from_value(entry.clone()).map_err(error)?;
+                    *entry = serde_json::to_value(placeholder(&song.name)).expect("encodes");
+                    old.push((i, song.parts));
+                }
+            }
+        }
+        let mut project: Project = serde_json::from_value(value).map_err(error)?;
         if project.version != VERSION {
             return Err(format!(
                 "{} is version {}, this editor reads {VERSION}",
                 path.display(),
                 project.version
             ));
+        }
+        if !old.is_empty() {
+            for (i, parts) in old {
+                let name = project.music[i].name.clone();
+                project.music[i] = write_song(dir, &name, &Music { parts })?;
+            }
+            project.save(dir)?;
         }
         Ok(project)
     }
@@ -537,6 +571,64 @@ impl Project {
     }
 }
 
+/// A song entry for music that's yet to be written as a file.
+fn placeholder(name: &str) -> MusicDef {
+    MusicDef {
+        name: name.to_string(),
+        file: String::new(),
+        melody: 0,
+        bass: None,
+        melody_wave: Wave::Square,
+        bass_wave: Wave::Triangle,
+    }
+}
+
+/// The song entry for `music`, written into `music/` as a MIDI file named after `name`.
+pub fn write_song(dir: &Path, name: &str, music: &Music) -> Result<MusicDef, String> {
+    let folder = dir.join(MUSIC);
+    fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    let file = file_name(&folder, name, "mid");
+    let path = folder.join(&file);
+    fs::write(&path, crate::midi::write(music))
+        .map_err(|e| format!("can't write {}: {e}", path.display()))?;
+    Ok(song_entry(name, file, music))
+}
+
+/// The song entry that plays `music` from `file`, a MIDI file [`crate::midi::write`] made of it.
+pub fn song_entry(name: &str, file: String, music: &Music) -> MusicDef {
+    MusicDef {
+        file,
+        bass: (music.parts.len() > 1).then_some(1),
+        melody_wave: music.parts.first().map_or(Wave::Square, |p| p.wave),
+        bass_wave: music.parts.get(1).map_or(Wave::Triangle, |p| p.wave),
+        ..placeholder(name)
+    }
+}
+
+/// A plain file name made from `stem` that isn't taken in `folder` yet: lowercase letters,
+/// digits, `-` and `_`.
+pub fn file_name(folder: &Path, stem: &str, extension: &str) -> String {
+    let base: String = stem
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let base = if base.is_empty() { "file".into() } else { base };
+    let mut name = format!("{base}.{extension}");
+    let mut n = 2;
+    while folder.join(&name).exists() {
+        name = format!("{base}-{n}.{extension}");
+        n += 1;
+    }
+    name
+}
+
 /// A uid nobody else will have.
 pub fn new_uid() -> u64 {
     let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
@@ -566,6 +658,35 @@ mod tests {
         assert_eq!(json, r#"["1 2 0","0 0 3"]"#);
         assert_eq!(serde_json::from_str::<Grid>(&json).unwrap(), g);
         assert!(serde_json::from_str::<Grid>(r#"["1 x"]"#).is_err());
+    }
+
+    #[test]
+    fn music_as_notes_becomes_midi_files_on_open() {
+        let dir = std::env::temp_dir().join(format!("adventure-old-music-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (mut project, _) = crate::export::starter();
+        project.music.clear();
+        let mut json = serde_json::to_value(&project).unwrap();
+        json["music"] = serde_json::json!([{
+            "name": "Old tune",
+            "parts": [
+                {"wave": "Sine", "notes": [{"hz": 440, "ms": 500}, {"hz": 0, "ms": 500}]},
+                {"wave": "Triangle", "notes": [{"hz": 110, "ms": 1000}]}
+            ]
+        }]);
+        fs::write(dir.join(FILE), json.to_string()).unwrap();
+        let project = Project::load(&dir).unwrap();
+        let song = &project.music[0];
+        assert_eq!(song.file, "old-tune.mid");
+        assert_eq!((song.melody, song.bass), (0, Some(1)));
+        assert_eq!(
+            (song.melody_wave, song.bass_wave),
+            (Wave::Sine, Wave::Triangle)
+        );
+        assert!(dir.join(MUSIC).join("old-tune.mid").exists());
+        // Saved, so the next open finds the file
+        assert_eq!(Project::load(&dir).unwrap(), project);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

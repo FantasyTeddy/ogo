@@ -9,6 +9,7 @@ mod audio;
 mod export;
 mod handheld;
 mod images;
+mod midi;
 mod project;
 mod send;
 mod sound;
@@ -308,6 +309,8 @@ struct Editor {
     preview: Option<sound::Speaker>,
     /// The music being listened to there
     previewing: Option<usize>,
+    /// The song whose parts show there
+    song_open: Option<usize>,
 }
 
 const UNDO_STEPS: usize = 200;
@@ -352,6 +355,7 @@ impl Editor {
             picking: None,
             preview: None,
             previewing: None,
+            song_open: None,
         };
         // The folder given on the command line, or the one open last time
         let folder = std::env::args().nth(1).or_else(|| stored("project"));
@@ -521,8 +525,12 @@ impl Editor {
     fn undo(&mut self) {
         let Some(open) = &mut self.open else { return };
         if let Some(before) = open.undo.pop() {
+            let files = files(&open.project);
             open.redo.push(std::mem::replace(&mut open.project, before));
             open.committed = open.project.clone();
+            if files != self::files(&open.project) {
+                reload(open);
+            }
         }
         self.keep_selection_valid();
     }
@@ -530,8 +538,12 @@ impl Editor {
     fn redo(&mut self) {
         let Some(open) = &mut self.open else { return };
         if let Some(after) = open.redo.pop() {
+            let files = files(&open.project);
             open.undo.push(std::mem::replace(&mut open.project, after));
             open.committed = open.project.clone();
+            if files != self::files(&open.project) {
+                reload(open);
+            }
         }
         self.keep_selection_valid();
     }
@@ -738,11 +750,19 @@ impl Editor {
                 }
             }
             Preview::Music(i) => {
-                if let Some(def) = open.project.music.get(i) {
-                    speaker.music(Some(&adventure_format::Music {
-                        parts: def.parts.clone(),
-                    }));
-                    self.previewing = Some(i);
+                let music = open
+                    .project
+                    .music
+                    .get(i)
+                    .zip(open.assets.songs.get(i))
+                    .map(|(def, song)| export::music(def, song));
+                match music {
+                    Some(Ok(music)) => {
+                        speaker.music(Some(&music));
+                        self.previewing = Some(i);
+                    }
+                    Some(Err(error)) => self.fail(error),
+                    None => {}
                 }
             }
             Preview::Stop => {
@@ -750,6 +770,44 @@ impl Editor {
                 self.previewing = None;
             }
         }
+    }
+
+    /// Copies a MIDI file into music/ and adds it as a song, with a melody and a bass suggested;
+    /// its parts show, to change them.
+    fn import_midi(&mut self) {
+        let Some(open) = &mut self.open else { return };
+        let Some(file) = rfd::FileDialog::new()
+            .add_filter("MIDI", &["mid", "midi"])
+            .set_title("A song: a MIDI file")
+            .pick_file()
+        else {
+            return;
+        };
+        let song = match export::SongFile::load(&file) {
+            Ok(song) => song.song,
+            Err(error) => return self.fail(format!("Can't import: {error}")),
+        };
+        let folder = open.dir.join(project::MUSIC);
+        if let Err(error) = std::fs::create_dir_all(&folder) {
+            return self.fail(format!("Can't create {}: {error}", folder.display()));
+        }
+        let (name, pretty) = match copy_in(&file, &folder, "mid") {
+            Ok(names) => names,
+            Err(error) => return self.fail(error),
+        };
+        let (melody, bass) = midi::suggest(&song);
+        open.project.music.push(project::MusicDef {
+            name: pretty.clone(),
+            file: name,
+            melody,
+            bass,
+            melody_wave: adventure_format::Wave::Square,
+            bass_wave: adventure_format::Wave::Triangle,
+        });
+        reload(open);
+        open.times = picture_times(&open.dir, &open.project);
+        self.song_open = Some(open.project.music.len() - 1);
+        self.say(format!("Added {pretty}: choose it in a map's settings"));
     }
 
     fn import_tileset(&mut self) {
@@ -1692,6 +1750,11 @@ impl Editor {
         let mut removed_sound = false;
         let mut preview = None;
         let previewing = self.previewing;
+        let mut import_midi = false;
+        let mut removed_music = false;
+        let song_open = self.song_open;
+        let mut toggle_song = None;
+        let mut changed_song = None;
         let mut go = None;
         let modal = egui::Modal::new(Id::NULL.with("world settings"))
             .frame(dialog_frame())
@@ -1825,35 +1888,124 @@ impl Editor {
                                         .collect();
                                     let mut remove = None;
                                     for (i, def) in open.project.music.iter_mut().enumerate() {
-                                        let used = match uses[i] {
-                                            0 => "no map plays it yet".to_string(),
-                                            1 => "played on 1 map".to_string(),
-                                            n => format!("played on {n} maps"),
+                                        let loaded = open.assets.songs.get(i);
+                                        let problem = match loaded {
+                                            Some(Ok(_)) => None,
+                                            Some(Err(error)) => Some(error.clone()),
+                                            None => Some(format!("{} isn't loaded", def.file)),
                                         };
-                                        things::card(ui, width, |ui| {
-                                            let playing = previewing == Some(i);
-                                            let (icon, hint) = if playing {
-                                                (STOP, "Stop")
-                                            } else {
-                                                (PLAY, "Listen")
-                                            };
-                                            if listen_button(ui, icon, false).on_hover_text(hint).clicked() {
-                                                preview = Some(if playing {
-                                                    Preview::Stop
-                                                } else {
-                                                    Preview::Music(i)
-                                                });
-                                            }
-                                            things::name_and_use(ui, &mut def.name, "the music's name", &used, uses[i], &mut remove, i);
+                                        let song = loaded.and_then(|l| l.as_ref().ok()).map(|f| &f.song);
+                                        let length = song.map_or(String::new(), |s| {
+                                            seconds(s.length_ms)
                                         });
+                                        let used = match uses[i] {
+                                            0 => format!("{}{length} · no map plays it yet", def.file),
+                                            1 => format!("{}{length} · played on 1 map", def.file),
+                                            n => format!("{}{length} · played on {n} maps", def.file),
+                                        };
+                                        let playing = previewing == Some(i);
+                                        let before = (def.melody, def.bass, def.melody_wave, def.bass_wave);
+                                        things::card_vertical(ui, width, |ui| {
+                                            ui.horizontal(|ui| {
+                                                let (icon, hint) = match (&problem, playing) {
+                                                    (Some(problem), _) => (WARNING, problem.clone()),
+                                                    (None, true) => (STOP, "Stop".to_string()),
+                                                    (None, false) => (PLAY, "Listen".to_string()),
+                                                };
+                                                if listen_button(ui, icon, problem.is_some())
+                                                    .on_hover_text(hint)
+                                                    .clicked()
+                                                    && problem.is_none()
+                                                {
+                                                    preview = Some(if playing { Preview::Stop } else { Preview::Music(i) });
+                                                }
+                                                things::name_and_use(ui, &mut def.name, "the music's name", &used, uses[i], &mut remove, i);
+                                            });
+                                                let Some(song) = song else { return };
+                                                let labels: Vec<&str> = song.groups.iter().map(|g| g.label.as_str()).collect();
+                                                let short = |i: usize| {
+                                                    labels.get(i).map_or("missing", |l| l.split(" · ").next().unwrap_or(l))
+                                                };
+                                                let summary = match def.bass {
+                                                    Some(bass) => format!("melody: {}, bass: {}", short(def.melody), short(bass)),
+                                                    None => format!("melody: {}, no bass", short(def.melody)),
+                                                };
+                                                let expanded = song_open == Some(i);
+                                                let caret = if expanded { CARET_DOWN } else { CARET_RIGHT };
+                                                if ui
+                                                    .add(quiet(muted(format!("{caret}  Parts · {summary}")).small()))
+                                                    .on_hover_text("Which of the file's parts play, and how they sound")
+                                                    .clicked()
+                                                {
+                                                    toggle_song = Some(if expanded { None } else { Some(i) });
+                                                }
+                                                if !expanded {
+                                                    return;
+                                                }
+                                                let missing = "missing: choose another";
+                                                egui::Grid::new(("music parts", i)).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+                                                    ui.label("Melody");
+                                                    egui::ComboBox::from_id_salt(("melody", i))
+                                                        .width(260.0)
+                                                        .selected_text(labels.get(def.melody).copied().unwrap_or(missing))
+                                                        .show_ui(ui, |ui| {
+                                                            for (g, label) in labels.iter().enumerate() {
+                                                                ui.selectable_value(&mut def.melody, g, *label);
+                                                            }
+                                                        });
+                                                    wave_choice(ui, &format!("melody wave {i}"), &mut def.melody_wave);
+                                                    ui.end_row();
+                                                    ui.label("Bass");
+                                                    let current = match def.bass {
+                                                        None => "None",
+                                                        Some(b) => labels.get(b).copied().unwrap_or(missing),
+                                                    };
+                                                    egui::ComboBox::from_id_salt(("bass", i))
+                                                        .width(260.0)
+                                                        .selected_text(current)
+                                                        .show_ui(ui, |ui| {
+                                                            ui.selectable_value(&mut def.bass, None, "None");
+                                                            for (g, label) in labels.iter().enumerate() {
+                                                                ui.selectable_value(&mut def.bass, Some(g), *label);
+                                                            }
+                                                        });
+                                                    if def.bass.is_some() {
+                                                        wave_choice(ui, &format!("bass wave {i}"), &mut def.bass_wave);
+                                                    }
+                                                    ui.end_row();
+                                                });
+                                                ui.label(
+                                                    muted(
+                                                        "Where notes sound together, the melody keeps the top one \
+                                                         and the bass the bottom one. Change the MIDI file in any \
+                                                         music program: it reloads by itself.",
+                                                    )
+                                                    .small(),
+                                                );
+                                        });
+                                        // A change while listening: listen to the new choice
+                                        let after = (def.melody, def.bass, def.melody_wave, def.bass_wave);
+                                        if after != before && playing {
+                                            changed_song = Some(i);
+                                        }
                                     }
                                     if let Some(i) = remove {
                                         open.project.remove_music(i);
-                                        preview = Some(Preview::Stop);
+                                        removed_music = true;
                                     }
                                     if open.project.music.is_empty() {
                                         ui.label(muted("No music yet.").small());
                                     }
+                                    if ui.add(quiet(muted(format!("{PLUS}  Import MIDI…")))).clicked() {
+                                        import_midi = true;
+                                    }
+                                    ui.label(
+                                        muted(
+                                            "MIDI files go into music/: a song plays its melody, and a bass \
+                                             if you like, one note at a time each.",
+                                        )
+                                        .small(),
+                                    );
                                 });
                             }
                             Section::Items => {
@@ -2014,6 +2166,23 @@ impl Editor {
                 reload(open);
             }
             self.say("Sound removed from the world; its file stays in sounds/");
+        }
+        if import_midi {
+            self.import_midi();
+        }
+        if removed_music {
+            if let Some(open) = &mut self.open {
+                reload(open);
+            }
+            self.song_open = None;
+            preview = Some(Preview::Stop);
+            self.say("Music removed from the world; its file stays in music/");
+        }
+        if let Some(song) = toggle_song {
+            self.song_open = song;
+        }
+        if let Some(i) = changed_song {
+            preview = Some(Preview::Music(i));
         }
         if let Some(preview) = preview {
             self.listen(preview);
@@ -3029,6 +3198,30 @@ fn picture_times(dir: &Path, project: &Project) -> Vec<Option<SystemTime>> {
             SoundSource::Notes { .. } => None,
             SoundSource::File { file } => time(dir.join(project::SOUNDS).join(file)),
         }))
+        .chain(
+            project
+                .music
+                .iter()
+                .map(|m| time(dir.join(project::MUSIC).join(&m.file))),
+        )
+        .collect()
+}
+
+/// The files a project's pictures, sounds and music come from, in order: when they change, what
+/// was loaded from them no longer lines up.
+fn files(project: &Project) -> Vec<String> {
+    let sounds = project.sounds.iter().map(|s| match &s.source {
+        SoundSource::Notes { .. } => String::new(),
+        SoundSource::File { file } => file.clone(),
+    });
+    project
+        .sprites
+        .iter()
+        .map(|s| s.file.clone())
+        .chain(std::iter::once("|".into()))
+        .chain(sounds)
+        .chain(std::iter::once("|".into()))
+        .chain(project.music.iter().map(|m| m.file.clone()))
         .collect()
 }
 
@@ -3239,22 +3432,7 @@ fn copy_in(file: &Path, folder: &Path, extension: &str) -> Result<(String, Strin
     let stem = file
         .file_stem()
         .map_or("file".into(), |s| s.to_string_lossy().to_string());
-    let base: String = stem
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let mut name = format!("{base}.{extension}");
-    let mut n = 2;
-    while folder.join(&name).exists() {
-        name = format!("{base}-{n}.{extension}");
-        n += 1;
-    }
+    let name = project::file_name(folder, &stem, extension);
     std::fs::copy(file, folder.join(&name))
         .map_err(|error| format!("Can't copy {}: {error}", file.display()))?;
     let mut pretty: String = stem.replace(['_', '-'], " ");
@@ -3286,4 +3464,32 @@ fn listen_button(ui: &mut Ui, icon: &str, broken: bool) -> egui::Response {
         if broken { WARN } else { TEXT },
     );
     response
+}
+
+/// The shape of a music part's tone.
+fn wave_choice(ui: &mut Ui, salt: &str, wave: &mut adventure_format::Wave) {
+    use adventure_format::Wave;
+    let name = |wave: Wave| match wave {
+        Wave::Square => "Square: bright",
+        Wave::Triangle => "Triangle: soft",
+        Wave::Sine => "Sine: softest",
+    };
+    egui::ComboBox::from_id_salt(salt)
+        .width(120.0)
+        .selected_text(name(*wave))
+        .show_ui(ui, |ui| {
+            for choice in [Wave::Square, Wave::Triangle, Wave::Sine] {
+                ui.selectable_value(wave, choice, name(choice));
+            }
+        });
+}
+
+/// How long `ms` is, for people: tenths of a second for short things.
+fn seconds(ms: u32) -> String {
+    let seconds = ms as f32 / 1000.0;
+    if seconds < 10.0 {
+        format!(" · {seconds:.1} s")
+    } else {
+        format!(" · {seconds:.0} s")
+    }
 }

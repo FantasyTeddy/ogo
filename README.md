@@ -98,7 +98,12 @@ one 16×16 picture, or a row per direction and a column per step), and choose wh
 picture facing the viewer turns by mirroring and hops a little when it walks. Under Sounds & music,
 each sound and piece of music can be listened to; **Add sounds…** copies WAV files into `sounds/`
 (a voice, an animal, a door), which become mono, 16 kHz and 8-bit with the quiet ends cut off, at
-most 4 seconds each.
+most 4 seconds each. **Import MIDI…** copies a MIDI file into `music/` as a song for the maps. A song
+plays one part of the file as its melody and, if you like, another as its bass, each one note at a
+time (where notes sound together, the melody keeps the top one and the bass the bottom one); the
+editor suggests them, drums left out, and under "Parts" they and their sound can be changed and
+listened to any time. The sample village's songs are MIDI files there too, so they can be changed
+in any music program.
 The maps are tabs above the map; the layer bar under it picks which of the three layers to paint
 ("Ground › Decoration › Above", the last over the player, like treetops), and the layers above it
 turn see-through. The

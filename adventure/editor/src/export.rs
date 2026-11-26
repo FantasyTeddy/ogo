@@ -5,11 +5,12 @@ use std::path::Path;
 
 use adventure_engine::{sample, Game, HEIGHT, WIDTH};
 use adventure_format::{
-    Dir, Item, Layer, Map, Music, Picture, Pixels, Samples, Sound, Sprite, Tile, World, TILE,
+    Dir, Item, Layer, Map, Music, Part, Picture, Pixels, Samples, Sound, Sprite, Tile, World, TILE,
 };
 
 use crate::audio;
 use crate::images::Rgba;
+use crate::midi;
 use crate::project::{
     self, FlagDef, Grid, ItemDef, MapDef, MusicDef, Project, SoundDef, SoundSource, SpriteDef,
     ThingDef, TileDef,
@@ -22,6 +23,29 @@ pub struct Assets {
     pub sprites: Vec<Result<Rgba, String>>,
     /// One per sound of the project; None for notes
     pub sounds: Vec<Option<Result<Samples, String>>>,
+    /// One per piece of music of the project
+    pub songs: Vec<Result<SongFile, String>>,
+}
+
+/// A MIDI file, and what it holds.
+pub struct SongFile {
+    pub bytes: Vec<u8>,
+    pub song: midi::Song,
+}
+
+impl SongFile {
+    pub fn load(path: &Path) -> Result<SongFile, String> {
+        let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let song = midi::read(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(SongFile { bytes, song })
+    }
+
+    /// Of `music`, as [`midi::write`] makes it.
+    pub fn of(music: &Music) -> SongFile {
+        let bytes = midi::write(music);
+        let song = midi::read(&bytes).expect("written music reads back");
+        SongFile { bytes, song }
+    }
 }
 
 impl Assets {
@@ -42,6 +66,11 @@ impl Assets {
                         Some(audio::load(&dir.join(project::SOUNDS).join(file)))
                     }
                 })
+                .collect(),
+            songs: project
+                .music
+                .iter()
+                .map(|music| SongFile::load(&dir.join(project::MUSIC).join(&music.file)))
                 .collect(),
         }
     }
@@ -125,10 +154,9 @@ pub fn world(project: &Project, assets: &Assets) -> Result<World, String> {
         music: project
             .music
             .iter()
-            .map(|music| Music {
-                parts: music.parts.clone(),
-            })
-            .collect(),
+            .zip(&assets.songs)
+            .map(|(def, song)| music(def, song))
+            .collect::<Result<Vec<_>, String>>()?,
         maps,
     };
     world.validate().map_err(|e| e.to_string())?;
@@ -148,6 +176,28 @@ pub fn sound(def: &SoundDef, samples: &Option<Result<Samples, String>>) -> Resul
             Err(format!("sound \"{}\": {file} isn't loaded", def.name))
         }
     }
+}
+
+/// A piece of music as the format has it: the parts chosen from its MIDI file, a note at a time.
+pub fn music(def: &MusicDef, song: &Result<SongFile, String>) -> Result<Music, String> {
+    let error = |e: &str| format!("music \"{}\": {e}", def.name);
+    let song = &song.as_ref().map_err(|e| error(e))?.song;
+    let part = |i: usize| {
+        song.groups
+            .get(i)
+            .ok_or_else(|| error(&format!("{} has no part {} any more", def.file, i + 1)))
+    };
+    let mut parts = vec![Part {
+        wave: def.melody_wave,
+        notes: midi::line(part(def.melody)?, true, song.length_ms),
+    }];
+    if let Some(bass) = def.bass {
+        parts.push(Part {
+            wave: def.bass_wave,
+            notes: midi::line(part(bass)?, false, song.length_ms),
+        });
+    }
+    Ok(Music { parts })
 }
 
 /// What the player sees at the start.
@@ -372,9 +422,10 @@ pub fn starter() -> (Project, Assets) {
             .music
             .iter()
             .enumerate()
-            .map(|(i, music)| MusicDef {
-                name: name(&MAP_NAMES, i, "Music"),
-                parts: music.parts.clone(),
+            .map(|(i, music)| {
+                let name = name(&MAP_NAMES, i, "Music");
+                let file = format!("{}.mid", name.to_lowercase().replace([' ', '\''], "-"));
+                project::song_entry(&name, file, music)
             })
             .collect(),
         sprites,
@@ -385,6 +436,7 @@ pub fn starter() -> (Project, Assets) {
         tileset: Ok(tileset),
         sprites: sprite_images,
         sounds: vec![None; project.sounds.len()],
+        songs: world.music.iter().map(|m| Ok(SongFile::of(m))).collect(),
     };
     (project, assets)
 }
@@ -431,6 +483,7 @@ pub fn empty() -> (Project, Assets) {
         tileset: Ok(Rgba::new(TILE, TILE)),
         sprites: Vec::new(),
         sounds: Vec::new(),
+        songs: Vec::new(),
     };
     (project, assets)
 }
@@ -450,6 +503,13 @@ fn write_new(dir: &Path, mut project: Project, assets: Assets) -> Result<Project
     fs::create_dir_all(&sprites).map_err(|e| format!("{}: {e}", sprites.display()))?;
     let sounds = dir.join(project::SOUNDS);
     fs::create_dir_all(&sounds).map_err(|e| format!("{}: {e}", sounds.display()))?;
+    let music = dir.join(project::MUSIC);
+    fs::create_dir_all(&music).map_err(|e| format!("{}: {e}", music.display()))?;
+    for (def, song) in project.music.iter().zip(&assets.songs) {
+        let path = music.join(&def.file);
+        let bytes = &song.as_ref().expect("made above").bytes;
+        fs::write(&path, bytes).map_err(|e| format!("can't write {}: {e}", path.display()))?;
+    }
     assets
         .tileset
         .as_ref()
@@ -532,6 +592,23 @@ mod tests {
             made.sprites[0].directions, 1,
             "a front-facing player is fine"
         );
+    }
+
+    #[test]
+    fn music_comes_from_the_chosen_parts() {
+        let (mut project, mut assets) = starter();
+        // The sample's songs became MIDI files and play as before
+        let made = world(&project, &assets).unwrap();
+        assert_eq!(made.music, sample::world().music);
+        // A song whose bass is chosen from a part that isn't there any more
+        project.music[0].bass = Some(5);
+        assert!(world(&project, &assets).unwrap_err().contains("no part 6"));
+        project.music[0].bass = None;
+        assert_eq!(world(&project, &assets).unwrap().music[0].parts.len(), 1);
+        assets.songs[1] = Err("grandma.mid: not a MIDI file".into());
+        assert!(world(&project, &assets)
+            .unwrap_err()
+            .contains("not a MIDI file"));
     }
 
     #[test]

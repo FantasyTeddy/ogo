@@ -1074,6 +1074,19 @@ pub(crate) fn card(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
     ui.add_space(4.0);
 }
 
+/// Like [`card`], with its content one below the other.
+pub(crate) fn card_vertical(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
+    Frame::new()
+        .fill(PANEL2.gamma_multiply(1.4))
+        .corner_radius(12)
+        .inner_margin(Margin::same(8))
+        .show(ui, |ui| {
+            ui.set_width(width - 16.0);
+            ui.vertical(add);
+        });
+    ui.add_space(4.0);
+}
+
 /// The name to type in, how often it's used, and a delete button while it isn't used.
 pub(crate) fn name_and_use(
     ui: &mut Ui,
