@@ -42,11 +42,27 @@ pub struct Project {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TileDef {
     pub name: String,
+    /// The layer painting puts it on. Projects from before guess it when they open.
+    #[serde(default = "ground")]
+    pub layer: LayerKind,
     /// Cells of the tileset, numbered row by row: one, or several for an animation
     pub cells: Vec<u16>,
     pub frame_ms: u16,
     pub solid: bool,
     pub step_sound: Option<SoundRef>,
+}
+
+fn ground() -> LayerKind {
+    LayerKind::Ground
+}
+
+/// The layer a new tile goes on, by its picture: Ground when it covers the whole cell,
+/// Decoration when something shows through.
+pub fn layer_for(pixels: Option<&[u16]>) -> LayerKind {
+    match pixels {
+        Some(pixels) if pixels.contains(&adventure_format::TRANSPARENT) => LayerKind::Decoration,
+        _ => LayerKind::Ground,
+    }
 }
 
 /// A sprite's pictures come from `sprites/<file>`: one row per direction (1, or 4 in the order
@@ -219,14 +235,12 @@ impl Grid {
         }
     }
 
-    /// Fills the area of same tiles around `at` (left, right, up, down) with `brush`, repeated
-    /// from `at`.
-    pub fn flood(&mut self, at: Pos, brush: &Brush) {
-        let Some(old) = self.get(at) else { return };
-        if brush.tiles == [old] {
-            return;
-        }
+    /// The area of same tiles around `at`: left, right, up, down.
+    pub fn area(&self, at: Pos) -> HashSet<Pos> {
         let mut area = HashSet::new();
+        let Some(old) = self.get(at) else {
+            return area;
+        };
         let mut todo = VecDeque::from([at]);
         while let Some(pos) = todo.pop_front() {
             if self.get(pos) != Some(old) || !area.insert(pos) {
@@ -238,39 +252,7 @@ impl Grid {
                 }
             }
         }
-        for pos in area {
-            self.paint(pos, brush.tile(at, pos));
-        }
-    }
-
-    /// Fills the rectangle between two corners with `brush`, repeated from its top left.
-    pub fn rect(&mut self, a: Pos, b: Pos, brush: &Brush) {
-        let from = Pos::new(a.x.min(b.x), a.y.min(b.y));
-        for y in from.y..=a.y.max(b.y) {
-            for x in from.x..=a.x.max(b.x) {
-                let pos = Pos::new(x, y);
-                self.paint(pos, brush.tile(from, pos));
-            }
-        }
-    }
-
-    /// The whole brush with its top left at `at`.
-    pub fn stamp(&mut self, at: Pos, brush: &Brush) {
-        for y in 0..brush.height {
-            for x in 0..brush.width {
-                if let (Some(px), Some(py)) = (at.x.checked_add(x), at.y.checked_add(y)) {
-                    let pos = Pos::new(px, py);
-                    self.paint(pos, brush.tile(at, pos));
-                }
-            }
-        }
-    }
-
-    /// Sets a cell unless `tile` is a brush's hole.
-    fn paint(&mut self, at: Pos, tile: Option<u16>) {
-        if let Some(tile) = tile {
-            self.set(at, tile);
-        }
+        area
     }
 
     /// Cuts or extends to `width` × `height`, keeping the top left; new cells get `tile`.
@@ -311,6 +293,60 @@ impl MapDef {
         }
     }
 
+    /// The top layer with a tile at `at`, of those not `hidden` (by layer).
+    pub fn top_layer(&self, at: Pos, hidden: [bool; 3]) -> Option<LayerKind> {
+        LayerKind::ALL
+            .into_iter()
+            .rev()
+            .find(|&kind| !hidden[kind as usize] && self.layer(kind).get(at).is_some_and(|n| n > 0))
+    }
+
+    /// Puts the brush's tile for `pos`, laid down from `origin`, on that tile's own layer:
+    /// `layers` has each tile's. A hole keeps what's there.
+    fn put(&mut self, layers: &[LayerKind], brush: &Brush, origin: Pos, pos: Pos) {
+        let tile = brush.tile(origin, pos).filter(|&n| n > 0);
+        if let Some((tile, &kind)) = tile.and_then(|n| Some((n, layers.get(n as usize - 1)?))) {
+            self.layer_mut(kind).set(pos, tile);
+        }
+    }
+
+    /// Fills the area of same tiles around `at` with `brush`, repeated from `at`. The area is
+    /// found on the layer of the brush's (first) tile.
+    pub fn flood(&mut self, layers: &[LayerKind], at: Pos, brush: &Brush) {
+        let first = brush.tiles.iter().find(|&&n| n > 0);
+        let Some(&kind) = first.and_then(|&n| layers.get(n as usize - 1)) else {
+            return;
+        };
+        let grid = self.layer(kind);
+        if grid.get(at).is_none_or(|old| brush.tiles == [old]) {
+            return;
+        }
+        for pos in grid.area(at).into_iter().collect::<Vec<_>>() {
+            self.put(layers, brush, at, pos);
+        }
+    }
+
+    /// Fills the rectangle between two corners with `brush`, repeated from its top left.
+    pub fn rect(&mut self, layers: &[LayerKind], a: Pos, b: Pos, brush: &Brush) {
+        let from = Pos::new(a.x.min(b.x), a.y.min(b.y));
+        for y in from.y..=a.y.max(b.y) {
+            for x in from.x..=a.x.max(b.x) {
+                self.put(layers, brush, from, Pos::new(x, y));
+            }
+        }
+    }
+
+    /// The whole brush with its top left at `at`.
+    pub fn stamp(&mut self, layers: &[LayerKind], at: Pos, brush: &Brush) {
+        for y in 0..brush.height {
+            for x in 0..brush.width {
+                if let (Some(px), Some(py)) = (at.x.checked_add(x), at.y.checked_add(y)) {
+                    self.put(layers, brush, at, Pos::new(px, py));
+                }
+            }
+        }
+    }
+
     /// Resizes all layers; new ground gets `tile`. Things and swaps that end up off the map are
     /// removed; returns how many things were.
     pub fn resize(&mut self, width: u16, height: u16, tile: u16) -> usize {
@@ -345,6 +381,16 @@ impl Project {
                 }
             }
         }
+        // Tiles from before they had a layer
+        let unplaced: Vec<usize> = value
+            .get("tiles")
+            .and_then(|t| t.as_array())
+            .map(|tiles| {
+                (0..tiles.len())
+                    .filter(|&i| tiles[i].get("layer").is_none())
+                    .collect()
+            })
+            .unwrap_or_default();
         let mut project: Project = serde_json::from_value(value).map_err(error)?;
         if project.version != VERSION {
             return Err(format!(
@@ -352,6 +398,14 @@ impl Project {
                 path.display(),
                 project.version
             ));
+        }
+        if !unplaced.is_empty() {
+            let tileset = crate::images::Rgba::load(&dir.join(TILESET)).ok();
+            for i in unplaced {
+                let cell = project.tiles[i].cells.first().copied().unwrap_or(0);
+                let pixels = tileset.as_ref().and_then(|t| t.cell(cell as usize));
+                project.tiles[i].layer = project.guess_layer(i, pixels.as_deref());
+            }
         }
         if !old.is_empty() {
             for (i, parts) in old {
@@ -564,6 +618,62 @@ impl Project {
         self.maps.iter().filter(|m| m.music == music).count()
     }
 
+    /// Each tile's layer, by tile.
+    pub fn tile_layers(&self) -> Vec<LayerKind> {
+        self.tiles.iter().map(|tile| tile.layer).collect()
+    }
+
+    /// How often tile `index` is used on each layer, on all maps.
+    pub fn layer_uses(&self, index: usize) -> [usize; 3] {
+        let number = index as u16 + 1;
+        LayerKind::ALL.map(|kind| {
+            self.maps
+                .iter()
+                .flat_map(|map| map.layer(kind).0.iter().flatten())
+                .filter(|&&n| n == number)
+                .count()
+        })
+    }
+
+    /// The layer tile `index` most likely belongs on: where the maps use it most; when they
+    /// don't, by its picture (see [`layer_for`]).
+    pub fn guess_layer(&self, index: usize, pixels: Option<&[u16]>) -> LayerKind {
+        let uses = self.layer_uses(index);
+        match (0..3).max_by_key(|&i| (uses[i], std::cmp::Reverse(i))) {
+            Some(i) if uses[i] > 0 => LayerKind::ALL[i],
+            _ => layer_for(pixels),
+        }
+    }
+
+    /// Moves the uses of tile `index` on other layers than its own onto its own, where that's
+    /// empty, or covered by it anyway: `opaque` says its picture has no see-through pixels, and
+    /// then it may replace what it lay over. Returns how many stay where they are.
+    pub fn move_to_own_layer(&mut self, index: usize, opaque: bool) -> usize {
+        let number = index as u16 + 1;
+        let own = self.tiles[index].layer;
+        let mut stuck = 0;
+        for map in &mut self.maps {
+            for kind in LayerKind::ALL.into_iter().filter(|&k| k != own) {
+                let down = (own as u8) < kind as u8;
+                for y in 0..map.height() {
+                    for x in 0..map.width() {
+                        let at = Pos::new(x, y);
+                        if map.layer(kind).get(at) != Some(number) {
+                            continue;
+                        }
+                        if map.layer(own).get(at) == Some(0) || (down && opaque) {
+                            map.layer_mut(own).set(at, number);
+                            map.layer_mut(kind).set(at, 0);
+                        } else {
+                            stuck += 1;
+                        }
+                    }
+                }
+            }
+        }
+        stuck
+    }
+
     /// The tileset cells no tile uses.
     pub fn unused_cells(&self, cells: usize) -> Vec<u16> {
         let used: HashSet<u16> = self.tiles.iter().flat_map(|t| t.cells.clone()).collect();
@@ -712,13 +822,31 @@ mod tests {
         );
     }
 
+    /// A map with this ground and nothing on the other layers.
+    fn map(rows: &[&str]) -> MapDef {
+        let ground = grid(rows);
+        let empty = Grid::filled(ground.width(), ground.height(), 0);
+        MapDef {
+            id: Id(1),
+            name: "Map".into(),
+            ground,
+            decoration: empty.clone(),
+            above: empty,
+            music: None,
+            things: Vec::new(),
+            swaps: Vec::new(),
+        }
+    }
+
+    const ALL_GROUND: [LayerKind; 9] = [LayerKind::Ground; 9];
+
     #[test]
     fn flood_fills_the_same_tiles_around() {
-        let mut g = grid(&["1121", "1221", "1111"]);
-        g.flood(Pos::new(0, 0), &Brush::one(3));
-        assert_eq!(g, grid(&["3323", "3223", "3333"]));
-        g.flood(Pos::new(2, 0), &Brush::one(3));
-        assert_eq!(g, grid(&["3333", "3333", "3333"]));
+        let mut m = map(&["1121", "1221", "1111"]);
+        m.flood(&ALL_GROUND, Pos::new(0, 0), &Brush::one(3));
+        assert_eq!(m.ground, grid(&["3323", "3223", "3333"]));
+        m.flood(&ALL_GROUND, Pos::new(2, 0), &Brush::one(3));
+        assert_eq!(m.ground, grid(&["3333", "3333", "3333"]));
     }
 
     #[test]
@@ -729,24 +857,117 @@ mod tests {
             height: 2,
             tiles: vec![1, 2, 3, 0],
         };
-        let mut g = grid(&["9999", "9999", "9999"]);
-        g.stamp(Pos::new(1, 1), &block);
-        assert_eq!(g, grid(&["9999", "9129", "9399"]));
-        let mut g = grid(&["9999", "9999", "9999"]);
-        g.rect(Pos::new(3, 2), Pos::new(0, 0), &block);
-        assert_eq!(g, grid(&["1212", "3939", "1212"]));
-        let mut g = grid(&["5555", "5555", "7777"]);
-        g.flood(Pos::new(1, 0), &block);
-        assert_eq!(g, grid(&["2121", "5353", "7777"]));
+        let mut m = map(&["9999", "9999", "9999"]);
+        m.stamp(&ALL_GROUND, Pos::new(1, 1), &block);
+        assert_eq!(m.ground, grid(&["9999", "9129", "9399"]));
+        let mut m = map(&["9999", "9999", "9999"]);
+        m.rect(&ALL_GROUND, Pos::new(3, 2), Pos::new(0, 0), &block);
+        assert_eq!(m.ground, grid(&["1212", "3939", "1212"]));
+        let mut m = map(&["5555", "5555", "7777"]);
+        m.flood(&ALL_GROUND, Pos::new(1, 0), &block);
+        assert_eq!(m.ground, grid(&["2121", "5353", "7777"]));
         // Dragging lays blocks side by side from where the stroke began
         assert_eq!(block.snap(Pos::new(3, 3), Pos::new(6, 2)), Pos::new(5, 1));
         assert_eq!(block.snap(Pos::new(1, 1), Pos::new(0, 0)), Pos::new(0, 0));
     }
 
     #[test]
+    fn each_tile_goes_on_its_own_layer() {
+        use LayerKind::*;
+        // 1 is ground, 2 a trunk, 3 a treetop
+        let layers = [Ground, Decoration, Above];
+        let tree = Brush {
+            width: 1,
+            height: 2,
+            tiles: vec![3, 2],
+        };
+        let mut m = map(&["111", "111"]);
+        m.stamp(&layers, Pos::new(1, 0), &tree);
+        assert_eq!(m.ground, grid(&["111", "111"]));
+        assert_eq!(m.decoration, grid(&["000", "020"]));
+        assert_eq!(m.above, grid(&["030", "000"]));
+        assert_eq!(m.top_layer(Pos::new(1, 0), [false; 3]), Some(Above));
+        assert_eq!(
+            m.top_layer(Pos::new(1, 0), [false, true, true]),
+            Some(Ground)
+        );
+        assert_eq!(m.top_layer(Pos::new(0, 0), [false; 3]), Some(Ground));
+        assert_eq!(m.top_layer(Pos::new(0, 0), [true, false, false]), None);
+        // Filling with trunks: the empty decoration around, the ground stays
+        m.flood(&layers, Pos::new(0, 0), &Brush::one(2));
+        assert_eq!(m.decoration, grid(&["222", "222"]));
+        assert_eq!(m.ground, grid(&["111", "111"]));
+    }
+
+    #[test]
+    fn layers_are_guessed_and_uses_moved() {
+        use LayerKind::*;
+        let (mut project, _) = crate::export::starter();
+        let names: Vec<(&str, LayerKind)> = project
+            .tiles
+            .iter()
+            .map(|t| (t.name.as_str(), t.layer))
+            .collect();
+        for expected in [
+            ("Grass", Ground),
+            ("Flowers", Decoration),
+            ("Treetop", Above),
+        ] {
+            assert!(names.contains(&expected), "{expected:?} in {names:?}");
+        }
+        // Unused: by the picture
+        let mut see_through = vec![0u16; 256];
+        see_through[0] = adventure_format::TRANSPARENT;
+        let unused = project.tiles.len();
+        project.tiles.push(project.tiles[0].clone());
+        assert_eq!(project.guess_layer(unused, Some(&see_through)), Decoration);
+        assert_eq!(project.guess_layer(unused, Some(&[0; 256])), Ground);
+
+        // Grass painted onto the decoration by mistake, once over path and once over nothing
+        let grass = project
+            .tiles
+            .iter()
+            .position(|t| t.name == "Grass")
+            .unwrap();
+        let number = grass as u16 + 1;
+        let m = &mut project.maps[0];
+        let (a, b) = (Pos::new(0, 0), Pos::new(1, 0));
+        m.decoration.set(a, number);
+        m.decoration.set(b, number);
+        m.ground.set(a, 2);
+        m.ground.set(b, 0);
+        // Grass covers the whole cell, so it may replace the path it lay over
+        assert_eq!(project.move_to_own_layer(grass, false), 1);
+        assert_eq!(project.maps[0].ground.get(b), Some(number));
+        assert_eq!(project.move_to_own_layer(grass, true), 0);
+        let m = &project.maps[0];
+        assert_eq!(
+            (m.ground.get(a), m.decoration.get(a)),
+            (Some(number), Some(0))
+        );
+        assert_eq!(project.layer_uses(grass)[1..], [0, 0]);
+    }
+
+    #[test]
+    fn projects_from_before_layers_guess_them_on_open() {
+        let dir = std::env::temp_dir().join(format!("adventure-layers-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let project = crate::export::write_starter(&dir).unwrap();
+        let mut json = serde_json::to_value(&project).unwrap();
+        for tile in json["tiles"].as_array_mut().unwrap() {
+            tile.as_object_mut().unwrap().remove("layer");
+        }
+        fs::write(dir.join(FILE), json.to_string()).unwrap();
+        let loaded = Project::load(&dir).unwrap();
+        assert_eq!(loaded.tile_layers(), project.tile_layers());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn rect_and_resize() {
-        let mut g = grid(&["000", "000"]);
-        g.rect(Pos::new(2, 1), Pos::new(1, 0), &Brush::one(5));
+        let mut m = map(&["000", "000"]);
+        m.rect(&ALL_GROUND, Pos::new(2, 1), Pos::new(1, 0), &Brush::one(5));
+        let mut g = m.ground;
         assert_eq!(g, grid(&["055", "055"]));
         g.resize(4, 3, 1);
         assert_eq!(g, grid(&["0551", "0551", "1111"]));

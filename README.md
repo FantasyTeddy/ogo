@@ -104,14 +104,24 @@ time (where notes sound together, the melody keeps the top one and the bass the 
 editor suggests them, drums left out, and under "Parts" they and their sound can be changed and
 listened to any time. The sample village's songs are MIDI files there too, so they can be changed
 in any music program.
-The maps are tabs above the map; the layer bar under it picks which of the three layers to paint
-("Ground › Decoration › Above", the last over the player, like treetops), and the layers above it
-turn see-through. The
+The maps are tabs above the map. A map has three layers, Ground, Decoration and Above (drawn over
+the player, like treetops), and each tile knows its own: painting puts it there. A new tile goes on
+Ground when its picture fills the cell and on Decoration when something shows through; a project
+from before tiles had layers guesses them from where its maps use them. In the layer bar under the
+map the layers being painted on are lit: the selected tile's (or a block's), or the one clicked,
+which painting and erasing then keep to until another tile is chosen. The eye in each layer makes
+it faint (a closed eye), turns it off (crossed out) and shows it again. A faint layer is
+see-through, so the others stand out; one turned off isn't drawn (without the ground, a checkerboard
+shows what's empty) and erasing and picking up pass it by. The palette shows the tiles of faint and
+hidden layers darker. Otherwise erasing and picking up take the top tile shown, and an eraser stroke
+stays on the layer it began on; painting on a layer that's off turns it on again. The
 palette shows the tiles as they lie in `tiles.png` (drag its edge to make it wider); dragging across
-it picks a block, like a whole house or a patch of grass, which the tools then paint whole. Paint
-with pencil, fill, box and eraser, above the map; right-click picks up a tile. The right panel shows the tile
-selected in the palette (solid, animated, a sound when stepped on): a kind of tile, so changes
-apply wherever it's used. A map's settings (name, size, music) open from its tab (double-click,
+it picks a block, like a whole house or a patch of grass, which the tools then paint whole, each tile
+on its layer. Paint with pencil, fill, box and eraser, above the map; right-click picks up a tile.
+The right panel shows the tile selected in the palette (its layer, solid, animated, a sound when
+stepped on): a kind of tile, so changes apply wherever it's used. Where it lies on other layers
+than its own, **Move them** puts it on its own. Solid tiles block on Ground and Decoration; above
+the player nothing does. A map's settings (name, size, music) open from its tab (double-click,
 right-click or "⋯"), the world's (title, tileset, characters) from its name. The **Objects** tab
 places characters, items and invisible spots (e.g. in front of a door), with its own tools: Select
 (click, drag to move), Place (click an empty cell), Remove, and Start (where the player starts).

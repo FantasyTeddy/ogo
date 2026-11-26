@@ -305,6 +305,7 @@ pub fn starter() -> (Project, Assets) {
                 .collect();
             TileDef {
                 name: name(&TILE_NAMES, i, "Tile"),
+                layer: adventure_format::LayerKind::Ground,
                 cells,
                 frame_ms: tile.frame_ms,
                 solid: tile.solid,
@@ -378,7 +379,7 @@ pub fn starter() -> (Project, Assets) {
         .chain(world.flags.iter().copied());
     let next_id = ids.map(|id| id.0).max().unwrap_or(0);
 
-    let project = Project {
+    let mut project = Project {
         version: project::VERSION,
         uid: project::new_uid(),
         title: "My world".into(),
@@ -432,6 +433,11 @@ pub fn starter() -> (Project, Assets) {
         maps,
         next_id,
     };
+    // Each tile on the layer the sample's maps use it on
+    for i in 0..project.tiles.len() {
+        let pixels = &world.tiles[i].frames[0].0;
+        project.tiles[i].layer = project.guess_layer(i, Some(pixels));
+    }
     let assets = Assets {
         tileset: Ok(tileset),
         sprites: sprite_images,

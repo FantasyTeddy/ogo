@@ -96,18 +96,24 @@ const TILE_TOOLS: [(Tool, &str, &str, &str); 4] = [
         Tool::Pencil,
         PENCIL,
         "Pencil",
-        "Paint the selected tile. Right-click picks a tile up",
+        "Paint the selected tile on its layer. Right-click picks a tile up",
     ),
-    (Tool::Fill, FILL, "Fill", "Fill the area of same tiles"),
+    (
+        Tool::Fill,
+        FILL,
+        "Fill",
+        "Fill the area of same tiles on the tile's layer",
+    ),
     (Tool::Box, BOX, "Box", "Drag to fill a rectangle"),
     (
         Tool::Eraser,
         ERASER,
         "Eraser",
-        "Empty cells of the layer you're painting on",
+        "Remove the top tile, or the one on the layer clicked below; a drag keeps to one layer",
     ),
 ];
 
+/// The layers, as the layer bar and a tile's settings name them.
 const LAYERS: [(LayerKind, &str, &str); 3] = [
     (
         LayerKind::Ground,
@@ -122,9 +128,13 @@ const LAYERS: [(LayerKind, &str, &str); 3] = [
     (
         LayerKind::Above,
         "Above",
-        "Treetops, roofs: drawn over everyone, the player too",
+        "Treetops, roofs: drawn over everyone, the player too; never in the way",
     ),
 ];
+
+fn layer_name(kind: LayerKind) -> &'static str {
+    LAYERS[kind as usize].1
+}
 
 /// What the left panel offers and clicking the map does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,23 +189,48 @@ enum Pending {
 /// How a map is drawn into a picture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum View {
-    /// For painting: the layers above this one see-through
-    Painting(LayerKind),
+    /// For painting: how each layer shows
+    Painting([Show; 3]),
     /// Everything, for the map's tab
     Whole,
-    /// One layer alone, for the layer bar
-    Layer(LayerKind),
     /// For placing objects: the tiles darker, the objects bright
     Objects,
+}
+
+/// How a layer shows while painting: the eye in the layer bar goes through these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Show {
+    Shown,
+    /// See-through, so the others stand out
+    Faint,
+    /// Not drawn, not erased, not picked up from
+    Off,
+}
+
+impl Show {
+    fn next(self) -> Show {
+        match self {
+            Show::Shown => Show::Faint,
+            Show::Faint => Show::Off,
+            Show::Off => Show::Shown,
+        }
+    }
 }
 
 impl View {
     fn code(self) -> u8 {
         match self {
-            View::Painting(layer) => layer as u8,
-            View::Whole => 10,
-            View::Layer(layer) => 20 + layer as u8,
-            View::Objects => 30,
+            // Two bits a layer: 0 to 42
+            View::Painting(shows) => (0..3).map(|i| (shows[i] as u8) << (2 * i)).sum(),
+            View::Whole => 100,
+            View::Objects => 101,
+        }
+    }
+
+    fn show(self, kind: LayerKind) -> Show {
+        match self {
+            View::Painting(shows) => shows[kind as usize],
+            _ => Show::Shown,
         }
     }
 }
@@ -244,12 +279,14 @@ struct Toast {
 /// How tall the segments in the bars around the map are.
 const BAR_HEIGHT: f32 = 30.0;
 
-/// A rounded strip that holds segments, like the tools or the zoom.
+/// A rounded strip that holds segments, like the tools or the zoom: as round as the segments, 3
+/// further out, so the corners run alongside each other.
 fn pill() -> Frame {
+    const MARGIN: u8 = 3;
     Frame::new()
         .fill(PANEL2)
-        .corner_radius(PILL)
-        .inner_margin(Margin::same(3))
+        .corner_radius(PILL + MARGIN)
+        .inner_margin(Margin::same(MARGIN as i8))
 }
 
 /// A block picked from the tileset: its corners there (column, row), and what it paints.
@@ -262,7 +299,13 @@ struct Block {
 struct Editor {
     open: Option<Open>,
     map: usize,
-    layer: LayerKind,
+    /// The layers turned off, by layer: not drawn, not erased, not picked up from
+    shows: [Show; 3],
+    /// The layer clicked in the layer bar, which painting and erasing keep to until another tile
+    /// is chosen; None: each tile goes on its own
+    layer: Option<LayerKind>,
+    /// The layer the stroke being erased keeps to
+    erasing: Option<LayerKind>,
     tool: Tool,
     tile: usize,
     /// A block of tiles picked from the tileset, painted instead of the one tile
@@ -324,7 +367,9 @@ impl Editor {
         let mut editor = Editor {
             open: None,
             map: 0,
-            layer: LayerKind::Ground,
+            shows: [Show::Shown; 3],
+            layer: None,
+            erasing: None,
             tool: Tool::Pencil,
             tile: 0,
             block: None,
@@ -370,7 +415,7 @@ impl Editor {
     /// What decides how the window looks, to notice when a frame changed it.
     fn view(&self) -> impl PartialEq {
         (
-            (self.map, self.tile, self.layer as u8, self.tool as u8),
+            (self.map, self.tile, self.shows, self.layer, self.tool as u8),
             (self.dialog, self.zoom as u8, self.grid, self.play.is_some()),
             (self.mode, self.thing, self.stamp, self.picking),
             (
@@ -416,6 +461,7 @@ impl Editor {
         self.map = project.map_index(project.start.map).unwrap_or(0);
         self.tile = 0;
         self.block = None;
+        self.layer = None;
         self.dialog = None;
         self.cursor = None;
         self.size = None;
@@ -631,13 +677,15 @@ impl Editor {
             .map_or(stem.clone(), |c| c.to_uppercase() + &stem[1..]);
         let mut added = 0;
         for cell in cells {
-            let empty = both
-                .cell(cell as usize)
+            let pixels = both.cell(cell as usize);
+            let empty = pixels
+                .as_ref()
                 .is_none_or(|pixels| pixels.iter().all(|&p| p == TRANSPARENT));
             if !empty {
                 added += 1;
                 open.project.tiles.push(TileDef {
                     name: format!("{stem} {added}"),
+                    layer: project::layer_for(pixels.as_deref()),
                     cells: vec![cell],
                     frame_ms: 300,
                     solid: false,
@@ -1286,28 +1334,24 @@ impl Editor {
         let mut new_tile = false;
         let mut mode = self.mode;
         ui.horizontal(|ui| {
-            Frame::new()
-                .fill(PANEL2)
-                .corner_radius(PILL)
-                .inner_margin(Margin::same(3))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        for (m, label) in [(Mode::Tiles, "Tiles"), (Mode::Things, "Objects")] {
-                            let on = mode == m;
-                            let look = Frame::new()
-                                .fill(if on { SELECT } else { Color32::TRANSPARENT })
-                                .corner_radius(12)
-                                .inner_margin(Margin::symmetric(12, 3));
-                            let tab = surface(ui, look, (!on).then_some(HOVER), |ui| {
-                                ui.label(strong(label).color(if on { TEXT } else { MUTED }));
-                            });
-                            if tab.clicked() {
-                                mode = m;
-                            }
+            pill().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for (m, label) in [(Mode::Tiles, "Tiles"), (Mode::Things, "Objects")] {
+                        let on = mode == m;
+                        let look = Frame::new()
+                            .fill(if on { SELECT } else { Color32::TRANSPARENT })
+                            .corner_radius(12)
+                            .inner_margin(Margin::symmetric(12, 3));
+                        let tab = surface(ui, look, (!on).then_some(HOVER), |ui| {
+                            ui.label(strong(label).color(if on { TEXT } else { MUTED }));
+                        });
+                        if tab.clicked() {
+                            mode = m;
                         }
-                    });
+                    }
                 });
+            });
             if mode == Mode::Tiles {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
@@ -1357,8 +1401,10 @@ impl Editor {
             })
             .collect();
         let add = |project: &mut Project, cell: u16| {
+            let pixels = picture.and_then(|t| t.cell(cell as usize));
             project.tiles.push(TileDef {
                 name: format!("Tile {}", project.tiles.len() + 1),
+                layer: project::layer_for(pixels.as_deref()),
                 cells: vec![cell],
                 frame_ms: 300,
                 solid: false,
@@ -1369,6 +1415,7 @@ impl Editor {
             add(&mut open.project, unused.first().copied().unwrap_or(0));
             self.tile = open.project.tiles.len() - 1;
             self.block = None;
+            self.layer = None;
         }
         // Each tile where its picture is in the tileset, so shapes drawn across several cells
         // stay together; tiles sharing a picture with another come after it
@@ -1417,14 +1464,19 @@ impl Editor {
                 ),
             );
             painter.image(tileset.id(), rect, whole, Color32::from_white_alpha(70));
+            // The tiles of faint layers darker, of those turned off darker still
+            let shows = self.shows;
+            let tint = |kind: LayerKind| match shows[kind as usize] {
+                Show::Shown => Color32::WHITE,
+                Show::Faint => Color32::from_gray(130),
+                Show::Off => Color32::from_gray(60),
+            };
             for (cell, tile) in at_cell.iter().enumerate() {
-                if tile.is_some() {
-                    painter.image(
-                        tileset.id(),
-                        cell_rect((cell % columns, cell / columns)),
-                        cell_uv(size, cell as u16),
-                        Color32::WHITE,
-                    );
+                if let Some(i) = *tile {
+                    let r = cell_rect((cell % columns, cell / columns));
+                    painter.rect_filled(r, 0, PANEL2);
+                    let colour = tint(open.project.tiles[i].layer);
+                    painter.image(tileset.id(), r, cell_uv(size, cell as u16), colour);
                 }
             }
             let hover = response.hover_pos().map(cell_at);
@@ -1460,7 +1512,10 @@ impl Editor {
             let hint = hover.and_then(|(x, y)| {
                 let cell = y * columns + x;
                 match at_cell[cell] {
-                    Some(i) => Some(open.project.tiles[i].name.clone()),
+                    Some(i) => {
+                        let tile = &open.project.tiles[i];
+                        Some(format!("{} · {}", tile.name, layer_name(tile.layer)))
+                    }
                     None if unused.contains(&(cell as u16)) => {
                         Some("Not a tile yet: click to use it".to_string())
                     }
@@ -1481,17 +1536,19 @@ impl Editor {
                             ui.allocate_exact_size(vec2(side, side), Sense::click());
                         egui::Image::from_texture(SizedTexture::new(tileset.id(), rect.size()))
                             .uv(cell_uv(size, tile.cells.first().copied().unwrap_or(0)))
+                            .tint(tint(tile.layer))
                             .paint_at(ui, rect);
                         if i == self.tile && self.block.is_none() {
                             ring(ui, rect, 4);
                         }
                         if response
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .on_hover_text(&tile.name)
+                            .on_hover_text(format!("{} · {}", tile.name, layer_name(tile.layer)))
                             .clicked()
                         {
                             self.tile = i;
                             self.block = None;
+                            self.layer = None;
                         }
                     }
                 });
@@ -1527,6 +1584,7 @@ impl Editor {
             return;
         };
         self.tile = first as usize - 1;
+        self.layer = None;
         self.block = (tiles.len() > 1).then(|| Block {
             from: (x0, y0),
             to: (x1, y1),
@@ -1542,6 +1600,9 @@ impl Editor {
     }
 
     fn inspector(&mut self, ui: &mut Ui) {
+        let mut move_them = false;
+        // After moving: how many uses stayed on other layers
+        let mut moved = None;
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
@@ -1555,6 +1616,12 @@ impl Editor {
                     open.project.sounds.iter().map(|s| s.name.clone()).collect();
                 let tile_count = open.project.tiles.len();
                 let (uses, on_maps) = usage(&open.project, self.tile as u16 + 1);
+                let by_layer = open.project.layer_uses(self.tile);
+                let opaque = open.project.tiles.get(self.tile).is_some_and(|tile| {
+                    let cell = tile.cells.first().copied().unwrap_or(0) as usize;
+                    let pixels = open.assets.tileset.as_ref().ok().and_then(|t| t.cell(cell));
+                    pixels.is_some_and(|p| !p.contains(&TRANSPARENT))
+                });
                 header(ui, "Tile", "a kind of tile, wherever it's used");
                 let Some(tile) = open.project.tiles.get_mut(self.tile) else {
                     ui.label(muted("No tile selected."));
@@ -1583,6 +1650,38 @@ impl Editor {
                 ui.add_space(2.0);
                 ui.label(muted(used).small());
                 ui.add_space(8.0);
+                field(ui, "Layer · where painting puts it", |ui| {
+                    layer_choice(ui, &mut tile.layer);
+                });
+                let elsewhere: usize = LayerKind::ALL
+                    .iter()
+                    .filter(|&&k| k != tile.layer)
+                    .map(|&k| by_layer[k as usize])
+                    .sum();
+                if elsewhere > 0 {
+                    ui.horizontal(|ui| {
+                        let text = match elsewhere {
+                            1 => "1 use on another layer".to_string(),
+                            n => format!("{n} uses on other layers"),
+                        };
+                        ui.label(
+                            RichText::new(format!("{WARNING} {text}"))
+                                .color(WARN)
+                                .small(),
+                        );
+                        if ui
+                            .add(quiet(RichText::new("Move them").small()))
+                            .on_hover_text(format!(
+                                "Onto {}, where it's empty or the tile covered it anyway",
+                                layer_name(tile.layer)
+                            ))
+                            .clicked()
+                        {
+                            move_them = true;
+                        }
+                    });
+                }
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
@@ -1701,8 +1800,18 @@ impl Editor {
                     open.project.remove_tile(self.tile);
                     self.tile = self.tile.min(open.project.tiles.len() - 1);
                     self.block = None;
+                    self.layer = None;
+                } else if move_them {
+                    moved = Some(open.project.move_to_own_layer(self.tile, opaque));
                 }
             });
+        match moved {
+            Some(0) => self.say("Moved onto the tile's layer"),
+            Some(n) => self.say(format!(
+                "Moved; {n} stay where the tile's layer has something else"
+            )),
+            None => {}
+        }
     }
 
     fn delete_map(&mut self, index: usize) {
@@ -2093,7 +2202,7 @@ impl Editor {
                                         things::card(ui, width, |ui| {
                                             let (rect, response) =
                                                 ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
-                                            ui.painter().rect_filled(rect, 10, PANEL);
+                                            ui.painter().rect_filled(rect, things::IN_CARD, PANEL);
                                             match (&problem, open.sprite_pictures.get(i)) {
                                                 (None, Some(Some((texture, uv)))) => {
                                                     things::picture(ui, texture, *uv, rect.shrink(4.0));
@@ -2447,51 +2556,120 @@ impl Editor {
         self.sheet = sheet.response.rect;
     }
 
+    /// The three layers: clicking one paints on it (until another tile is chosen), the lit ones are
+    /// those painted on; the eye before each makes it faint, turns it off and on again.
     fn layer_bar(&mut self, ui: &mut Ui) {
-        let ctx = ui.ctx().clone();
-        let Some(open) = &mut self.open else { return };
-        let mut chosen = None;
+        let Some(open) = &self.open else { return };
+        let tiles = &open.project.tiles;
+        // The selected tile's own layers: one, or a block's
+        let own: Vec<LayerKind> = match &self.block {
+            Some(block) => block
+                .brush
+                .tiles
+                .iter()
+                .filter_map(|&n| Some(tiles.get(n.checked_sub(1)? as usize)?.layer))
+                .collect(),
+            None => tiles.get(self.tile).map(|t| t.layer).into_iter().collect(),
+        };
+        let painted = self.layer.map_or_else(|| own.clone(), |kind| vec![kind]);
+        let (mut eye_clicked, mut chosen) = (None, None);
         pill().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.set_height(BAR_HEIGHT);
                 ui.spacing_mut().item_spacing.x = 2.0;
-                for (n, (layer, label, hint)) in LAYERS.into_iter().enumerate() {
+                for (n, (kind, label, hint)) in LAYERS.into_iter().enumerate() {
                     if n > 0 {
+                        ui.add_space(2.0);
                         ui.label(RichText::new(CARET_RIGHT).color(MUTED).size(13.0));
+                        ui.add_space(2.0);
                     }
-                    let on = self.layer == layer;
-                    let preview = map_picture(open, self.map, View::Layer(layer), &ctx);
+                    let show = self.shows[kind as usize];
+                    let target = painted.contains(&kind);
+                    let (eye, next) = match show {
+                        Show::Shown => (EYE, "Make it faint"),
+                        Show::Faint => (EYE_CLOSED, "Turn it off"),
+                        Show::Off => (EYE_SLASH, "Show it again"),
+                    };
+                    // Faint or off, greyed out; on the lit chip a see-through white, which grey
+                    // would vanish into
+                    let colour = match (show, target) {
+                        (Show::Shown, _) => TEXT,
+                        (_, true) => Color32::from_white_alpha(140),
+                        (_, false) => MUTED,
+                    };
+                    // A chip with the eye in it: a click on the eye changes how the layer
+                    // shows, one on the rest of the chip chooses the layer
                     let look = Frame::new()
-                        .fill(if on { SELECT } else { Color32::TRANSPARENT })
+                        .fill(if target { SELECT } else { Color32::TRANSPARENT })
                         .corner_radius(15)
                         .inner_margin(Margin {
-                            left: 5,
+                            left: 4,
                             right: 12,
                             top: 0,
                             bottom: 0,
                         });
-                    let hover = (!on).then_some(HOVER);
-                    let segment = surface(ui, look, hover, |ui| {
+                    let mut eye_rect = Rect::NOTHING;
+                    let segment = surface(ui, look, (!target).then_some(HOVER), |ui| {
                         ui.horizontal(|ui| {
                             ui.set_height(BAR_HEIGHT);
-                            ui.spacing_mut().item_spacing.x = 6.0;
-                            let (rect, _) =
-                                ui.allocate_exact_size(vec2(30.0, 20.0), Sense::hover());
-                            egui::Image::from_texture(SizedTexture::new(preview.id(), rect.size()))
-                                .uv(Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)))
-                                .corner_radius(4)
-                                .paint_at(ui, rect);
-                            ui.label(RichText::new(label).color(if on { TEXT } else { MUTED }));
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            // A round spot behind the eye under the mouse
+                            let (spot, _) =
+                                ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+                            eye_rect = spot;
+                            if ui.rect_contains_pointer(spot) {
+                                let shade = Color32::from_white_alpha(if target { 50 } else { 25 });
+                                ui.painter().circle_filled(spot.center(), 12.0, shade);
+                            }
+                            ui.painter().text(
+                                spot.center(),
+                                Align2::CENTER_CENTER,
+                                eye,
+                                egui::FontId::proportional(16.0),
+                                colour,
+                            );
+                            let name = RichText::new(label).color(colour);
+                            ui.label(if show == Show::Off {
+                                name.strikethrough()
+                            } else {
+                                name
+                            });
                         });
                     });
-                    if segment.on_hover_text(hint).clicked() {
-                        chosen = Some(layer);
+                    let on_eye =
+                        |pos: Option<egui::Pos2>| pos.is_some_and(|p| eye_rect.contains(p));
+                    if on_eye(segment.hover_pos()) {
+                        if segment.on_hover_text(next).clicked() {
+                            eye_clicked = Some(kind);
+                        }
+                        continue;
+                    }
+                    let tip = match (target, self.layer, own.as_slice()) {
+                        (true, None, _) => format!("{hint}\nThe selected tile goes here"),
+                        (true, Some(_), &[mine]) if mine != kind => format!(
+                            "{hint}\nPainting here instead of on {}, until you choose a tile",
+                            layer_name(mine)
+                        ),
+                        (true, Some(_), _) => format!("{hint}\nPainting and erasing here"),
+                        (false, _, _) => format!("{hint}\nClick to paint and erase here"),
+                    };
+                    if segment.on_hover_text(tip).clicked() {
+                        chosen = Some(kind);
                     }
                 }
             });
         });
-        if let Some(layer) = chosen {
-            self.layer = layer;
+        if let Some(kind) = eye_clicked {
+            let show = &mut self.shows[kind as usize];
+            *show = show.next();
+        }
+        // The tile's own layer again is the same as following the tile
+        if let Some(kind) = chosen {
+            self.layer = (own != [kind]).then_some(kind);
+            let show = &mut self.shows[kind as usize];
+            if *show == Show::Off {
+                *show = Show::Shown;
+            }
         }
     }
 
@@ -2499,7 +2677,7 @@ impl Editor {
         let ctx = ui.ctx().clone();
         let Some(open) = &mut self.open else { return };
         let view = match self.mode {
-            Mode::Tiles => View::Painting(self.layer),
+            Mode::Tiles => View::Painting(self.shows),
             Mode::Things => View::Objects,
         };
         let texture = map_picture(open, self.map, view, &ctx);
@@ -2819,6 +2997,7 @@ impl Editor {
         let Some(open) = &mut self.open else { return };
         if !input.painting {
             self.stroke_from = None;
+            self.erasing = None;
         }
         let Some(at) = input.cell else {
             if input.drag_stopped {
@@ -2834,36 +3013,72 @@ impl Editor {
         if input.clicked || input.drag_started {
             self.cursor = Some(at);
         }
+        // Each tile on its own layer, or all on the one clicked in the layer bar
+        let layers = match self.layer {
+            Some(kind) => vec![kind; open.project.tiles.len()],
+            None => open.project.tile_layers(),
+        };
         let map = &mut open.project.maps[self.map];
+        // Picking up takes the top tile that's shown, faint or not; erasing too, unless a layer
+        // was clicked
+        let off = self.shows.map(|show| show == Show::Off);
+        let top = map.top_layer(at, off);
+        // Painting or erasing on a layer that's turned off turns it on, so what changes shows
+        let changes: Vec<LayerKind> = match self.tool {
+            Tool::Pencil | Tool::Fill | Tool::Box if input.painting && has_tiles => brush
+                .tiles
+                .iter()
+                .filter_map(|&n| layers.get(n.checked_sub(1)? as usize).copied())
+                .collect(),
+            Tool::Eraser if input.painting => self.layer.into_iter().collect(),
+            _ => Vec::new(),
+        };
+        for kind in changes {
+            let show = &mut self.shows[kind as usize];
+            if *show == Show::Off {
+                *show = Show::Shown;
+            }
+        }
         if input.picked {
-            if let Some(n) = map.layer(self.layer).get(at).filter(|&n| n > 0) {
+            if let Some(n) = top
+                .and_then(|kind| map.layer(kind).get(at))
+                .filter(|&n| n > 0)
+            {
                 self.tile = n as usize - 1;
                 self.block = None;
+                self.layer = None;
                 if self.tool == Tool::Eraser {
                     self.tool = Tool::Pencil;
                 }
             }
             return;
         }
-        let layer = map.layer_mut(self.layer);
         match self.tool {
             Tool::Pencil if input.painting && has_tiles => {
                 // A block goes down whole, side by side with the others of the stroke
                 let from = *self.stroke_from.get_or_insert(at);
-                layer.stamp(brush.snap(from, at), &brush);
+                map.stamp(&layers, brush.snap(from, at), &brush);
             }
-            Tool::Eraser if input.painting => layer.set(at, 0),
-            Tool::Fill if input.clicked && has_tiles => layer.flood(at, &brush),
+            Tool::Eraser if input.painting => {
+                // The whole stroke on the layer it began on
+                if self.erasing.is_none() {
+                    self.erasing = self.layer.or(top);
+                }
+                if let Some(kind) = self.erasing {
+                    map.layer_mut(kind).set(at, 0);
+                }
+            }
+            Tool::Fill if input.clicked && has_tiles => map.flood(&layers, at, &brush),
             Tool::Box => {
                 if input.drag_started {
                     self.rect_from = Some(at);
                 }
                 if input.drag_stopped {
                     if let Some(from) = self.rect_from.take() {
-                        layer.rect(from, at, &brush);
+                        map.rect(&layers, from, at, &brush);
                     }
                 } else if input.clicked {
-                    layer.stamp(at, &brush);
+                    map.stamp(&layers, at, &brush);
                 }
             }
             _ => {}
@@ -3268,6 +3483,28 @@ fn ensure_sprites(open: &mut Open, ctx: &egui::Context) {
         .collect();
 }
 
+/// The three layers side by side in a pill, the chosen one lit.
+fn layer_choice(ui: &mut Ui, layer: &mut LayerKind) {
+    pill().show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (kind, label, hint) in LAYERS {
+                let on = *layer == kind;
+                let look = Frame::new()
+                    .fill(if on { SELECT } else { Color32::TRANSPARENT })
+                    .corner_radius(12)
+                    .inner_margin(Margin::symmetric(10, 3));
+                let segment = surface(ui, look, (!on).then_some(HOVER), |ui| {
+                    ui.label(RichText::new(label).color(if on { TEXT } else { MUTED }));
+                });
+                if segment.on_hover_text(hint).clicked() {
+                    *layer = kind;
+                }
+            }
+        });
+    });
+}
+
 /// How often tile `number` is used on all maps, and on how many maps.
 fn usage(project: &Project, number: u16) -> (usize, usize) {
     let counts = project.maps.iter().map(|map| {
@@ -3331,8 +3568,9 @@ fn map_picture(open: &mut Open, index: usize, view: View, ctx: &egui::Context) -
     }
 
     let (w, h) = (map.width() as usize * TILE, map.height() as usize * TILE);
+    // Without the ground, a checkerboard shows what's empty
     let mut out: Vec<[u8; 4]> = match view {
-        View::Layer(_) => (0..w * h)
+        _ if view.show(LayerKind::Ground) == Show::Off => (0..w * h)
             .map(|i| {
                 if (i % w / 4 + i / w / 4) % 2 == 0 {
                     [52, 52, 56, 255]
@@ -3369,24 +3607,26 @@ fn map_picture(open: &mut Open, index: usize, view: View, ctx: &egui::Context) -
             }
         }
     };
-    // While painting, the layers above see-through, so what's being painted shows
     let alpha = |kind: LayerKind| match view {
-        View::Painting(active) if kind as u8 > active as u8 => Some(0.3),
-        View::Layer(only) if kind != only => None,
-        View::Objects if kind == LayerKind::Above => Some(0.35),
-        _ => Some(1.0),
+        View::Objects if kind == LayerKind::Above => 0.35,
+        _ if view.show(kind) == Show::Faint => 0.25,
+        _ => 1.0,
     };
     for kind in LayerKind::ALL {
-        let Some(a) = alpha(kind) else { continue };
-        for (y, row) in map.layer(kind).0.iter().enumerate() {
-            for (x, &n) in row.iter().enumerate() {
-                if let Some(Some(pixels)) = n.checked_sub(1).and_then(|t| pictures.get(t as usize))
-                {
-                    draw(pixels, x * TILE, y * TILE, a, dim);
+        let a = alpha(kind);
+        if view.show(kind) != Show::Off {
+            for (y, row) in map.layer(kind).0.iter().enumerate() {
+                for (x, &n) in row.iter().enumerate() {
+                    if let Some(Some(pixels)) =
+                        n.checked_sub(1).and_then(|t| pictures.get(t as usize))
+                    {
+                        draw(pixels, x * TILE, y * TILE, a, dim);
+                    }
                 }
             }
         }
-        if kind == LayerKind::Decoration && !matches!(view, View::Layer(_)) {
+        // The objects stand with the decoration, also while it's turned off
+        if kind == LayerKind::Decoration {
             for thing in &map.things {
                 let picture = thing.thing.look.and_then(|look| {
                     open.assets
@@ -3455,7 +3695,7 @@ fn listen_button(ui: &mut Ui, icon: &str, broken: bool) -> egui::Response {
     } else {
         PANEL
     };
-    ui.painter().rect_filled(rect, 10, fill);
+    ui.painter().rect_filled(rect, things::IN_CARD, fill);
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,

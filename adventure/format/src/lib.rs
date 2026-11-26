@@ -132,7 +132,8 @@ pub struct Tile {
     pub frames: Vec<Pixels>,
     /// How long each picture shows, when animated.
     pub frame_ms: u16,
-    /// The player and characters can't walk onto it.
+    /// The player and characters can't walk onto it, on the ground or decoration; above them it
+    /// never blocks.
     pub solid: bool,
     /// Played when the player steps onto it, e.g. grass rustling.
     pub step_sound: Option<SoundRef>,

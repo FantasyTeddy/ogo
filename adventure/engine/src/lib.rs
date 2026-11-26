@@ -372,9 +372,11 @@ impl Game {
         }
     }
 
+    /// Off the map, or a solid tile on the ground or decoration. What's drawn over the player
+    /// never is in the way.
     fn tile_solid(&self, pos: Pos) -> bool {
         !self.current().contains(pos)
-            || LayerKind::ALL
+            || [LayerKind::Ground, LayerKind::Decoration]
                 .iter()
                 .any(|&layer| self.tile_at(layer, pos).is_some_and(|tile| tile.solid))
     }
@@ -1019,6 +1021,27 @@ mod tests {
         put(&mut game, 9, 8, Dir::Down);
         walk(&mut game, Dir::Down, 1);
         assert_eq!(game.place().at, Pos::new(9, 8));
+    }
+
+    #[test]
+    fn solid_tiles_above_her_dont_block() {
+        let mut world = sample::world();
+        let village = &mut world.maps[0];
+        let (cell, wall) = (8 * village.width as usize + 2, 9);
+        assert!(world.tiles[wall as usize - 1].solid);
+        village.above.0[cell] = wall;
+        let mut game = Game::new(world.clone(), 0).unwrap();
+        put(&mut game, 3, 8, Dir::Down);
+        walk(&mut game, Dir::Left, 1);
+        assert_eq!(game.place().at, Pos::new(2, 8));
+        // The same tile on the decoration is a wall
+        let village = &mut world.maps[0];
+        village.above.0[cell] = 0;
+        village.decoration.0[cell] = wall;
+        let mut game = Game::new(world, 0).unwrap();
+        put(&mut game, 3, 8, Dir::Down);
+        walk(&mut game, Dir::Left, 1);
+        assert_eq!(game.place().at, Pos::new(3, 8));
     }
 
     #[test]

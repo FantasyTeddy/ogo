@@ -43,6 +43,9 @@ pub const PILL: u8 = 15;
 
 // Phosphor icons (regular), by codepoint
 pub const PENCIL: &str = "\u{e3b4}";
+pub const EYE: &str = "\u{e220}";
+pub const EYE_CLOSED: &str = "\u{e222}";
+pub const EYE_SLASH: &str = "\u{e224}";
 pub const FILL: &str = "\u{e392}";
 pub const BOX: &str = "\u{e3f0}";
 pub const ERASER: &str = "\u{e21e}";

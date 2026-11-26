@@ -970,7 +970,7 @@ pub(crate) fn items_and_flags(
                     let response = response
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .on_hover_text("Choose its picture");
-                    ui.painter().rect_filled(rect, 10, PANEL);
+                    ui.painter().rect_filled(rect, IN_CARD, PANEL);
                     if let Some(Some((texture, uv))) = pictures.get(item.icon.0 as usize) {
                         picture(ui, texture, *uv, rect.shrink(4.0));
                     }
@@ -1029,7 +1029,7 @@ pub(crate) fn items_and_flags(
                 let (count, used) = &counts[i];
                 card(ui, width, |ui| {
                     let (rect, _) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::hover());
-                    ui.painter().rect_filled(rect, 10, PANEL);
+                    ui.painter().rect_filled(rect, IN_CARD, PANEL);
                     ui.painter().text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -1060,30 +1060,35 @@ pub(crate) fn items_and_flags(
     );
 }
 
+const CARD_RADIUS: u8 = 12;
+const CARD_MARGIN: u8 = 8;
+/// How round what fills a card's edge is, e.g. its picture, so the corners run alongside the
+/// card's.
+pub(crate) const IN_CARD: u8 = CARD_RADIUS - CARD_MARGIN;
+
+fn card_frame() -> Frame {
+    Frame::new()
+        .fill(PANEL2.gamma_multiply(1.4))
+        .corner_radius(CARD_RADIUS)
+        .inner_margin(Margin::same(CARD_MARGIN as i8))
+}
+
 /// A row in a list of items or flags, `width` wide: measured once for the whole list, as each
 /// row would otherwise widen the column for the next.
 pub(crate) fn card(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
-    Frame::new()
-        .fill(PANEL2.gamma_multiply(1.4))
-        .corner_radius(12)
-        .inner_margin(Margin::same(8))
-        .show(ui, |ui| {
-            ui.set_width(width - 16.0);
-            ui.horizontal(add);
-        });
+    card_frame().show(ui, |ui| {
+        ui.set_width(width - 16.0);
+        ui.horizontal(add);
+    });
     ui.add_space(4.0);
 }
 
 /// Like [`card`], with its content one below the other.
 pub(crate) fn card_vertical(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
-    Frame::new()
-        .fill(PANEL2.gamma_multiply(1.4))
-        .corner_radius(12)
-        .inner_margin(Margin::same(8))
-        .show(ui, |ui| {
-            ui.set_width(width - 16.0);
-            ui.vertical(add);
-        });
+    card_frame().show(ui, |ui| {
+        ui.set_width(width - 16.0);
+        ui.vertical(add);
+    });
     ui.add_space(4.0);
 }
 
