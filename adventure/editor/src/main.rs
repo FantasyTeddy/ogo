@@ -329,12 +329,16 @@ struct Editor {
     size: Option<(usize, u16, u16)>,
     play: Option<Play>,
     toasts: Vec<Toast>,
+    /// The device's address, as typed in the Send popup
     device: String,
-    sending: Option<mpsc::Receiver<Result<String, String>>>,
-    /// A check of the device running: for which address
-    checking: Option<(String, mpsc::Receiver<Result<String, String>>)>,
-    /// The last check's result, and for which address
-    checked: Option<(String, Result<String, String>)>,
+    /// The PIN its WiFi screen shows, as typed
+    pin: String,
+    /// Logged in to the device, after Connect
+    session: Option<send::Session>,
+    connecting: Option<mpsc::Receiver<Result<send::Session, String>>>,
+    /// Why the last Connect failed
+    connect_error: Option<String>,
+    sending: Option<mpsc::Receiver<Result<String, send::Failure>>>,
     pending: Option<Pending>,
     closing: bool,
     /// Where the open map is on the screen, for the zoom and the messages
@@ -360,6 +364,8 @@ const UNDO_STEPS: usize = 200;
 /// Walking into something that doesn't react, as on the device.
 const BUMP: [Note; 1] = [Note::new(150, 40)];
 const CHECK_PICTURES: Duration = Duration::from_secs(1);
+/// Where the device's address and PIN are typed, the first time Send is clicked.
+const CONNECT_POPUP: &str = "connect";
 
 impl Editor {
     fn new(cc: &eframe::CreationContext) -> Self {
@@ -386,9 +392,11 @@ impl Editor {
             play: None,
             toasts: Vec::new(),
             device: stored("device").unwrap_or_default(),
+            pin: String::new(),
+            session: None,
+            connecting: None,
+            connect_error: None,
             sending: None,
-            checking: None,
-            checked: None,
             pending: None,
             closing: false,
             sheet: Rect::NOTHING,
@@ -911,15 +919,14 @@ impl Editor {
     }
 
     fn send(&mut self) {
+        let Some(session) = self.session.clone() else {
+            return;
+        };
         let Some(world) = self.world() else { return };
-        let (address, name, bytes) = (
-            self.device.clone(),
-            send::file_name(&world.title),
-            world.to_bytes(),
-        );
+        let (name, bytes) = (send::file_name(&world.title), world.to_bytes());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(send::send(&address, &name, &bytes));
+            let _ = tx.send(send::send(&session, &name, &bytes));
         });
         self.sending = Some(rx);
         self.say("Sending…");
@@ -932,7 +939,13 @@ impl Editor {
                 self.sending = None;
                 match result {
                     Ok(_) => self.say("Sent to the device"),
-                    Err(error) => self.fail(format!("Not sent: {error}")),
+                    Err(send::Failure::LoggedOut) => {
+                        // The device shows a new PIN when its WiFi screen opens again
+                        self.session = None;
+                        self.pin.clear();
+                        self.fail("Not sent: connect again with the PIN the device shows now");
+                    }
+                    Err(send::Failure::Other(error)) => self.fail(format!("Not sent: {error}")),
                 }
             }
             Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(Duration::from_millis(100)),
@@ -940,33 +953,39 @@ impl Editor {
         }
     }
 
-    /// Looks for the device at the address typed in, unless that was done already.
-    fn check_device(&mut self) {
-        let address = self.device.trim().to_string();
-        let done = self.checked.as_ref().is_some_and(|(a, _)| *a == address);
-        let running = self.checking.as_ref().is_some_and(|(a, _)| *a == address);
-        if done || running || address.is_empty() {
+    /// Logs in to the device with the address and PIN typed in.
+    fn connect(&mut self) {
+        if self.connecting.is_some() {
             return;
         }
+        let (address, pin) = (self.device.clone(), self.pin.clone());
         let (tx, rx) = mpsc::channel();
-        let target = address.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(send::check(&target));
+            let _ = tx.send(send::connect(&address, &pin));
         });
-        self.checking = Some((address, rx));
+        self.session = None;
+        self.connect_error = None;
+        self.connecting = Some(rx);
     }
 
-    fn poll_check(&mut self, ctx: &egui::Context) {
-        let Some((address, rx)) = &self.checking else {
-            return;
-        };
+    fn poll_connect(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.connecting else { return };
         match rx.try_recv() {
             Ok(result) => {
-                self.checked = Some((address.clone(), result));
-                self.checking = None;
+                self.connecting = None;
+                match result {
+                    Ok(session) => {
+                        self.session = Some(session);
+                        // Connect and send, unless the popup was closed meanwhile
+                        if Popup::is_id_open(ctx, Id::unique(CONNECT_POPUP)) {
+                            self.send();
+                        }
+                    }
+                    Err(error) => self.connect_error = Some(error),
+                }
             }
             Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(Duration::from_millis(100)),
-            Err(mpsc::TryRecvError::Disconnected) => self.checking = None,
+            Err(mpsc::TryRecvError::Disconnected) => self.connecting = None,
         }
     }
 
@@ -1110,44 +1129,104 @@ impl Editor {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let button = ui.add_enabled(
-                    self.sending.is_none(),
-                    egui::Button::new(format!("{WIFI}  Send…")),
-                );
-                Popup::from_toggle_button_response(&button)
+                // Connected: the device the worlds go to, and a way to leave it
+                if let Some(session) = &self.session {
+                    let chip = ui
+                        .add(quiet(
+                            RichText::new(format!("●  {}  {CARET_DOWN}", session.address))
+                                .color(OK),
+                        ))
+                        .on_hover_text("The device Send sends to");
+                    let found = session.found.clone();
+                    Popup::from_toggle_button_response(&chip)
+                        .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+                        .align(RectAlign::BOTTOM_END)
+                        .width(280.0)
+                        .show(|ui| {
+                            ui.label(RichText::new(format!("●  Connected: {found}")).color(OK));
+                            ui.label(muted("Send puts the world in its Adventure app"));
+                            ui.add_space(4.0);
+                            let width = ui.available_width();
+                            let button =
+                                egui::Button::new("Disconnect").min_size(vec2(width, 28.0));
+                            if ui.add(button).clicked() {
+                                self.session = None;
+                                self.pin.clear();
+                                ui.close();
+                            }
+                        });
+                }
+
+                let connected = self.session.is_some();
+                let (label, hint) = if connected {
+                    (
+                        format!("{WIFI}  Send"),
+                        format!("Send \"{title}\" to the device"),
+                    )
+                } else {
+                    (
+                        format!("{WIFI}  Send…"),
+                        "Connect to the device and send the world".to_string(),
+                    )
+                };
+                let button = ui
+                    .add_enabled(self.sending.is_none(), egui::Button::new(label))
+                    .on_hover_text(hint);
+                if button.clicked() && connected {
+                    send = true;
+                }
+                // Not connected: the address and PIN, then the world is sent
+                Popup::from_response(&button)
+                    .id(Id::unique(CONNECT_POPUP))
+                    .open_memory((button.clicked() && !connected).then_some(true.into()))
                     .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
                     .align(RectAlign::BOTTOM_END)
                     .width(320.0)
                     .show(|ui| {
-                        ui.label(muted("The device's address · on its WiFi screen"));
-                        text_input(ui, &mut self.device, "e.g. 192.168.1.23");
-                        self.check_device();
-                        let address = self.device.trim().to_string();
-                        let result = self
-                            .checked
-                            .as_ref()
-                            .filter(|(a, _)| *a == address)
-                            .map(|(_, r)| r.clone());
-                        let found = matches!(result, Some(Ok(_)));
-                        match result {
-                            _ if address.is_empty() => {}
-                            None => {
-                                ui.label(muted("Looking for it…"));
-                            }
-                            Some(Ok(message)) => {
-                                ui.label(RichText::new(format!("●  {message}")).color(OK));
-                            }
-                            Some(Err(message)) => {
-                                ui.label(
-                                    RichText::new(format!("{WARNING}  {message}")).color(WARN),
-                                );
+                        if self.session.is_some() {
+                            ui.close();
+                        }
+                        ui.label(muted(
+                            "Open the WiFi screen on the device: it shows the address and the PIN",
+                        ));
+                        ui.add_space(4.0);
+                        let enter = |ui: &Ui, field: &egui::Response| {
+                            field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))
+                        };
+                        ui.label("Address");
+                        let field = text_input(ui, &mut self.device, "e.g. 192.168.1.23");
+                        let mut connect = enter(ui, &field);
+                        let address = send::host(&self.device);
+                        // Not while it's being typed: "192.168." is on its way to an address
+                        if let (Err(error), false) = (&address, field.has_focus()) {
+                            if !self.device.trim().is_empty() {
+                                let error = format!("{WARNING}  {error}");
+                                ui.label(RichText::new(error).color(WARN));
                             }
                         }
-                        let label = format!("{WIFI}  Send \"{title}\"");
+                        ui.label("PIN");
+                        let field = text_input(ui, &mut self.pin, "e.g. 1234");
+                        // Only its digits: the device shows them with spaces between
+                        self.pin.retain(|c| c.is_ascii_digit());
+                        self.pin.truncate(send::PIN_DIGITS);
+                        connect |= enter(ui, &field);
+                        if self.connecting.is_some() {
+                            ui.label(muted("Connecting…"));
+                        } else if let Some(error) = &self.connect_error {
+                            let error = format!("{WARNING}  {error}");
+                            ui.label(RichText::new(error).color(WARN));
+                        }
+                        ui.add_space(4.0);
+                        let ready = self.connecting.is_none()
+                            && address.is_ok()
+                            && send::pin(&self.pin).is_ok();
                         let width = ui.available_width();
-                        if accent(ui, found, primary(label).min_size(vec2(width, 32.0))).clicked() {
-                            send = true;
-                            ui.close();
+                        let button = primary(format!("{WIFI}  Connect and send"))
+                            .min_size(vec2(width, 32.0));
+                        connect &= ready;
+                        connect |= accent(ui, ready, button).clicked();
+                        if connect {
+                            self.connect();
                         }
                     });
                 if ui
@@ -3276,7 +3355,7 @@ impl eframe::App for Editor {
             self.pending = Some(Pending::Close);
         }
         self.poll_send(&ctx);
-        self.poll_check(&ctx);
+        self.poll_connect(&ctx);
         self.reload_changed_pictures();
         self.shortcuts(&ctx);
 

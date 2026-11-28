@@ -132,8 +132,8 @@ path, whether it's always there, and its rules: for bumping into it and for step
 flags, making objects disappear, following the player, or taking the player somewhere (pick the
 cell on the map). Items (with their pictures) and flags are named in the world's settings, which
 also show how many rules use each. **Play** tries the world on a handheld in a window of its own, with its sounds and music made as the device makes them (its buttons light up,
-and can be clicked), from the start or from the cell clicked last; **Export…** writes the `.adv` file, and **Send…** looks for the device at the
-address on its WiFi screen and uploads the world to the Adventure app. The pictures reload by
+and can be clicked), from the start or from the cell clicked last; **Export…** writes the `.adv` file, and **Send** uploads the world to the Adventure app
+on the device: the first time, it asks for the address and PIN its WiFi screen shows. The pictures reload by
 themselves when their files change.
 
 **Bluetooth** lists the Bluetooth LE devices nearby: phones, headphones, watches, trackers. Each row
