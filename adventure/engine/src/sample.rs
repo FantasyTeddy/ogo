@@ -791,6 +791,34 @@ fn notes(notes: &[(u16, u16)]) -> Vec<Note> {
     notes.iter().map(|&(hz, ms)| Note::new(hz, ms)).collect()
 }
 
+/// The cat's meow, as a recording, so that the sample world has one: 0.45 s at 8 kHz, a tone
+/// sliding up and back down, with a few overtones, swelling in and fading out.
+fn meow() -> Samples {
+    const RATE: u16 = 8000;
+    let length = RATE as usize * 45 / 100;
+    let mut phase = 0.0f32;
+    let samples = (0..length)
+        .map(|i| {
+            let t = i as f32 / length as f32;
+            // Up from 500 Hz to 800 Hz at a third, then down to 450 Hz
+            let hz = if t < 0.33 {
+                500.0 + 300.0 * t / 0.33
+            } else {
+                800.0 - 350.0 * (t - 0.33) / 0.67
+            };
+            phase = (phase + hz / f32::from(RATE)).fract();
+            let turn = std::f32::consts::TAU * phase;
+            let tone = turn.sin() + 0.5 * (2.0 * turn).sin() + 0.25 * (3.0 * turn).sin();
+            let envelope = (t / 0.1).min(1.0) * ((1.0 - t) / 0.3).min(1.0);
+            (tone / 1.75 * envelope * 110.0) as i8
+        })
+        .collect();
+    Samples {
+        rate: RATE,
+        samples,
+    }
+}
+
 /// The sample world.
 pub fn world() -> World {
     let tile = |pic: Pic, solid: bool| Tile {
@@ -837,7 +865,8 @@ pub fn world() -> World {
     ];
     let sounds = [
         &[(880, 70), (1320, 120)][..],
-        &[(760, 120), (640, 120), (520, 160)],
+        // MEOW: a recording instead, see meow()
+        &[],
         &[(330, 80), (0, 60), (330, 80)],
         &[(620, 100), (560, 100), (500, 100), (440, 150)],
         &[(220, 120), (196, 200)],
@@ -854,7 +883,11 @@ pub fn world() -> World {
         &[(420, 80), (300, 80), (200, 120)],
     ]
     .iter()
-    .map(|melody| Sound::Notes(notes(melody)))
+    .enumerate()
+    .map(|(i, melody)| match SoundRef(i as u16) {
+        MEOW => Sound::Samples(meow()),
+        _ => Sound::Notes(notes(melody)),
+    })
     .collect();
     let music = vec![
         Music {

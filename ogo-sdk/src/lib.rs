@@ -51,7 +51,9 @@ pub use ogo_board::speaker::SAMPLE_RATE;
 /// The launcher's colours and drawing helpers (`text`, `selection`, `panel`, `progress_bar`), for
 /// apps that want to match its look.
 pub use ogo_board::ui;
-pub use ogo_board::{in_internal_ram, BatteryLevel, Note, Part, Speaker, Stream, Track, Wave};
+pub use ogo_board::{
+    in_internal_ram, in_psram, BatteryLevel, Note, Part, Speaker, Stream, Track, Wave,
+};
 pub use saves::Saves;
 
 use overlay::{PauseAction, PauseMenu, SoundIndicator, INDICATOR_AREA, MENU_SOUND};

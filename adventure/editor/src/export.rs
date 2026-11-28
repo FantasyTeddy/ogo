@@ -414,8 +414,9 @@ pub fn starter() -> (Project, Assets) {
                     Sound::Notes(notes) => SoundSource::Notes {
                         notes: notes.clone(),
                     },
-                    // The sample world has only notes
-                    Sound::Samples(_) => SoundSource::Notes { notes: Vec::new() },
+                    Sound::Samples(_) => SoundSource::File {
+                        file: format!("{}.wav", name(&SOUND_NAMES, i, "Sound").to_lowercase()),
+                    },
                 },
             })
             .collect(),
@@ -441,7 +442,14 @@ pub fn starter() -> (Project, Assets) {
     let assets = Assets {
         tileset: Ok(tileset),
         sprites: sprite_images,
-        sounds: vec![None; project.sounds.len()],
+        sounds: world
+            .sounds
+            .iter()
+            .map(|sound| match sound {
+                Sound::Notes(_) => None,
+                Sound::Samples(samples) => Some(Ok(samples.clone())),
+            })
+            .collect(),
         songs: world.music.iter().map(|m| Ok(SongFile::of(m))).collect(),
     };
     (project, assets)
@@ -511,6 +519,13 @@ fn write_new(dir: &Path, mut project: Project, assets: Assets) -> Result<Project
     fs::create_dir_all(&sounds).map_err(|e| format!("{}: {e}", sounds.display()))?;
     let music = dir.join(project::MUSIC);
     fs::create_dir_all(&music).map_err(|e| format!("{}: {e}", music.display()))?;
+    for (def, samples) in project.sounds.iter().zip(&assets.sounds) {
+        if let (SoundSource::File { file }, Some(Ok(samples))) = (&def.source, samples) {
+            let path = sounds.join(file);
+            fs::write(&path, audio::wav(samples))
+                .map_err(|e| format!("can't write {}: {e}", path.display()))?;
+        }
+    }
     for (def, song) in project.music.iter().zip(&assets.songs) {
         let path = music.join(&def.file);
         let bytes = &song.as_ref().expect("made above").bytes;

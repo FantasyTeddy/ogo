@@ -17,7 +17,7 @@ use embedded_graphics::{
     text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
 use ogo_sdk::prelude::*;
-use ogo_sdk::{Stream, SAMPLE_RATE};
+use ogo_sdk::{in_psram, Stream, SAMPLE_RATE};
 
 const WORLD_DIR: &str = "/sd/adventure";
 /// The save that remembers the world played last
@@ -52,10 +52,14 @@ struct Entry {
 }
 
 impl Entry {
+    /// The world in PSRAM: see [`in_psram`].
     fn load(&self) -> anyhow::Result<World> {
         match &self.path {
-            None => Ok(sample::world()),
-            Some(path) => Ok(World::from_bytes(&fs::read(path)?)?),
+            None => Ok(in_psram(sample::world)),
+            Some(path) => {
+                let bytes = fs::read(path)?;
+                Ok(in_psram(|| World::from_bytes(&bytes))?)
+            }
         }
     }
 }
@@ -127,7 +131,7 @@ impl App for Adventure {
                         unreachable!()
                     };
                     ctx.sound().play(&CHOSEN);
-                    match Game::new(*world, hero) {
+                    match in_psram(|| Game::new(*world, hero)) {
                         Ok(game) => self.play(ctx, game),
                         Err(error) => log::error!("can't start: {error}"),
                     }
@@ -271,7 +275,7 @@ impl Adventure {
             .read_bytes(&name)
             .and_then(|bytes| Save::from_bytes(&bytes));
         let game = match save {
-            Some(save) => Game::resume(world, &save),
+            Some(save) => in_psram(|| Game::resume(world, &save)),
             None if world.heroes.len() > 1 => {
                 self.screen = Screen::Heroes {
                     world: Box::new(world),
@@ -279,7 +283,7 @@ impl Adventure {
                 };
                 return;
             }
-            None => Game::new(world, 0),
+            None => in_psram(|| Game::new(world, 0)),
         };
         match game {
             Ok(game) => self.play(ctx, game),
@@ -288,7 +292,7 @@ impl Adventure {
     }
 
     fn play(&mut self, ctx: &mut Ctx, game: Game) {
-        let tracks = game.world().music.iter().map(track).collect();
+        let tracks = in_psram(|| game.world().music.iter().map(track).collect());
         let mut playing = Playing {
             game,
             tracks,
@@ -451,7 +455,13 @@ fn caption(title: &str) -> String {
     if title.chars().count() <= NAME_CHARS {
         title.to_string()
     } else {
-        title.chars().take(NAME_CHARS - 3).collect::<String>().trim_end().to_string() + "..."
+        title
+            .chars()
+            .take(NAME_CHARS - 3)
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+            + "..."
     }
 }
 

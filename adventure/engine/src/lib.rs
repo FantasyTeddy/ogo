@@ -995,6 +995,20 @@ mod tests {
     }
 
     #[test]
+    fn sample_world_has_a_recording() {
+        // So that the device plays one whenever the sample world is tried there
+        let world = sample::world();
+        let mut recordings = Recordings::default();
+        for i in 0..world.sounds.len() {
+            recordings.start(&world.sounds, SoundRef(i as u16));
+        }
+        assert!(recordings.is_playing());
+        let mut out = [0; 1000];
+        recordings.fill(&world.sounds, 32000, &mut out);
+        assert!(out.iter().any(|&sample| sample != 0));
+    }
+
+    #[test]
     fn starts_with_music() {
         let mut game = game();
         assert_eq!(game.place().map, VILLAGE);

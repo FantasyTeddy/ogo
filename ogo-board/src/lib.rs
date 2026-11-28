@@ -184,3 +184,14 @@ pub fn in_internal_ram<T>(f: impl FnOnce() -> T) -> T {
     unsafe { sys::heap_caps_malloc_extmem_enable(16 * 1024) };
     result
 }
+
+/// Runs `f` with all allocations going to PSRAM first, small ones too: for data that's large in
+/// total but made of many small pieces, like a game world, which would otherwise fill internal
+/// RAM. Internal RAM is needed for DMA buffers (SD card, display) and for every mutex and queue;
+/// when it runs out, those fail. Falls back to internal RAM when PSRAM runs out.
+pub fn in_psram<T>(f: impl FnOnce() -> T) -> T {
+    unsafe { sys::heap_caps_malloc_extmem_enable(0) };
+    let result = f();
+    unsafe { sys::heap_caps_malloc_extmem_enable(16 * 1024) };
+    result
+}

@@ -69,6 +69,25 @@ pub fn convert(values: &[f32], channels: usize, rate: u32) -> Result<Samples, St
     })
 }
 
+/// `samples` as a WAV file: mono, 8-bit, at their own rate. [`load`] reads it back.
+pub fn wav(samples: &Samples) -> Vec<u8> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: u32::from(samples.rate),
+        bits_per_sample: 8,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    let mut writer = hound::WavWriter::new(&mut bytes, spec).expect("a WAV header fits in memory");
+    for &sample in &samples.samples {
+        writer
+            .write_sample(sample)
+            .expect("memory takes any length");
+    }
+    writer.finalize().expect("memory takes any length");
+    bytes.into_inner()
+}
+
 /// How long a converted sound plays, in seconds.
 pub fn seconds(samples: &Samples) -> f32 {
     samples.samples.len() as f32 / f32::from(samples.rate)
@@ -123,6 +142,22 @@ mod tests {
         let sound = load(&path).unwrap();
         assert_eq!(sound.samples.len(), 1600);
         assert!((seconds(&sound) - 0.1).abs() < 0.01);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn writes_a_wav_that_reads_back() {
+        let dir = std::env::temp_dir().join(format!("adventure-wav-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("beep.wav");
+        let written = Samples {
+            rate: RATE,
+            samples: (0..400)
+                .map(|i| if i % 4 < 2 { 127 } else { -127 })
+                .collect(),
+        };
+        std::fs::write(&path, wav(&written)).unwrap();
+        assert_eq!(load(&path).unwrap(), written);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
